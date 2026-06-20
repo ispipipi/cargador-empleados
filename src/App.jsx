@@ -170,7 +170,6 @@ export default function App() {
         parameters,
       });
       const trabajosSupportSheets = buildBukTrabajosSupportSheets({
-        sourceRows: sourceFile.rows,
         templateResource: trabajosTemplateResource,
       });
       const trabajosTransformation = transformBukTrabajosRows({

@@ -80,6 +80,8 @@ export async function loadBukTrabajosTemplateResource() {
     cargosRows,
     recintosRows,
     empresasCatalog: buildRowCatalog(empresasRows),
+    subAreasCatalog: buildRowCatalog(subAreasRows),
+    cargosCatalog: buildRowCatalog(cargosRows),
   };
 }
 

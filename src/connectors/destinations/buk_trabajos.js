@@ -18,45 +18,15 @@ const CONTRACT_TYPE_ALIASES = {
   faena: 'Por obra o faena',
 };
 
-export function buildBukTrabajosSupportSheets({ sourceRows, templateResource }) {
-  const cargosEntries = buildUniqueEntries({
-    sourceRows,
-    valueKey: 'Cargo',
-    codeKey: 'Código',
-    labelKey: 'Cargo',
-    fallbackPrefix: 'cargo',
-    codeFactory: ({ row, value }) => sanitizeCode(value) || sanitizeCode(row.INE),
-  });
-  const subAreasEntries = buildUniqueEntries({
-    sourceRows,
-    valueKey: 'Nombre Centro Costo 1',
-    codeKey: 'Código Sub-área',
-    labelKey: 'Nombre',
-    fallbackPrefix: 'subarea',
-    codeFactory: ({ row }) => sanitizeCode(row['Código Centro Costo 1']),
-  });
-  const empresasEntries = buildEmpresaEntries({
-    sourceRows,
-    templateCatalog: templateResource.empresasCatalog,
-  });
-
+export function buildBukTrabajosSupportSheets({ templateResource }) {
   return {
-    cargosRows: [
-      ['Código', 'Cargo'],
-      ...cargosEntries.map((entry) => [entry.Código, entry.Cargo]),
-    ],
-    subAreasRows: [
-      ['Código Sub-área', 'Nombre'],
-      ...subAreasEntries.map((entry) => [entry['Código Sub-área'], entry.Nombre]),
-    ],
-    empresasRows: [
-      ['Nombre', 'Rut'],
-      ...empresasEntries.map((entry) => [entry.Nombre, entry.Rut]),
-    ],
+    cargosRows: templateResource.cargosRows,
+    subAreasRows: templateResource.subAreasRows,
+    empresasRows: templateResource.empresasRows,
     recintosRows: templateResource.recintosRows,
-    cargosCatalog: cargosEntries,
-    subAreasCatalog: subAreasEntries,
-    empresasCatalog: empresasEntries,
+    cargosCatalog: templateResource.cargosCatalog,
+    subAreasCatalog: templateResource.subAreasCatalog,
+    empresasCatalog: templateResource.empresasCatalog,
   };
 }
 
@@ -69,12 +39,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     const rowErrors = [];
     const rowNumber = rowIndex + 2;
     const contractType = normalizeContractType(row['Tipo de Contrato']);
-    const companyName = findCatalogMatch({
-      inputValue: row['Razón Social'],
-      catalog: supportSheets.empresasCatalog,
-      compareKey: 'Nombre',
-      returnKey: 'Nombre',
-    });
+    const companyName = findEmpresaName(row['Razón Social'], supportSheets.empresasCatalog);
 
     exportedRow['Número de Documento*'] = formatRutWithDots(row.RUT);
     exportedRow['Código de Ficha'] = 'F1';
@@ -82,18 +47,8 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Moneda*'] = 'CLP';
     exportedRow['Fecha de Inicio*'] = formatIsoDate(row['Fecha de Ingreso']);
     exportedRow['Horario Semanal*'] = cleanCell(row['Horas de la Jornada']);
-    exportedRow['Código Cargo*'] = findCatalogMatch({
-      inputValue: row.Cargo,
-      catalog: supportSheets.cargosCatalog,
-      compareKey: 'Cargo',
-      returnKey: 'Código',
-    });
-    exportedRow['Código Sub-área*'] = findCatalogMatch({
-      inputValue: row['Nombre Centro Costo 1'],
-      catalog: supportSheets.subAreasCatalog,
-      compareKey: 'Nombre',
-      returnKey: 'Código Sub-área',
-    });
+    exportedRow['Código Cargo*'] = findCargoCode(row.Cargo, supportSheets.cargosCatalog);
+    exportedRow['Código Sub-área*'] = findSubAreaCode(row, supportSheets.subAreasCatalog);
     exportedRow['Número de Documento Supervisor*'] = formatRutWithDots(row['Rut Jefe']);
     exportedRow['Código de Ficha Supervisor'] = cleanCell(row['Rut Jefe']) ? 'F1' : '';
     exportedRow['Tipo de Contrato*'] = contractType;
@@ -187,76 +142,6 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
   };
 }
 
-function buildEmpresaEntries({ sourceRows, templateCatalog }) {
-  const templateLookup = templateCatalog.reduce((lookup, entry) => {
-    lookup.set(normalizeIdentifier(entry.Nombre), entry);
-    return lookup;
-  }, new Map());
-
-  return [...new Set(sourceRows.map((row) => cleanCell(row['Razón Social'])).filter(Boolean))]
-    .map((companyName) => {
-      const templateMatch = templateLookup.get(normalizeIdentifier(companyName));
-
-      if (templateMatch) {
-        return {
-          Nombre: companyName,
-          Rut: cleanCell(templateMatch.Rut),
-        };
-      }
-
-      return {
-        Nombre: companyName,
-        Rut: '',
-      };
-    });
-}
-
-function buildUniqueEntries({
-  sourceRows,
-  valueKey,
-  codeKey,
-  labelKey,
-  fallbackPrefix,
-  codeFactory,
-}) {
-  const usedCodes = new Set();
-  const seenValues = new Set();
-
-  return sourceRows.reduce((entries, row) => {
-    const label = cleanCell(row[valueKey]);
-    const normalizedLabel = normalizeText(label);
-
-    if (!normalizedLabel || seenValues.has(normalizedLabel)) {
-      return entries;
-    }
-
-    seenValues.add(normalizedLabel);
-    const baseCode = sanitizeCode(codeFactory({ row, value: label })) || sanitizeCode(label) || fallbackPrefix;
-    const code = ensureUniqueCode(baseCode, usedCodes, fallbackPrefix);
-
-    entries.push({
-      [codeKey]: code,
-      [labelKey]: label,
-    });
-
-    return entries;
-  }, []);
-}
-
-function ensureUniqueCode(baseCode, usedCodes, fallbackPrefix) {
-  const safeBaseCode = baseCode || fallbackPrefix;
-  let candidate = safeBaseCode;
-  let suffix = 2;
-
-  while (usedCodes.has(candidate)) {
-    candidate = `${safeBaseCode}_${suffix}`;
-    suffix += 1;
-  }
-
-  usedCodes.add(candidate);
-  return candidate;
-}
-
 function findCatalogMatch({ inputValue, catalog, compareKey, returnKey }) {
   const normalizedInput = normalizeText(inputValue);
 
@@ -266,6 +151,102 @@ function findCatalogMatch({ inputValue, catalog, compareKey, returnKey }) {
 
   const match = catalog.find((entry) => normalizeText(entry[compareKey]) === normalizedInput);
   return cleanCell(match?.[returnKey]);
+}
+
+function findEmpresaName(inputValue, catalog) {
+  const normalizedInput = normalizeIdentifier(inputValue);
+
+  if (!normalizedInput) {
+    return '';
+  }
+
+  const match = catalog.find((entry) => normalizeIdentifier(entry.Nombre) === normalizedInput);
+  return cleanCell(match?.Nombre);
+}
+
+function findCargoCode(inputValue, catalog) {
+  const directMatch = findCatalogMatch({
+    inputValue,
+    catalog,
+    compareKey: 'Cargo',
+    returnKey: 'Código',
+  });
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const normalizedInput = normalizeText(inputValue);
+  const aliasValue = CARGO_ALIASES[normalizedInput];
+
+  if (aliasValue) {
+    return (
+      findCatalogMatch({
+        inputValue: aliasValue,
+        catalog,
+        compareKey: 'Cargo',
+        returnKey: 'Código',
+      }) || ''
+    );
+  }
+
+  return findBestCatalogCode({
+    catalog,
+    labelKey: 'Cargo',
+    codeKey: 'Código',
+    inputValue,
+  });
+}
+
+function findSubAreaCode(row, catalog) {
+  const rawValue = cleanCell(row['Nombre Centro Costo 1']);
+
+  if (!rawValue) {
+    return '';
+  }
+
+  const directMatch = findCatalogMatch({
+    inputValue: rawValue,
+    catalog,
+    compareKey: 'Nombre',
+    returnKey: 'Código Sub-área',
+  });
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const normalizedCandidates = buildSubAreaSearchCandidates(row);
+  const preferredArea = inferSubAreaDepartment(row);
+  let bestMatch = null;
+
+  catalog.forEach((entry) => {
+    const normalizedName = normalizeText(entry.Nombre);
+    let score = 0;
+
+    normalizedCandidates.forEach((candidate) => {
+      if (!candidate) {
+        return;
+      }
+
+      if (normalizedName.includes(candidate) || candidate.includes(normalizedName)) {
+        score = Math.max(score, 60 + candidate.length);
+      }
+    });
+
+    if (preferredArea && normalizedName.includes(preferredArea)) {
+      score += 25;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        code: cleanCell(entry['Código Sub-área']),
+      };
+    }
+  });
+
+  return bestMatch?.score > 0 ? bestMatch.code : '';
 }
 
 function normalizeContractType(value) {
@@ -283,12 +264,6 @@ function registerMissingValue({ rowErrors, rowNumber, field, originalValue, valu
   }
 }
 
-function sanitizeCode(value) {
-  return normalizeText(value)
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
 function cleanPlaceholder(value) {
   const cleanedValue = cleanCell(value);
   return /^-+$/.test(cleanedValue) ? '' : cleanedValue;
@@ -297,3 +272,107 @@ function cleanPlaceholder(value) {
 function normalizeIdentifier(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
+
+function buildSubAreaSearchCandidates(row) {
+  const rawCandidates = [
+    cleanCell(row['Nombre Centro Costo 1']),
+    cleanCell(row.Comuna),
+    cleanCell(row.Ciudad),
+    cleanCell(row.Sucursal),
+    cleanCell(row.ESTABLECIMIENTO),
+  ];
+
+  return rawCandidates
+    .flatMap((value) => [extractLocationToken(value), normalizeText(value)])
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function extractLocationToken(value) {
+  const normalizedValue = normalizeText(value);
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  return normalizedValue
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+    .filter((token) => Number.isNaN(Number(token)))
+    .filter((token) => !LOCATION_STOPWORDS.has(token))
+    .slice(0, 3)
+    .join(' ');
+}
+
+function inferSubAreaDepartment(row) {
+  const cargo = normalizeText(row.Cargo);
+  const establishment = cleanCell(row.ESTABLECIMIENTO);
+  const institution = cleanCell(row.INSTITUCIÓN);
+
+  if (establishment || institution || cleanCell(row['RBD Establecimiento'])) {
+    return 'pae';
+  }
+
+  if (/(bodega|grua|grúa|peoneta|chofer)/.test(cargo)) {
+    return 'bodega';
+  }
+
+  if (/(mantencion|mantención|tecnico|técnico)/.test(cargo)) {
+    return cargo.includes('monitor') ? 'tecnica' : 'mantencion';
+  }
+
+  return 'operaciones';
+}
+
+function findBestCatalogCode({ catalog, labelKey, codeKey, inputValue }) {
+  const normalizedInput = normalizeText(inputValue);
+
+  if (!normalizedInput) {
+    return '';
+  }
+
+  const inputTokens = tokenize(normalizedInput);
+  let bestMatch = null;
+
+  catalog.forEach((entry) => {
+    const normalizedLabel = normalizeText(entry[labelKey]);
+    const labelTokens = tokenize(normalizedLabel);
+    const sharedTokens = inputTokens.filter((token) => labelTokens.includes(token));
+    let score = sharedTokens.length * 10;
+
+    if (normalizedLabel.includes(normalizedInput) || normalizedInput.includes(normalizedLabel)) {
+      score += 30;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        code: cleanCell(entry[codeKey]),
+      };
+    }
+  });
+
+  return bestMatch?.score > 0 ? bestMatch.code : '';
+}
+
+function tokenize(value) {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+    .filter((token) => token.length > 2);
+}
+
+const CARGO_ALIASES = {
+  manipuladora: 'MANIPULADOR (A) DE ALIMENTOS',
+  'tecnico multifuncional': 'SUPERVISOR TECNICO',
+  'tecnico multifuncional sec': 'SUPERVISOR TECNICO',
+  'jefe de mantencion': 'JEFE DE MANTENCION E INFRAESTRUCTURA',
+};
+
+const LOCATION_STOPWORDS = new Set([
+  'lr23',
+  'lr24',
+  'lr22',
+  'lr21',
+  'pae',
+]);
