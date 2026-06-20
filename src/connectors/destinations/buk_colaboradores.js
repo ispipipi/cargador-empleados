@@ -148,8 +148,10 @@ export function getBukColaboradoresFieldDefinitions() {
     { target: 'Comuna*', listName: 'Comuna', resolve: ({ row }) => titleCase(row.Comuna) },
     { target: 'Ciudad', resolve: ({ row }) => titleCase(row.Ciudad) || titleCase(row.Comuna) },
     { target: 'Teléfono Particular', resolve: () => '' },
+    { target: 'Teléfono Oficina', resolve: () => '' },
     { target: 'Email', resolve: ({ row }) => cleanCell(row['Email Personal']) || cleanCell(row.Email) },
     { target: 'Email Personal', resolve: ({ row }) => cleanCell(row['Email Personal']) },
+    { target: 'País', resolve: () => 'Chile' },
     { target: 'Calle', resolve: ({ row }) => cleanCell(row.Calle) },
     { target: 'Número de Calle', resolve: ({ row }) => cleanCell(row.Número) },
     { target: 'Depto / Oficina', resolve: ({ row }) => cleanCell(row.Departamento) },
@@ -180,6 +182,8 @@ export function getBukColaboradoresFieldDefinitions() {
     { target: 'Número de Cuenta', resolve: ({ row }) => cleanCell(row['Sueldo - Cuenta Corriente']) },
     { target: 'Periodo de Pago', listName: 'Periodo de Pago', resolve: () => 'Mensual' },
     { target: 'Anticipo de Remuneración', listName: 'Anticipo de Remuneración', resolve: () => 'Sin anticipo' },
+    { target: 'Código de Sucursal', resolve: () => '' },
+    { target: 'Tipo Vale Vista', resolve: () => '' },
     {
       target: 'Régimen Previsional*',
       listName: 'Régimen Previsional*',
@@ -194,9 +198,10 @@ export function getBukColaboradoresFieldDefinitions() {
       resolve: ({ row }) => resolveFundCotizationValue(row.AFP),
       allowBlank: true,
     },
+    { target: 'AFP Recaudadora', resolve: () => '' },
     {
       target: 'Aumentar la cotización en 1%*',
-      listName: 'Rol Privado*',
+      listName: 'Aumentar la cotización en 1%*',
       resolve: ({ parameters }) => parameters.aumentarCotizacion,
     },
     {
@@ -235,7 +240,9 @@ export function getBukColaboradoresFieldDefinitions() {
       resolve: () => 'jubilacion_afp: AFP',
     },
     { target: 'Cuenta 2', resolve: () => '' },
-    { target: 'Moneda', resolve: () => '' },
+    { target: 'Plan Cuenta 2', resolve: () => '' },
+    { target: 'Moneda*', resolve: () => '' },
+    { target: 'INTERINAJE', resolve: () => '' },
   ];
 }
 
