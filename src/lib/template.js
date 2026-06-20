@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { cleanCell } from './utils';
 
 const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-colaboradores-template.xlsx`;
-const BUK_TRABAJOS_LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-lists.xlsx`;
+const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
 
 export async function loadBukColaboradoresTemplateResource() {
   const response = await fetch(BUK_COLABORADORES_TEMPLATE_ASSET_PATH);
@@ -40,8 +40,8 @@ export async function loadBukColaboradoresTemplateResource() {
   };
 }
 
-export async function loadBukTrabajosListsResource() {
-  const response = await fetch(BUK_TRABAJOS_LISTS_ASSET_PATH);
+export async function loadBukTrabajosTemplateResource() {
+  const response = await fetch(BUK_TRABAJOS_TEMPLATE_ASSET_PATH);
 
   if (!response.ok) {
     throw new Error('No fue posible cargar el template base de BUK Trabajos.');
@@ -49,24 +49,36 @@ export async function loadBukTrabajosListsResource() {
 
   const arrayBuffer = await response.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-  const cargosRows = getSheetRows(workbook.Sheets.Cargos);
-  const subAreasRows = getSheetRows(workbook.Sheets['Sub-áreas']);
+  const trabajosRows = getSheetRows(workbook.Sheets.trabajos);
+  const sueldosRows = getSheetRows(workbook.Sheets.sueldos);
+  const estipulacionesRows = getSheetRows(workbook.Sheets.Estipulaciones);
   const empresasRows = getSheetRows(workbook.Sheets.Empresas);
+  const subAreasRows = getSheetRows(workbook.Sheets['Sub-áreas']);
+  const cargosRows = getSheetRows(workbook.Sheets.Cargos);
+  const recintosRows = getSheetRows(workbook.Sheets.Recintos);
 
-  if (cargosRows.length === 0 || subAreasRows.length === 0 || empresasRows.length === 0) {
-    throw new Error('El template base de BUK Trabajos no contiene las listas mínimas requeridas.');
+  if (
+    trabajosRows.length === 0 ||
+    sueldosRows.length === 0 ||
+    estipulacionesRows.length === 0 ||
+    empresasRows.length === 0 ||
+    subAreasRows.length === 0 ||
+    cargosRows.length === 0 ||
+    recintosRows.length === 0
+  ) {
+    throw new Error('El template base de BUK Trabajos no contiene todas las hojas requeridas.');
   }
 
   return {
-    cargosRows,
-    subAreasRows,
+    arrayBuffer,
+    workbook,
+    trabajosHeaders: trabajosRows[0]?.map(cleanCell) ?? [],
+    sueldosRows,
+    estipulacionesRows,
     empresasRows,
-    recintosRows: [
-      ['Código', 'Nombre'],
-      ['casamatriz', 'Casa Matriz'],
-    ],
-    cargosCatalog: buildRowCatalog(cargosRows),
-    subAreasCatalog: buildRowCatalog(subAreasRows),
+    subAreasRows,
+    cargosRows,
+    recintosRows,
     empresasCatalog: buildRowCatalog(empresasRows),
   };
 }
@@ -121,21 +133,48 @@ export function buildBukColaboradoresExportWorkbook({ templateResource, rowEntri
   return workbook;
 }
 
-export function buildBukTrabajosExportWorkbook({ listResource, exportedRows, headers }) {
+export function buildBukTrabajosExportWorkbook({ templateResource, exportedRows, supportSheets }) {
+  const sourceWorkbook = XLSX.read(templateResource.arrayBuffer, { type: 'array' });
   const workbook = XLSX.utils.book_new();
+  const sheetSpecs = [
+    {
+      name: 'trabajos',
+      rows: [
+        templateResource.trabajosHeaders,
+        ...exportedRows.map((row) => templateResource.trabajosHeaders.map((header) => row[header] ?? '')),
+      ],
+    },
+    {
+      name: 'sueldos',
+      rows: templateResource.sueldosRows,
+    },
+    {
+      name: 'Estipulaciones',
+      rows: templateResource.estipulacionesRows,
+    },
+    {
+      name: 'Empresas',
+      rows: supportSheets.empresasRows,
+    },
+    {
+      name: 'Sub-áreas',
+      rows: supportSheets.subAreasRows,
+    },
+    {
+      name: 'Cargos',
+      rows: supportSheets.cargosRows,
+    },
+    {
+      name: 'Recintos',
+      rows: supportSheets.recintosRows,
+    },
+  ];
 
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.aoa_to_sheet([
-      headers,
-      ...exportedRows.map((row) => headers.map((header) => row[header] ?? '')),
-    ]),
-    'trabajos',
-  );
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(listResource.cargosRows), 'Cargos');
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(listResource.subAreasRows), 'Sub-áreas');
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(listResource.empresasRows), 'Empresas');
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(listResource.recintosRows), 'Recintos');
+  sheetSpecs.forEach(({ name, rows }) => {
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    copySheetMeta(sourceWorkbook.Sheets[name], sheet);
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
+  });
 
   return workbook;
 }

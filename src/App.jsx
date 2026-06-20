@@ -10,7 +10,7 @@ import {
   getDefaultParameterValues,
 } from './connectors/destinations/buk_colaboradores';
 import {
-  BUK_TRABAJOS_HEADERS,
+  buildBukTrabajosSupportSheets,
   transformBukTrabajosRows,
 } from './connectors/destinations/buk_trabajos';
 import { getTalanaMissingColumns } from './connectors/origins/talana';
@@ -19,7 +19,7 @@ import {
   buildBukColaboradoresExportWorkbook,
   buildBukTrabajosExportWorkbook,
   loadBukColaboradoresTemplateResource,
-  loadBukTrabajosListsResource,
+  loadBukTrabajosTemplateResource,
 } from './lib/template';
 import {
   createConfigurationPayload,
@@ -48,7 +48,7 @@ export default function App() {
   const [activeConfiguration, setActiveConfiguration] = useState(null);
   const [templateStatus, setTemplateStatus] = useState('loading');
   const [colaboradoresTemplateResource, setColaboradoresTemplateResource] = useState(null);
-  const [trabajosListResource, setTrabajosListResource] = useState(null);
+  const [trabajosTemplateResource, setTrabajosTemplateResource] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
@@ -62,9 +62,9 @@ export default function App() {
 
     async function bootstrapTemplates() {
       try {
-        const [loadedColaboradoresTemplate, loadedTrabajosLists] = await Promise.all([
+        const [loadedColaboradoresTemplate, loadedTrabajosTemplate] = await Promise.all([
           loadBukColaboradoresTemplateResource(),
-          loadBukTrabajosListsResource(),
+          loadBukTrabajosTemplateResource(),
         ]);
 
         if (!isMounted) {
@@ -72,7 +72,7 @@ export default function App() {
         }
 
         setColaboradoresTemplateResource(loadedColaboradoresTemplate);
-        setTrabajosListResource(loadedTrabajosLists);
+        setTrabajosTemplateResource(loadedTrabajosTemplate);
         setTemplateStatus('ready');
       } catch (error) {
         if (!isMounted) {
@@ -155,7 +155,7 @@ export default function App() {
   };
 
   const handleTransform = () => {
-    if (!sourceFile || !colaboradoresTemplateResource || !trabajosListResource) {
+    if (!sourceFile || !colaboradoresTemplateResource || !trabajosTemplateResource) {
       return;
     }
 
@@ -169,9 +169,14 @@ export default function App() {
         listsCatalog: colaboradoresTemplateResource.listsCatalog,
         parameters,
       });
+      const trabajosSupportSheets = buildBukTrabajosSupportSheets({
+        sourceRows: sourceFile.rows,
+        templateResource: trabajosTemplateResource,
+      });
       const trabajosTransformation = transformBukTrabajosRows({
         sourceRows: sourceFile.rows,
-        listResource: trabajosListResource,
+        trabajosHeaders: trabajosTemplateResource.trabajosHeaders,
+        supportSheets: trabajosSupportSheets,
       });
 
       startTransition(() => {
@@ -184,6 +189,7 @@ export default function App() {
           trabajos: {
             ...trabajosTransformation,
             errors: trabajosTransformation.allErrors,
+            supportSheets: trabajosSupportSheets,
           },
           generatedAt: todayStamp(),
         });
@@ -211,14 +217,14 @@ export default function App() {
   };
 
   const handleDownloadTrabajos = (mode) => {
-    if (!result || !trabajosListResource) {
+    if (!result || !trabajosTemplateResource) {
       return;
     }
 
     const workbook = buildBukTrabajosExportWorkbook({
-      listResource: trabajosListResource,
+      templateResource: trabajosTemplateResource,
       exportedRows: mode === 'all' ? result.trabajos.allExportedRows : result.trabajos.cleanExportedRows,
-      headers: BUK_TRABAJOS_HEADERS,
+      supportSheets: result.trabajos.supportSheets,
     });
 
     XLSX.writeFile(workbook, `BUK_trabajos_${todayStamp()}.xlsx`);
