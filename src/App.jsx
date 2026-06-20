@@ -179,6 +179,7 @@ export default function App() {
           colaboradores: {
             ...colaboradoresTransformation,
             errors: colaboradoresTransformation.allErrors,
+            alerts: colaboradoresTransformation.allAlerts,
           },
           trabajos: {
             ...trabajosTransformation,
@@ -202,8 +203,8 @@ export default function App() {
 
     const workbook = buildBukColaboradoresExportWorkbook({
       templateResource: colaboradoresTemplateResource,
-      exportedRows:
-        mode === 'all' ? result.colaboradores.allExportedRows : result.colaboradores.cleanExportedRows,
+      rowEntries:
+        mode === 'all' ? result.colaboradores.transformedRows : result.colaboradores.cleanTransformedRows,
     });
 
     XLSX.writeFile(workbook, `BUK_colaboradores_${todayStamp()}.xlsx`);

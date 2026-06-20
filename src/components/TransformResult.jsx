@@ -15,11 +15,16 @@ export default function TransformResult({
   const [showSavePanel, setShowSavePanel] = useState(false);
   const [configName, setConfigName] = useState(activeConfiguration?.nombre ?? 'Talana → BUK');
   const deferredColaboradoresErrors = useDeferredValue(colaboradoresResult.errors);
+  const deferredColaboradoresAlerts = useDeferredValue(colaboradoresResult.alerts ?? []);
   const deferredTrabajosErrors = useDeferredValue(trabajosResult.errors);
 
   const visibleColaboradoresErrors = useMemo(
     () => deferredColaboradoresErrors.slice(0, 150),
     [deferredColaboradoresErrors],
+  );
+  const visibleColaboradoresAlerts = useMemo(
+    () => deferredColaboradoresAlerts.slice(0, 150),
+    [deferredColaboradoresAlerts],
   );
   const visibleTrabajosErrors = useMemo(
     () => deferredTrabajosErrors.slice(0, 150),
@@ -52,7 +57,11 @@ export default function TransformResult({
               <MetricCard label="Trabajos" value={trabajosResult.summary.totalRows} tone="success" />
               <MetricCard
                 label="Advertencias totales"
-                value={colaboradoresResult.summary.warningRows + trabajosResult.summary.warningRows}
+                value={
+                  colaboradoresResult.summary.warningRows +
+                  trabajosResult.summary.warningRows +
+                  (colaboradoresResult.summary.alertCount ?? 0)
+                }
                 tone="warning"
               />
             </div>
@@ -138,6 +147,7 @@ export default function TransformResult({
         subtitle="Resultado del archivo de colaboradores y su reporte de matching contra Listas."
         result={colaboradoresResult}
         visibleErrors={visibleColaboradoresErrors}
+        visibleAlerts={visibleColaboradoresAlerts}
       />
 
       <ResultDetailsSection
@@ -150,7 +160,7 @@ export default function TransformResult({
   );
 }
 
-function ResultDetailsSection({ title, subtitle, result, visibleErrors }) {
+function ResultDetailsSection({ title, subtitle, result, visibleErrors, visibleAlerts = [] }) {
   return (
     <section className="panel p-6 sm:p-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -194,6 +204,51 @@ function ResultDetailsSection({ title, subtitle, result, visibleErrors }) {
           <p className="mt-4 text-sm text-slate-500">
             Mostrando las primeras {visibleErrors.length} advertencias de {result.errors.length}.
           </p>
+        ) : null}
+
+        {visibleAlerts.length > 0 ? (
+          <div className="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-amber-900">Alertas automáticas</h4>
+                <p className="mt-1 text-sm text-amber-800">
+                  El sistema completó valores por defecto. También se exportan en la hoja `Alertas`.
+                </p>
+              </div>
+              <p className="rounded-full border border-amber-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-amber-900">
+                {result.alerts?.length ?? visibleAlerts.length} alertas
+              </p>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-[20px] border border-amber-200">
+              <table className="min-w-full divide-y divide-amber-200 text-left text-sm">
+                <thead className="bg-amber-100/70">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold text-amber-950">Fila</th>
+                    <th className="px-4 py-3 font-semibold text-amber-950">Campo</th>
+                    <th className="px-4 py-3 font-semibold text-amber-950">Valor aplicado</th>
+                    <th className="px-4 py-3 font-semibold text-amber-950">Detalle</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100 bg-white">
+                  {visibleAlerts.map((alert, index) => (
+                    <tr key={`${alert.row}-${alert.field}-${index}`} className="bg-amber-50/60">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{alert.row}</td>
+                      <td className="px-4 py-3 text-slate-800">{alert.field}</td>
+                      <td className="px-4 py-3 text-slate-700">{alert.appliedValue}</td>
+                      <td className="px-4 py-3 text-slate-600">{alert.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {result.alerts && result.alerts.length > visibleAlerts.length ? (
+              <p className="mt-4 text-sm text-amber-800">
+                Mostrando las primeras {visibleAlerts.length} alertas de {result.alerts.length}.
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </section>
   );

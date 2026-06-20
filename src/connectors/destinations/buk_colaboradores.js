@@ -72,6 +72,7 @@ const MARITAL_STATUS_ALIASES = {
 const PAYMENT_METHOD_ALIASES = {
   transferencia: 'Transferencia Bancaria',
   efectivo: 'Transferencia Bancaria',
+  cheque: 'Cheque',
 };
 
 export const bukColaboradoresDestination = {
@@ -129,6 +130,11 @@ export function getBukColaboradoresFieldDefinitions() {
       target: 'Estado Civil*',
       listName: 'Estado Civil*',
       resolve: ({ row }) => {
+        const originalValue = cleanCell(row['Estado Civíl']);
+        if (!originalValue) {
+          return withAlert('Soltero', 'Estado Civil* venía vacío. Se completó Soltero.', '');
+        }
+
         const normalized = normalizeText(row['Estado Civíl']);
         return MARITAL_STATUS_ALIASES[normalized] || titleCase(row['Estado Civíl']) || 'Soltero';
       },
@@ -151,16 +157,16 @@ export function getBukColaboradoresFieldDefinitions() {
     { target: 'Teléfono Oficina', resolve: () => '' },
     { target: 'Email', resolve: ({ row }) => cleanCell(row['Email Personal']) || cleanCell(row.Email) },
     { target: 'Email Personal', resolve: ({ row }) => cleanCell(row['Email Personal']) },
-    { target: 'País', resolve: () => 'Chile' },
+    { target: 'País', resolve: () => '' },
     { target: 'Calle', resolve: ({ row }) => cleanCell(row.Calle) },
     { target: 'Número de Calle', resolve: ({ row }) => cleanCell(row.Número) },
     { target: 'Depto / Oficina', resolve: ({ row }) => cleanCell(row.Departamento) },
     { target: 'Código de Ficha*', resolve: () => 'F1' },
     { target: 'Ingreso Compañía*', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
     { target: 'Rol Privado*', listName: 'Rol Privado*', resolve: ({ parameters }) => parameters.rolPrivado },
-    { target: 'Fecha de Inicio Cotización AFC', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
-    { target: 'Fecha Reconocimiento de Antigüedad', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
-    { target: 'Fecha Inicio Vacaciones Progresivas', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
+    { target: 'Fecha de Inicio Cotización AFC', resolve: () => '' },
+    { target: 'Fecha Reconocimiento de Antigüedad', resolve: () => '' },
+    { target: 'Fecha Inicio Vacaciones Progresivas', resolve: () => '' },
     {
       target: 'Forma de Pago*',
       listName: 'Forma de Pago*',
@@ -173,13 +179,25 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Banco',
       listName: 'Banco',
-      resolve: ({ row }) => {
+      resolve: ({ row, exportedRow }) => {
+        if (isChequePayment(exportedRow['Forma de Pago*'])) {
+          return '';
+        }
+
         const normalized = normalizeText(row['Sueldo - Banco']);
         return BANK_ALIASES[normalized] || cleanCell(row['Sueldo - Banco']) || 'Banco Estado';
       },
     },
-    { target: 'Tipo de Cuenta', listName: 'Tipo de Cuenta', resolve: () => 'Vista' },
-    { target: 'Número de Cuenta', resolve: ({ row }) => cleanCell(row['Sueldo - Cuenta Corriente']) },
+    {
+      target: 'Tipo de Cuenta',
+      listName: 'Tipo de Cuenta',
+      resolve: ({ exportedRow }) => (isChequePayment(exportedRow['Forma de Pago*']) ? '' : 'Vista'),
+    },
+    {
+      target: 'Número de Cuenta',
+      resolve: ({ row, exportedRow }) =>
+        (isChequePayment(exportedRow['Forma de Pago*']) ? '' : cleanCell(row['Sueldo - Cuenta Corriente'])),
+    },
     { target: 'Periodo de Pago', listName: 'Periodo de Pago', resolve: () => 'Mensual' },
     { target: 'Anticipo de Remuneración', listName: 'Anticipo de Remuneración', resolve: () => 'Sin anticipo' },
     { target: 'Código de Sucursal', resolve: () => '' },
@@ -207,7 +225,12 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Fonasa/Isapre*',
       listName: 'Fonasa/Isapre*',
-      resolve: ({ row }) => cleanCell(row.Isapre) || 'Fonasa',
+      resolve: ({ row }) => {
+        const originalValue = cleanCell(row.Isapre);
+        return originalValue
+          ? originalValue
+          : withAlert('Fonasa', 'Fonasa/Isapre* venía vacío. Se completó Fonasa.', '');
+      },
     },
     {
       target: 'Plan Isapre UF*',
@@ -237,7 +260,7 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Régimen Jubilacion*',
       listName: 'Régimen Jubilacion*',
-      resolve: () => 'jubilacion_afp: AFP',
+      resolve: ({ exportedRow }) => resolveJubilationRegime(exportedRow['Régimen Previsional*']),
     },
     { target: 'Cuenta 2', resolve: () => '' },
     { target: 'Plan Cuenta 2', resolve: () => '' },
@@ -250,4 +273,25 @@ function resolveFundCotizationValue(value) {
   const normalized = normalizeText(value);
   const resolvedValue = AFP_ALIASES[normalized] ?? cleanCell(value);
   return KNOWN_FUND_VALUES.has(resolvedValue) ? resolvedValue : '';
+}
+
+function resolveJubilationRegime(regimenPrevisional) {
+  return normalizeText(regimenPrevisional) === 'ips (ex-inp)'
+    ? 'jubilacion_ips: IPS (Ex-INP)'
+    : 'jubilacion_afp: AFP';
+}
+
+function isChequePayment(paymentMethod) {
+  return normalizeText(paymentMethod) === 'cheque';
+}
+
+function withAlert(value, message, originalValue) {
+  return {
+    value,
+    alert: {
+      message,
+      originalValue,
+      highlightExport: true,
+    },
+  };
 }

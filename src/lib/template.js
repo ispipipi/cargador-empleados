@@ -88,7 +88,7 @@ function buildListsCatalog(listRows) {
   }, {});
 }
 
-export function buildBukColaboradoresExportWorkbook({ templateResource, exportedRows }) {
+export function buildBukColaboradoresExportWorkbook({ templateResource, rowEntries }) {
   const sourceWorkbook = XLSX.read(templateResource.arrayBuffer, { type: 'array' });
   const sourceEmployeesSheet = sourceWorkbook.Sheets.Empleados;
   const sourceListsSheet = sourceWorkbook.Sheets.Listas;
@@ -97,15 +97,26 @@ export function buildBukColaboradoresExportWorkbook({ templateResource, exported
 
   const employeesSheet = XLSX.utils.aoa_to_sheet([
     templateResource.employeeHeaders,
-    ...exportedRows.map((row) => templateResource.employeeHeaders.map((header) => row[header] ?? '')),
+    ...rowEntries.map((entry) => templateResource.employeeHeaders.map((header) => entry.exportedRow[header] ?? '')),
   ]);
   const listsSheet = XLSX.utils.aoa_to_sheet(templateResource.listRows);
+  const alertEntries = rowEntries.flatMap((entry, index) =>
+    (entry.alerts ?? []).map((alert) => ({
+      ...alert,
+      exportRowNumber: index + 2,
+    })),
+  );
 
   copySheetMeta(sourceEmployeesSheet, employeesSheet);
   copySheetMeta(sourceListsSheet, listsSheet);
+  applyAlertComments(employeesSheet, templateResource.employeeHeaders, alertEntries);
 
   XLSX.utils.book_append_sheet(workbook, employeesSheet, 'Empleados');
   XLSX.utils.book_append_sheet(workbook, listsSheet, 'Listas');
+
+  if (alertEntries.length > 0) {
+    XLSX.utils.book_append_sheet(workbook, buildAlertsSheet(alertEntries), 'Alertas');
+  }
 
   return workbook;
 }
@@ -165,4 +176,52 @@ function buildRowCatalog(rows) {
         return entry;
       }, {}),
     );
+}
+
+function applyAlertComments(sheet, headers, alerts) {
+  if (alerts.length === 0) {
+    return;
+  }
+
+  const headerIndex = headers.reduce((lookup, header, index) => {
+    lookup.set(header, index);
+    return lookup;
+  }, new Map());
+
+  alerts.forEach((alert) => {
+    const columnIndex = headerIndex.get(alert.field);
+
+    if (columnIndex === undefined) {
+      return;
+    }
+
+    const cellRef = XLSX.utils.encode_cell({
+      r: alert.exportRowNumber - 1,
+      c: columnIndex,
+    });
+    const currentCell = sheet[cellRef] ?? { t: 's', v: alert.appliedValue ?? '' };
+
+    sheet[cellRef] = {
+      ...currentCell,
+      c: [
+        {
+          a: 'Codex',
+          t: alert.message,
+        },
+      ],
+    };
+  });
+}
+
+function buildAlertsSheet(alerts) {
+  return XLSX.utils.aoa_to_sheet([
+    ['Fila exportada', 'Fila origen', 'Campo', 'Valor aplicado', 'Detalle'],
+    ...alerts.map((alert) => [
+      alert.exportRowNumber,
+      alert.row,
+      alert.field,
+      alert.appliedValue ?? '',
+      alert.message,
+    ]),
+  ]);
 }
