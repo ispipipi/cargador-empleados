@@ -106,7 +106,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Jornada Laboral'] = 'mensual';
     exportedRow['Días de la Jornada'] = '["l","m","w","j","v"]';
     exportedRow['Tipo de Jornada'] = 'Ordinaria ART 22';
-    exportedRow['Fecha de Suscripción de Contrato'] = formatIsoDate(row['Fecha suscripción contratación']);
+    exportedRow['Fecha de Suscripción de Contrato'] = '';
     exportedRow['Gratificación Pactada'] = cleanCell(row['Gratificación Pactada']);
     exportedRow['Periodo de Pago de la Gratificación'] = 'Mensual';
     exportedRow['Descripción de la Gratificación'] = '';
