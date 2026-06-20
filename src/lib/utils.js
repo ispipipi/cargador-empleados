@@ -84,6 +84,37 @@ export function parseIntegerCurrency(value) {
   return String(Math.trunc(numericValue));
 }
 
+export function parseUfLikeValue(value) {
+  const rawValue = cleanCell(value);
+
+  if (!rawValue) {
+    return '0';
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  const normalized = rawValue
+    .replace(/\$/g, '')
+    .replace(/\s+/g, '')
+    .replace(/,/g, '.');
+
+  const parts = normalized.split('.');
+
+  if (parts.length === 1) {
+    return parts[0] || '0';
+  }
+
+  if (parts.length === 2) {
+    return `${parts[0] || '0'}.${parts[1] || '0'}`;
+  }
+
+  const decimal = parts.pop();
+  const integer = parts.join('');
+  return `${integer || '0'}.${decimal || '0'}`;
+}
+
 export function parseAntiquityYears(value) {
   const rawValue = cleanCell(value);
 

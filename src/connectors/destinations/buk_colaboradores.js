@@ -4,6 +4,7 @@ import {
   normalizeText,
   parseAntiquityYears,
   parseCurrencyLikeValue,
+  parseUfLikeValue,
   titleCase,
   yesNoFromPensionStatus,
 } from '../../lib/utils';
@@ -27,13 +28,14 @@ const REGION_ALIASES = {
   'metropolitana': 'RM: Metropolitana de Santiago',
   'metropolitana de santiago': 'RM: Metropolitana de Santiago',
   'de los rios': 'XIV: de Los Ríos',
+  'los rios': 'XIV: de Los Ríos',
   'de arica y parinacota': 'XV: de Arica y Parinacota',
   'de nuble': 'XVI: de Ñuble',
 };
 
 const BANK_ALIASES = {
   bancoestado: 'Banco Estado',
-  santander: 'Banco Santander',
+  santander: 'Santander',
   'banco falabella': 'Falabella',
   coopeuch: 'COOPEUCH',
   'banco ripley': 'Ripley',
@@ -42,6 +44,7 @@ const BANK_ALIASES = {
   bbva: 'BBVA',
   'banco chile': 'Banco de Chile',
   scotiabank: 'Scotiabank',
+  'los andes tarjetas de prepago s.a.': 'Los Andes Tarjetas de Prepago',
 };
 
 const AFP_ALIASES = {
@@ -53,6 +56,8 @@ const AFP_ALIASES = {
   uno: 'Uno',
 };
 
+const KNOWN_FUND_VALUES = new Set(Object.values(AFP_ALIASES));
+
 const MARITAL_STATUS_ALIASES = {
   soltera: 'Soltero',
   soltero: 'Soltero',
@@ -62,6 +67,11 @@ const MARITAL_STATUS_ALIASES = {
   viudo: 'Viudo',
   divorciada: 'Divorciado',
   divorciado: 'Divorciado',
+};
+
+const PAYMENT_METHOD_ALIASES = {
+  transferencia: 'Transferencia Bancaria',
+  efectivo: 'Transferencia Bancaria',
 };
 
 export const bukColaboradoresDestination = {
@@ -120,7 +130,7 @@ export function getBukColaboradoresFieldDefinitions() {
       listName: 'Estado Civil*',
       resolve: ({ row }) => {
         const normalized = normalizeText(row['Estado Civíl']);
-        return MARITAL_STATUS_ALIASES[normalized] ?? titleCase(row['Estado Civíl']);
+        return MARITAL_STATUS_ALIASES[normalized] || titleCase(row['Estado Civíl']) || 'Soltero';
       },
     },
     {
@@ -136,9 +146,9 @@ export function getBukColaboradoresFieldDefinitions() {
       },
     },
     { target: 'Comuna*', listName: 'Comuna', resolve: ({ row }) => titleCase(row.Comuna) },
-    { target: 'Ciudad', resolve: ({ row }) => titleCase(row.Ciudad) },
-    { target: 'Teléfono Particular', resolve: ({ row }) => cleanCell(row.Celular) },
-    { target: 'Email', resolve: ({ row }) => cleanCell(row.Email) },
+    { target: 'Ciudad', resolve: ({ row }) => titleCase(row.Ciudad) || titleCase(row.Comuna) },
+    { target: 'Teléfono Particular', resolve: () => '' },
+    { target: 'Email', resolve: ({ row }) => cleanCell(row['Email Personal']) || cleanCell(row.Email) },
     { target: 'Email Personal', resolve: ({ row }) => cleanCell(row['Email Personal']) },
     { target: 'Calle', resolve: ({ row }) => cleanCell(row.Calle) },
     { target: 'Número de Calle', resolve: ({ row }) => cleanCell(row.Número) },
@@ -154,7 +164,8 @@ export function getBukColaboradoresFieldDefinitions() {
       listName: 'Forma de Pago*',
       resolve: ({ row }) => {
         const paymentMethod = cleanCell(row['Forma de Pago']);
-        return normalizeText(paymentMethod) === 'transferencia' ? 'Transferencia Bancaria' : paymentMethod;
+        const normalized = normalizeText(paymentMethod);
+        return PAYMENT_METHOD_ALIASES[normalized] || paymentMethod || 'Transferencia Bancaria';
       },
     },
     {
@@ -162,7 +173,7 @@ export function getBukColaboradoresFieldDefinitions() {
       listName: 'Banco',
       resolve: ({ row }) => {
         const normalized = normalizeText(row['Sueldo - Banco']);
-        return BANK_ALIASES[normalized] ?? cleanCell(row['Sueldo - Banco']);
+        return BANK_ALIASES[normalized] || cleanCell(row['Sueldo - Banco']) || 'Banco Estado';
       },
     },
     { target: 'Tipo de Cuenta', listName: 'Tipo de Cuenta', resolve: () => 'Vista' },
@@ -172,15 +183,15 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Régimen Previsional*',
       listName: 'Régimen Previsional*',
-      resolve: ({ row, parameters }) => (cleanCell(row.AFP) ? 'AFP' : parameters.regimenPrevisionalDefault),
+      resolve: ({ row, parameters }) => {
+        const normalizedFund = resolveFundCotizationValue(row.AFP);
+        return normalizedFund ? 'AFP' : parameters.regimenPrevisionalDefault;
+      },
     },
     {
       target: 'Fondo de Cotización',
       listName: 'Fondo de Cotización',
-      resolve: ({ row }) => {
-        const normalized = normalizeText(row.AFP);
-        return AFP_ALIASES[normalized] ?? cleanCell(row.AFP);
-      },
+      resolve: ({ row }) => resolveFundCotizationValue(row.AFP),
       allowBlank: true,
     },
     {
@@ -195,7 +206,7 @@ export function getBukColaboradoresFieldDefinitions() {
     },
     {
       target: 'Plan Isapre UF*',
-      resolve: ({ row }) => (normalizeText(row['Moneda Isapre']) === 'uf' ? parseCurrencyLikeValue(row['Monto Pactado Isapre']) : '0'),
+      resolve: ({ row }) => (normalizeText(row['Moneda Isapre']) === 'uf' ? parseUfLikeValue(row['Monto Pactado Isapre']) : '0'),
     },
     {
       target: 'Plan Isapre Pesos*',
@@ -208,7 +219,10 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'AFC*',
       listName: 'AFC*',
-      resolve: ({ row }) => (parseAntiquityYears(row.Antigüedad) >= 11 ? 'Más de 11 Años' : 'Menos de 11 Años'),
+      resolve: ({ row }) => {
+        const normalizedFund = resolveFundCotizationValue(row.AFP);
+        return normalizedFund ? (parseAntiquityYears(row.Antigüedad) >= 11 ? 'Más de 11 Años' : 'Menos de 11 Años') : 'No Cotiza';
+      },
     },
     {
       target: 'Jubilado',
@@ -218,31 +232,15 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Régimen Jubilacion*',
       listName: 'Régimen Jubilacion*',
-      resolve: ({ row }) => {
-        const isRetired = yesNoFromPensionStatus(row['¿es pensionado?']) === 'Sí';
-        return isRetired && cleanCell(row.AFP) ? 'jubilacion_afp: AFP' : 'jubilacion_ips: IPS (Ex-INP)';
-      },
+      resolve: () => 'jubilacion_afp: AFP',
     },
     { target: 'Cuenta 2', resolve: () => '' },
-    {
-      target: 'Moneda',
-      listName: 'Moneda*',
-      resolve: ({ row }) => (cleanCell(row.Isapre) ? 'UF' : '%'),
-    },
-    { target: 'En Situación de Discapacidad', listName: 'En Situación de Discapacidad', resolve: () => 'No' },
-    { target: 'En Situación de Invalidez', listName: 'En Situación de Invalidez', resolve: () => 'No' },
-    {
-      target: 'Tramo de Asignación',
-      listName: 'Tramo de Asignación',
-      resolve: ({ row }) => cleanCell(row['Tramo de Asignación Familiar']),
-      allowBlank: true,
-    },
-    {
-      target: 'Tipo de Fuero',
-      listName: 'Tipo de Fuero',
-      resolve: ({ row }) => cleanCell(row['Tipo de Fuero']),
-      allowBlank: true,
-    },
-    { target: '¿Asignación de sala cuna?', listName: '¿Asignación de sala cuna?', resolve: () => 'No' },
+    { target: 'Moneda', resolve: () => '' },
   ];
+}
+
+function resolveFundCotizationValue(value) {
+  const normalized = normalizeText(value);
+  const resolvedValue = AFP_ALIASES[normalized] ?? cleanCell(value);
+  return KNOWN_FUND_VALUES.has(resolvedValue) ? resolvedValue : '';
 }
