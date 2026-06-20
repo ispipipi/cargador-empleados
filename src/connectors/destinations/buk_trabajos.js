@@ -62,7 +62,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Días de la Jornada'] = '["l","m","w","j","v"]';
     exportedRow['Tipo de Jornada'] = 'Ordinaria ART 22';
     exportedRow['Fecha de Suscripción de Contrato'] = '';
-    exportedRow['Gratificación Pactada'] = cleanCell(row['Gratificación Pactada']);
+    exportedRow['Gratificación Pactada'] = resolvePactedGratification(row.Cargo);
     exportedRow['Periodo de Pago de la Gratificación'] = 'Mensual';
     exportedRow['Descripción de la Gratificación'] = '';
     exportedRow['Con Liquidaciones'] = '';
@@ -322,6 +322,17 @@ function inferSubAreaDepartment(row) {
   }
 
   return 'operaciones';
+}
+
+function resolvePactedGratification(cargoValue) {
+  return isManipuladoraCargo(cargoValue)
+    ? 'Artículo 50 del Código del Trabajo'
+    : 'Artículo 47 del Código del Trabajo';
+}
+
+function isManipuladoraCargo(cargoValue) {
+  const normalizedCargo = normalizeText(cargoValue);
+  return /(manipulador|manipuladora)/.test(normalizedCargo);
 }
 
 function findBestCatalogCode({ catalog, labelKey, codeKey, inputValue }) {

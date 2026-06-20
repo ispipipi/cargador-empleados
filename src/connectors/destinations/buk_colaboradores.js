@@ -83,14 +83,6 @@ export const bukColaboradoresDestination = {
   assetPath: 'templates/buk-colaboradores-template.xlsx',
   userParameters: [
     {
-      key: 'rolPrivado',
-      label: 'Rol Privado*',
-      question: '¿Rol privado por defecto?',
-      helperText: 'Se aplicará a todos los colaboradores de esta transformación.',
-      suggestedValue: 'Sí',
-      options: ['Sí', 'No'],
-    },
-    {
       key: 'aumentarCotizacion',
       label: 'Aumentar la cotización en 1%*',
       question: '¿Aumentar cotización en 1% por defecto?',
@@ -163,7 +155,11 @@ export function getBukColaboradoresFieldDefinitions() {
     { target: 'Depto / Oficina', resolve: ({ row }) => cleanCell(row.Departamento) },
     { target: 'Código de Ficha*', resolve: () => 'F1' },
     { target: 'Ingreso Compañía*', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
-    { target: 'Rol Privado*', listName: 'Rol Privado*', resolve: ({ parameters }) => parameters.rolPrivado },
+    {
+      target: 'Rol Privado*',
+      listName: 'Rol Privado*',
+      resolve: ({ row }) => normalizePrivateRoleValue(row['Rol Privado'] ?? row['Rol Privado*']),
+    },
     { target: 'Fecha de Inicio Cotización AFC', resolve: () => '' },
     { target: 'Fecha Reconocimiento de Antigüedad', resolve: () => '' },
     { target: 'Fecha Inicio Vacaciones Progresivas', resolve: () => '' },
@@ -283,6 +279,24 @@ function resolveJubilationRegime(regimenPrevisional) {
 
 function isChequePayment(paymentMethod) {
   return normalizeText(paymentMethod) === 'cheque';
+}
+
+function normalizePrivateRoleValue(value) {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (['si', 'sí', 'yes', 'true', '1'].includes(normalized)) {
+    return 'Sí';
+  }
+
+  if (['no', 'false', '0'].includes(normalized)) {
+    return 'No';
+  }
+
+  return cleanCell(value);
 }
 
 function withAlert(value, message, originalValue) {
