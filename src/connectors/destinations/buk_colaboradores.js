@@ -202,7 +202,7 @@ export function getBukColaboradoresFieldDefinitions() {
     },
     {
       target: 'Fondo de Cotización',
-      resolve: ({ row }) => resolveFundCotizationValue(row.AFP) || 'No Cotiza',
+      resolve: ({ row }) => resolveFundCotizationValue(row.AFP) || '',
     },
     { target: 'AFP Recaudadora', resolve: () => '' },
     {
