@@ -1,11 +1,12 @@
 export default function FileUploader({
   sourceFile,
   validation,
+  isReadingFile,
   onFileSelected,
   onBack,
   onContinue,
 }) {
-  const canContinue = validation?.isValid && sourceFile?.rows?.length > 0;
+  const canContinue = !isReadingFile && validation?.isValid && sourceFile?.rows?.length > 0;
   const visibleHeaders = sourceFile?.headers?.slice(0, 8) ?? [];
 
   const handleDrop = (event) => {
@@ -50,9 +51,16 @@ export default function FileUploader({
             type="file"
             accept=".xls,.xlsx"
             className="hidden"
+            disabled={isReadingFile}
             onChange={(event) => onFileSelected(event.target.files?.[0])}
           />
         </label>
+
+        {isReadingFile ? (
+          <div className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-700">
+            Leyendo y validando el Excel en segundo plano. En archivos grandes puede tardar unos segundos, pero la página ya no debería quedar pegada.
+          </div>
+        ) : null}
 
         {validation?.message ? (
           <div
@@ -86,7 +94,7 @@ export default function FileUploader({
             disabled={!canContinue}
             className="rounded-full bg-brand-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            Continuar al wizard
+            {isReadingFile ? 'Leyendo archivo…' : 'Continuar al wizard'}
           </button>
         </div>
       </section>

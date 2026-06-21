@@ -13,7 +13,6 @@ import {
   buildBukTrabajosSupportSheets,
   transformBukTrabajosRows,
 } from './connectors/destinations/buk_trabajos';
-import { getTalanaMissingColumns } from './connectors/origins/talana';
 import { transformWorkbookRows } from './engine/transformer';
 import {
   buildBukColaboradoresExportWorkbook,
@@ -30,7 +29,7 @@ import {
   upsertConfiguration,
   validateConfigurationShape,
 } from './lib/storage';
-import { cleanCell, todayStamp } from './lib/utils';
+import { todayStamp } from './lib/utils';
 
 const STEPS = {
   format: 'format',
@@ -52,6 +51,7 @@ export default function App() {
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
+  const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [globalError, setGlobalError] = useState('');
 
@@ -110,38 +110,28 @@ export default function App() {
 
     setGlobalError('');
     setResult(null);
+    setSourceFile(null);
+    setValidation(null);
+    setIsReadingFile(true);
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, {
-        type: 'array',
-        raw: false,
-      });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, {
-        defval: '',
-        raw: false,
-      });
-      const headers = Object.keys(rows[0] ?? {}).map(cleanCell);
-      const missingColumns = getTalanaMissingColumns(headers);
-      const filteredRows = rows.filter((row) =>
-        Object.values(row).some((value) => cleanCell(value)),
-      );
+      const parsedSource = await parseSourceWorkbook(arrayBuffer);
 
       setSourceFile({
         fileName: file.name,
-        workbookName: workbook.SheetNames[0],
-        headers,
-        rows: filteredRows,
-        previewRows: filteredRows.slice(0, 3),
+        workbookName: parsedSource.workbookName,
+        headers: parsedSource.headers,
+        rows: parsedSource.rows,
+        previewRows: parsedSource.previewRows,
       });
 
       setValidation({
-        isValid: missingColumns.length === 0 && filteredRows.length > 0,
-        missingColumns,
+        isValid: parsedSource.missingColumns.length === 0 && parsedSource.rows.length > 0,
+        missingColumns: parsedSource.missingColumns,
         message:
-          missingColumns.length === 0
-            ? `Archivo listo. Se detectaron ${filteredRows.length} filas en la hoja ${workbook.SheetNames[0]}.`
+          parsedSource.missingColumns.length === 0
+            ? `Archivo listo. Se detectaron ${parsedSource.rows.length} filas en la hoja ${parsedSource.workbookName}.`
             : 'El archivo no cumple con las columnas mínimas para Talana.',
       });
     } catch (error) {
@@ -151,6 +141,8 @@ export default function App() {
         missingColumns: [],
         message: `No se pudo leer el archivo: ${error.message}`,
       });
+    } finally {
+      setIsReadingFile(false);
     }
   };
 
@@ -377,6 +369,7 @@ export default function App() {
           <FileUploader
             sourceFile={sourceFile}
             validation={validation}
+            isReadingFile={isReadingFile}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(STEPS.format)}
             onContinue={() => setStep(STEPS.params)}
@@ -415,4 +408,30 @@ export default function App() {
 
 function normalizeDestination(destinationId) {
   return destinationId === 'buk' ? 'buk' : 'buk';
+}
+
+function parseSourceWorkbook(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./workers/sourceParser.worker.js', import.meta.url), {
+      type: 'module',
+    });
+
+    worker.onmessage = (event) => {
+      worker.terminate();
+
+      if (event.data?.ok) {
+        resolve(event.data);
+        return;
+      }
+
+      reject(new Error(event.data?.error || 'No se pudo leer el archivo.'));
+    };
+
+    worker.onerror = () => {
+      worker.terminate();
+      reject(new Error('No se pudo procesar el archivo en segundo plano.'));
+    };
+
+    worker.postMessage({ arrayBuffer }, [arrayBuffer]);
+  });
 }
