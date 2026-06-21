@@ -215,7 +215,37 @@ function findSubAreaCode(row, catalog) {
     return directMatch;
   }
 
-  return '';
+  const normalizedCandidates = buildSubAreaSearchCandidates(row);
+  const preferredArea = inferSubAreaDepartment(row);
+  let bestMatch = null;
+
+  catalog.forEach((entry) => {
+    const normalizedName = normalizeText(entry.Nombre);
+    let score = 0;
+
+    normalizedCandidates.forEach((candidate) => {
+      if (!candidate) {
+        return;
+      }
+
+      if (normalizedName.includes(candidate) || candidate.includes(normalizedName)) {
+        score = Math.max(score, 60 + candidate.length);
+      }
+    });
+
+    if (preferredArea && normalizedName.includes(preferredArea)) {
+      score += 25;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        code: cleanCell(entry['Código Sub-área']),
+      };
+    }
+  });
+
+  return bestMatch?.score > 0 ? bestMatch.code : '';
 }
 
 function normalizeContractType(value) {
@@ -242,6 +272,57 @@ function normalizeIdentifier(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
+function buildSubAreaSearchCandidates(row) {
+  const rawCandidates = [
+    cleanCell(row['Nombre Centro Costo 1']),
+    cleanCell(row.Comuna),
+    cleanCell(row.Ciudad),
+    cleanCell(row.Sucursal),
+    cleanCell(row.ESTABLECIMIENTO),
+  ];
+
+  return rawCandidates
+    .flatMap((value) => [extractLocationToken(value), normalizeText(value)])
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function extractLocationToken(value) {
+  const normalizedValue = normalizeText(value);
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  return normalizedValue
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+    .filter((token) => Number.isNaN(Number(token)))
+    .filter((token) => !LOCATION_STOPWORDS.has(token))
+    .slice(0, 3)
+    .join(' ');
+}
+
+function inferSubAreaDepartment(row) {
+  const cargo = normalizeText(row.Cargo);
+  const establishment = cleanCell(row.ESTABLECIMIENTO);
+  const institution = cleanCell(row.INSTITUCIÓN);
+
+  if (establishment || institution || cleanCell(row['RBD Establecimiento'])) {
+    return 'pae';
+  }
+
+  if (/(bodega|grua|grúa|peoneta|chofer)/.test(cargo)) {
+    return 'bodega';
+  }
+
+  if (/(mantencion|mantención|tecnico|técnico)/.test(cargo)) {
+    return cargo.includes('monitor') ? 'tecnica' : 'mantencion';
+  }
+
+  return 'operaciones';
+}
+
 function resolvePactedGratification(cargoValue) {
   return isManipuladoraCargo(cargoValue)
     ? 'Artículo 50 del Código del Trabajo'
@@ -259,6 +340,14 @@ const CARGO_ALIASES = {
   'tecnico multifuncional sec': 'SUPERVISOR TECNICO',
   'jefe de mantencion': 'JEFE DE MANTENCION E INFRAESTRUCTURA',
 };
+
+const LOCATION_STOPWORDS = new Set([
+  'lr23',
+  'lr24',
+  'lr22',
+  'lr21',
+  'pae',
+]);
 
 function truncateText(value, maxLength) {
   const cleanedValue = cleanCell(value);

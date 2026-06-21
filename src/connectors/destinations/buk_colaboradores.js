@@ -175,13 +175,12 @@ export function getBukColaboradoresFieldDefinitions() {
     },
     {
       target: 'Tipo de Cuenta',
-      listName: 'Tipo de Cuenta',
       resolve: ({ row, exportedRow }) => {
         if (isChequePayment(exportedRow['Forma de Pago*'])) {
           return '';
         }
 
-        return resolveAccountType(row);
+        return resolveAccountType(row) || 'Vista';
       },
     },
     {
@@ -203,9 +202,7 @@ export function getBukColaboradoresFieldDefinitions() {
     },
     {
       target: 'Fondo de Cotización',
-      listName: 'Fondo de Cotización',
-      resolve: ({ row }) => resolveFundCotizationValue(row.AFP),
-      allowBlank: true,
+      resolve: ({ row }) => resolveFundCotizationValue(row.AFP) || 'No Cotiza',
     },
     { target: 'AFP Recaudadora', resolve: () => '' },
     {
@@ -249,9 +246,7 @@ export function getBukColaboradoresFieldDefinitions() {
     },
     {
       target: 'Régimen Jubilacion*',
-      listName: 'Régimen Jubilacion*',
-      resolve: ({ exportedRow }) =>
-        exportedRow.Jubilado === 'Sí' ? resolveJubilationRegime(exportedRow['Régimen Previsional*']) : '',
+      resolve: ({ exportedRow }) => resolveJubilationRegime(exportedRow['Régimen Previsional*']),
     },
     {
       target: 'Tramo de Asignación',
@@ -272,8 +267,8 @@ function resolveFundCotizationValue(value) {
 
 function resolveJubilationRegime(regimenPrevisional) {
   return normalizeText(regimenPrevisional) === 'ips (ex-inp)'
-    ? 'jubilacion_ips: IPS (Ex-INP)'
-    : 'jubilacion_afp: AFP';
+    ? 'IPS (Ex-INP)'
+    : 'AFP';
 }
 
 function isChequePayment(paymentMethod) {
