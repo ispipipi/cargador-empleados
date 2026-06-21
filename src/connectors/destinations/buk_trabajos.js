@@ -18,6 +18,38 @@ const CONTRACT_TYPE_ALIASES = {
   faena: 'Por obra o faena',
 };
 
+const SUCURSAL_OPTIONS = [
+  '-',
+  'Cañete',
+  'Chol Chol',
+  'Coyhaique',
+  'Frutillar',
+  'Lautaro',
+  'Los Angeles',
+  'Paillaco',
+  'Paine',
+  'Rancagua',
+  'San Fernando',
+  'Santiago',
+  'Talca',
+  'Victoria',
+  'Santiago.',
+];
+
+const PLAN_CONTABLE_OPTIONS = ['-', 'Administrativos', 'Manipuladoras', 'Supervisores'];
+
+const CUSTOM_FIELDS_TO_CLEAR = [
+  'N° RBD',
+  'Dirección RBD',
+  'Comuna RBD',
+  'Institución',
+  'Nivel',
+  'Licitación',
+  'Tipo de Contratación',
+  'Tipo PMA',
+  'Sindicato 2',
+];
+
 export function buildBukTrabajosSupportSheets({ templateResource }) {
   return {
     cargosRows: templateResource.cargosRows,
@@ -27,6 +59,8 @@ export function buildBukTrabajosSupportSheets({ templateResource }) {
     cargosCatalog: templateResource.cargosCatalog,
     subAreasCatalog: templateResource.subAreasCatalog,
     empresasCatalog: templateResource.empresasCatalog,
+    establecimientoPaeCatalog: buildEstablecimientoPaeCatalog(templateResource.establecimientoPaeOptions),
+    nombreRbdCatalog: buildNombreRbdCatalog(templateResource.nombreRbdOptions),
   };
 }
 
@@ -79,19 +113,14 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Prestación de servicios*'] = 'same_company';
     exportedRow['RUT Empresa Usuaria'] = '';
     exportedRow['RUT Empresa Principal'] = '';
-    exportedRow['Establecimiento PAE'] = cleanPlaceholder(row.ESTABLECIMIENTO);
-    exportedRow['N° RBD'] = cleanPlaceholder(row['RBD Establecimiento']);
-    exportedRow['Nombre RBD'] = cleanPlaceholder(row.ESTABLECIMIENTO);
-    exportedRow['Dirección RBD'] = cleanPlaceholder(row['Dirección colegio']);
-    exportedRow['Comuna RBD'] = cleanPlaceholder(row['Comuna RBD']);
-    exportedRow['Institución'] = cleanPlaceholder(row.INSTITUCIÓN);
-    exportedRow['Nivel'] = cleanPlaceholder(row.Nivel);
-    exportedRow['Licitación'] = cleanPlaceholder(row.Licitación);
-    exportedRow['Tipo de Contratación'] = cleanPlaceholder(row['Tipo Servicio']);
-    exportedRow['Tipo PMA'] = cleanPlaceholder(row['Tipo PMA']);
-    exportedRow['Plan Contable'] = cleanPlaceholder(row['Categoría Contable']);
-    exportedRow.Sucursal = cleanPlaceholder(row.Sucursal);
-    exportedRow['Sindicato 2'] = cleanPlaceholder(row['Sindicato 2']);
+    exportedRow['Establecimiento PAE'] = findEstablecimientoPaeValue(row, supportSheets.establecimientoPaeCatalog);
+    exportedRow['Nombre RBD'] = findNombreRbdValue(row, supportSheets.nombreRbdCatalog);
+    exportedRow['Plan Contable'] = resolvePlanContableValue(row);
+    exportedRow.Sucursal = findAllowedLiteralValue(row.Sucursal, SUCURSAL_OPTIONS);
+
+    CUSTOM_FIELDS_TO_CLEAR.forEach((fieldName) => {
+      exportedRow[fieldName] = '';
+    });
 
     registerMissingValue({
       rowErrors,
@@ -272,6 +301,41 @@ function normalizeIdentifier(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
+function normalizeDigits(value) {
+  return cleanCell(value).replace(/\D+/g, '');
+}
+
+function normalizeEstablishmentName(value) {
+  return normalizeText(
+    cleanCell(value)
+      .replace(/^junji\s+/i, '')
+      .replace(/^j\s*\.?\s*i\s*\.?\s*/i, '')
+      .replace(/^s\s*\.?\s*c\s*\.?\s*/i, '')
+      .replace(/\b\d{7,9}\b/g, ' ')
+      .replace(/\s+/g, ' '),
+  );
+}
+
+function inferEstablishmentVariant(value) {
+  const cleanedValue = cleanCell(value);
+
+  if (/^j\s*\.?\s*i/i.test(cleanedValue) || /^junji\s+j\s*\.?\s*i/i.test(cleanedValue)) {
+    return 'ji';
+  }
+
+  if (/^s\s*\.?\s*c/i.test(cleanedValue) || /^junji\s+s\s*\.?\s*c/i.test(cleanedValue)) {
+    return 'sc';
+  }
+
+  return '';
+}
+
+function extractCatalogRbd(value) {
+  const digitGroups = cleanCell(value).match(/\d[\d.-]*/g) ?? [];
+  const prioritizedGroup = digitGroups.find((group) => normalizeDigits(group).length >= 7) ?? digitGroups[0] ?? '';
+  return normalizeDigits(prioritizedGroup);
+}
+
 function buildSubAreaSearchCandidates(row) {
   const rawCandidates = [
     cleanCell(row['Nombre Centro Costo 1']),
@@ -327,6 +391,206 @@ function resolvePactedGratification(cargoValue) {
   return isManipuladoraCargo(cargoValue)
     ? 'Artículo 50 del Código del Trabajo'
     : 'Artículo 47 del Código del Trabajo';
+}
+
+function buildEstablecimientoPaeCatalog(options) {
+  return (options ?? []).map((rawValue) => {
+    const [rbd = '', name = '', address = '', commune = ''] = rawValue.split(/\s*\/\s*/g);
+
+    return {
+      raw: rawValue,
+      rbd: extractCatalogRbd(rbd || rawValue),
+      normalizedName: normalizeText(name),
+      normalizedSimplifiedName: normalizeEstablishmentName(name),
+      normalizedCommune: normalizeText(commune),
+      normalizedRaw: normalizeText(rawValue),
+      normalizedNameAndCommune: normalizeText([name, commune].filter(Boolean).join(' ')),
+      normalizedAddress: normalizeText(address),
+      variant: inferEstablishmentVariant(name),
+    };
+  });
+}
+
+function buildNombreRbdCatalog(options) {
+  return (options ?? []).map((rawValue) => {
+    const normalizedRaw = normalizeText(rawValue);
+    const rbd = extractCatalogRbd(rawValue);
+    const nameWithoutRbd = cleanCell(rawValue).replace(/\b\d{7,9}\b/g, ' ').replace(/\s+/g, ' ');
+
+    return {
+      raw: rawValue,
+      rbd,
+      normalizedRaw,
+      normalizedName: normalizeText(nameWithoutRbd),
+      normalizedSimplifiedName: normalizeEstablishmentName(nameWithoutRbd),
+      variant: inferEstablishmentVariant(rawValue),
+    };
+  });
+}
+
+function findEstablecimientoPaeValue(row, catalog) {
+  const sourceName = cleanPlaceholder(row.ESTABLECIMIENTO);
+  const normalizedName = normalizeText(sourceName);
+  const normalizedSimplifiedName = normalizeEstablishmentName(sourceName);
+  const normalizedRbd = normalizeDigits(row['RBD Establecimiento']);
+  const normalizedCommune = normalizeText(cleanPlaceholder(row['Comuna RBD']) || cleanPlaceholder(row.Comuna));
+  const preferredVariant = inferEstablishmentVariant(sourceName);
+
+  if (!normalizedName && !normalizedSimplifiedName && !normalizedRbd) {
+    return '';
+  }
+
+  let bestMatch = null;
+
+  catalog.forEach((entry) => {
+    let score = 0;
+
+    if (normalizedRbd && entry.rbd === normalizedRbd) {
+      score += 140;
+    }
+
+    if (normalizedName && entry.normalizedName === normalizedName) {
+      score += 110;
+    } else if (
+      normalizedName &&
+      (entry.normalizedName.includes(normalizedName) || normalizedName.includes(entry.normalizedName))
+    ) {
+      score += 70;
+    }
+
+    if (normalizedSimplifiedName && entry.normalizedSimplifiedName === normalizedSimplifiedName) {
+      score += 95;
+    } else if (
+      normalizedSimplifiedName &&
+      entry.normalizedSimplifiedName &&
+      (
+        entry.normalizedSimplifiedName.includes(normalizedSimplifiedName) ||
+        normalizedSimplifiedName.includes(entry.normalizedSimplifiedName)
+      )
+    ) {
+      score += 55;
+    }
+
+    if (normalizedCommune && entry.normalizedCommune === normalizedCommune) {
+      score += 25;
+    }
+
+    if (preferredVariant && entry.variant === preferredVariant) {
+      score += 20;
+    }
+
+    if (
+      normalizedName &&
+      normalizedCommune &&
+      entry.normalizedNameAndCommune === normalizeText(`${cleanPlaceholder(row.ESTABLECIMIENTO)} ${cleanPlaceholder(row['Comuna RBD']) || cleanPlaceholder(row.Comuna)}`)
+    ) {
+      score += 15;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        value: entry.raw,
+      };
+    }
+  });
+
+  return bestMatch?.score > 0 ? bestMatch.value : '';
+}
+
+function findNombreRbdValue(row, catalog) {
+  const sourceName = cleanPlaceholder(row.ESTABLECIMIENTO);
+  const normalizedName = normalizeText(sourceName);
+  const normalizedSimplifiedName = normalizeEstablishmentName(sourceName);
+  const normalizedRbd = normalizeDigits(row['RBD Establecimiento']);
+  const preferredVariant = inferEstablishmentVariant(sourceName);
+
+  if (!normalizedName && !normalizedSimplifiedName && !normalizedRbd) {
+    return '';
+  }
+
+  let bestMatch = null;
+
+  catalog.forEach((entry) => {
+    let score = 0;
+
+    if (normalizedRbd && entry.rbd === normalizedRbd) {
+      score += 120;
+    }
+
+    if (normalizedName && entry.normalizedName === normalizedName) {
+      score += 100;
+    } else if (normalizedName && entry.normalizedRaw === normalizedName) {
+      score += 90;
+    } else if (
+      normalizedName &&
+      (entry.normalizedName.includes(normalizedName) || normalizedName.includes(entry.normalizedName))
+    ) {
+      score += 65;
+    }
+
+    if (normalizedSimplifiedName && entry.normalizedSimplifiedName === normalizedSimplifiedName) {
+      score += 110;
+    } else if (
+      normalizedSimplifiedName &&
+      entry.normalizedSimplifiedName &&
+      (
+        entry.normalizedSimplifiedName.includes(normalizedSimplifiedName) ||
+        normalizedSimplifiedName.includes(entry.normalizedSimplifiedName)
+      )
+    ) {
+      score += 70;
+    }
+
+    if (preferredVariant && entry.variant === preferredVariant) {
+      score += 25;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        value: entry.raw,
+      };
+    }
+  });
+
+  return bestMatch?.score > 0 ? bestMatch.value : '';
+}
+
+function findAllowedLiteralValue(inputValue, allowedValues) {
+  const cleanedInput = cleanPlaceholder(inputValue);
+  const normalizedInput = normalizeText(cleanedInput);
+
+  if (!normalizedInput) {
+    return '';
+  }
+
+  const exactMatch = allowedValues.find((allowedValue) => normalizeText(allowedValue) === normalizedInput);
+  return exactMatch ?? '';
+}
+
+function resolvePlanContableValue(row) {
+  const directValue = findAllowedLiteralValue(row['Categoría Contable'], PLAN_CONTABLE_OPTIONS);
+
+  if (directValue) {
+    return directValue;
+  }
+
+  if (isManipuladoraCargo(row.Cargo)) {
+    return 'Manipuladoras';
+  }
+
+  const normalizedCargo = normalizeText(row.Cargo);
+
+  if (normalizedCargo.includes('supervisor')) {
+    return 'Supervisores';
+  }
+
+  if (/(administrativ|asistente|analista|coordinador|contador|rrhh)/.test(normalizedCargo)) {
+    return 'Administrativos';
+  }
+
+  return '';
 }
 
 function isManipuladoraCargo(cargoValue) {
