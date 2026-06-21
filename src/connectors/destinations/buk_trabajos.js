@@ -42,22 +42,23 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     const companyName = findEmpresaName(row['Razón Social'], supportSheets.empresasCatalog);
 
     exportedRow['Número de Documento*'] = formatRutWithDots(row.RUT);
-    exportedRow['Código de Ficha'] = 'F1';
+    exportedRow['Código de Ficha'] = '';
     exportedRow['Sueldo Base*'] = parseIntegerCurrency(row['Sueldo Base']);
     exportedRow['Moneda*'] = 'CLP';
     exportedRow['Fecha de Inicio*'] = formatIsoDate(row['Fecha de Ingreso']);
-    exportedRow['Horario Semanal*'] = cleanCell(row['Horas de la Jornada']);
+    exportedRow['Horario Semanal*'] = cleanCell(row['Horas de la Jornada']) || '40';
     exportedRow['Código Cargo*'] = findCargoCode(row.Cargo, supportSheets.cargosCatalog);
     exportedRow['Código Sub-área*'] = findSubAreaCode(row, supportSheets.subAreasCatalog);
     exportedRow['Número de Documento Supervisor*'] = formatRutWithDots(row['Rut Jefe']);
-    exportedRow['Código de Ficha Supervisor'] = cleanCell(row['Rut Jefe']) ? 'F1' : '';
+    exportedRow['Código de Ficha Supervisor'] = '';
     exportedRow['Tipo de Contrato*'] = contractType;
     exportedRow.Obra = '';
-    exportedRow['Término de Contrato'] =
-      contractType === 'Plazo fijo' ? formatIsoDate(row['Contrato hasta']) : '';
+    exportedRow['Término de Contrato'] = contractType && contractType !== 'Indefinido'
+      ? formatIsoDate(row['Contrato hasta'])
+      : '';
     exportedRow['Término de Contrato 2'] = '';
     exportedRow['Empresa*'] = companyName;
-    exportedRow['Recibe Gratificaciones*'] = '1';
+    exportedRow['Recibe Gratificaciones*'] = 'Sí';
     exportedRow['Jornada Laboral'] = 'mensual';
     exportedRow['Días de la Jornada'] = '["l","m","w","j","v"]';
     exportedRow['Tipo de Jornada'] = 'Ordinaria ART 22';
@@ -68,13 +69,16 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Con Liquidaciones'] = '';
     exportedRow.Recinto = 'casamatriz';
     exportedRow['Recintos Secundarios'] = '';
-    exportedRow['Fecha De Resolución'] = formatIsoDate(row['Fecha de resolución']);
-    exportedRow['Nº De Resolución'] = cleanCell(row['N° de resolución']);
+    exportedRow['Fecha De Resolución'] = '';
+    exportedRow['Nº De Resolución'] = '';
     exportedRow['Turnos de Trabajo Especificados en Reglamento Interno'] = 'No';
-    exportedRow['Distribución De Jornada'] = cleanCell(row['Detalle distribución']) || cleanCell(row['Sistema de distribución']);
+    exportedRow['Distribución De Jornada'] = truncateText(
+      cleanCell(row['Detalle distribución']) || cleanCell(row['Sistema de distribución']),
+      700,
+    );
     exportedRow['Prestación de servicios*'] = 'same_company';
-    exportedRow['RUT Empresa Usuaria'] = formatRutWithDots(row['RUT empresa usuaria']);
-    exportedRow['RUT Empresa Principal'] = formatRutWithDots(row['RUT empresa principal']);
+    exportedRow['RUT Empresa Usuaria'] = '';
+    exportedRow['RUT Empresa Principal'] = '';
     exportedRow['Establecimiento PAE'] = cleanPlaceholder(row.ESTABLECIMIENTO);
     exportedRow['N° RBD'] = cleanPlaceholder(row['RBD Establecimiento']);
     exportedRow['Nombre RBD'] = cleanPlaceholder(row.ESTABLECIMIENTO);
@@ -190,12 +194,7 @@ function findCargoCode(inputValue, catalog) {
     );
   }
 
-  return findBestCatalogCode({
-    catalog,
-    labelKey: 'Cargo',
-    codeKey: 'Código',
-    inputValue,
-  });
+  return '';
 }
 
 function findSubAreaCode(row, catalog) {
@@ -216,37 +215,7 @@ function findSubAreaCode(row, catalog) {
     return directMatch;
   }
 
-  const normalizedCandidates = buildSubAreaSearchCandidates(row);
-  const preferredArea = inferSubAreaDepartment(row);
-  let bestMatch = null;
-
-  catalog.forEach((entry) => {
-    const normalizedName = normalizeText(entry.Nombre);
-    let score = 0;
-
-    normalizedCandidates.forEach((candidate) => {
-      if (!candidate) {
-        return;
-      }
-
-      if (normalizedName.includes(candidate) || candidate.includes(normalizedName)) {
-        score = Math.max(score, 60 + candidate.length);
-      }
-    });
-
-    if (preferredArea && normalizedName.includes(preferredArea)) {
-      score += 25;
-    }
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = {
-        score,
-        code: cleanCell(entry['Código Sub-área']),
-      };
-    }
-  });
-
-  return bestMatch?.score > 0 ? bestMatch.code : '';
+  return '';
 }
 
 function normalizeContractType(value) {
@@ -273,57 +242,6 @@ function normalizeIdentifier(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
-function buildSubAreaSearchCandidates(row) {
-  const rawCandidates = [
-    cleanCell(row['Nombre Centro Costo 1']),
-    cleanCell(row.Comuna),
-    cleanCell(row.Ciudad),
-    cleanCell(row.Sucursal),
-    cleanCell(row.ESTABLECIMIENTO),
-  ];
-
-  return rawCandidates
-    .flatMap((value) => [extractLocationToken(value), normalizeText(value)])
-    .filter(Boolean)
-    .filter((value, index, array) => array.indexOf(value) === index);
-}
-
-function extractLocationToken(value) {
-  const normalizedValue = normalizeText(value);
-
-  if (!normalizedValue) {
-    return '';
-  }
-
-  return normalizedValue
-    .split(/[^a-z0-9]+/g)
-    .filter(Boolean)
-    .filter((token) => Number.isNaN(Number(token)))
-    .filter((token) => !LOCATION_STOPWORDS.has(token))
-    .slice(0, 3)
-    .join(' ');
-}
-
-function inferSubAreaDepartment(row) {
-  const cargo = normalizeText(row.Cargo);
-  const establishment = cleanCell(row.ESTABLECIMIENTO);
-  const institution = cleanCell(row.INSTITUCIÓN);
-
-  if (establishment || institution || cleanCell(row['RBD Establecimiento'])) {
-    return 'pae';
-  }
-
-  if (/(bodega|grua|grúa|peoneta|chofer)/.test(cargo)) {
-    return 'bodega';
-  }
-
-  if (/(mantencion|mantención|tecnico|técnico)/.test(cargo)) {
-    return cargo.includes('monitor') ? 'tecnica' : 'mantencion';
-  }
-
-  return 'operaciones';
-}
-
 function resolvePactedGratification(cargoValue) {
   return isManipuladoraCargo(cargoValue)
     ? 'Artículo 50 del Código del Trabajo'
@@ -335,44 +253,6 @@ function isManipuladoraCargo(cargoValue) {
   return /(manipulador|manipuladora)/.test(normalizedCargo);
 }
 
-function findBestCatalogCode({ catalog, labelKey, codeKey, inputValue }) {
-  const normalizedInput = normalizeText(inputValue);
-
-  if (!normalizedInput) {
-    return '';
-  }
-
-  const inputTokens = tokenize(normalizedInput);
-  let bestMatch = null;
-
-  catalog.forEach((entry) => {
-    const normalizedLabel = normalizeText(entry[labelKey]);
-    const labelTokens = tokenize(normalizedLabel);
-    const sharedTokens = inputTokens.filter((token) => labelTokens.includes(token));
-    let score = sharedTokens.length * 10;
-
-    if (normalizedLabel.includes(normalizedInput) || normalizedInput.includes(normalizedLabel)) {
-      score += 30;
-    }
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = {
-        score,
-        code: cleanCell(entry[codeKey]),
-      };
-    }
-  });
-
-  return bestMatch?.score > 0 ? bestMatch.code : '';
-}
-
-function tokenize(value) {
-  return normalizeText(value)
-    .split(/[^a-z0-9]+/g)
-    .filter(Boolean)
-    .filter((token) => token.length > 2);
-}
-
 const CARGO_ALIASES = {
   manipuladora: 'MANIPULADOR (A) DE ALIMENTOS',
   'tecnico multifuncional': 'SUPERVISOR TECNICO',
@@ -380,10 +260,7 @@ const CARGO_ALIASES = {
   'jefe de mantencion': 'JEFE DE MANTENCION E INFRAESTRUCTURA',
 };
 
-const LOCATION_STOPWORDS = new Set([
-  'lr23',
-  'lr24',
-  'lr22',
-  'lr21',
-  'pae',
-]);
+function truncateText(value, maxLength) {
+  const cleanedValue = cleanCell(value);
+  return cleanedValue.length > maxLength ? cleanedValue.slice(0, maxLength) : cleanedValue;
+}

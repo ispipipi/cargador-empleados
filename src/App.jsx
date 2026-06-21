@@ -168,6 +168,10 @@ export default function App() {
         employeeHeaders: colaboradoresTemplateResource.employeeHeaders,
         listsCatalog: colaboradoresTemplateResource.listsCatalog,
         parameters,
+        sourceMeta: {
+          fileName: sourceFile.fileName,
+          workbookName: sourceFile.workbookName,
+        },
       });
       const trabajosSupportSheets = buildBukTrabajosSupportSheets({
         templateResource: trabajosTemplateResource,

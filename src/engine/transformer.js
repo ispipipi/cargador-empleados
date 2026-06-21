@@ -6,6 +6,7 @@ export function transformWorkbookRows({
   employeeHeaders,
   listsCatalog,
   parameters,
+  sourceMeta,
 }) {
   const transformedRows = sourceRows.map((row, rowIndex) => {
     const exportedRow = employeeHeaders.reduce((accumulator, header) => {
@@ -18,6 +19,7 @@ export function transformWorkbookRows({
       row,
       rowNumber: rowIndex + 2,
       parameters,
+      sourceMeta,
       exportedRow,
     };
 

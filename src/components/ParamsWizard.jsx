@@ -10,6 +10,7 @@ export default function ParamsWizard({
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const currentParameter = parameterDefinitions[stepIndex];
+  const hasParameters = parameterDefinitions.length > 0;
   const isLastStep = stepIndex === parameterDefinitions.length - 1;
 
   useEffect(() => {
@@ -28,47 +29,59 @@ export default function ParamsWizard({
         </div>
 
         <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-600">
-          {stepIndex + 1} / {parameterDefinitions.length}
+          {hasParameters ? `${stepIndex + 1} / ${parameterDefinitions.length}` : 'Sin preguntas'}
         </div>
       </div>
 
       <div className="mt-8 rounded-[32px] bg-slate-950 p-1">
         <div className="rounded-[28px] bg-white px-6 py-8 sm:px-8">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-100 text-sm font-bold text-brand-700">
-              {stepIndex + 1}
-            </span>
+          {hasParameters ? (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-100 text-sm font-bold text-brand-700">
+                  {stepIndex + 1}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-brand-700">{currentParameter.label}</p>
+                  <h3 className="text-xl font-bold text-slate-950">{currentParameter.question}</h3>
+                </div>
+              </div>
+
+              <p className="mt-5 text-sm leading-7 text-slate-600">{currentParameter.helperText}</p>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                {currentParameter.options.map((option) => {
+                  const isActive = parameters[currentParameter.key] === option;
+
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => onChangeParameter(currentParameter.key, option)}
+                      className={`rounded-[24px] border px-4 py-4 text-left transition ${
+                        isActive
+                          ? 'border-brand-500 bg-brand-50 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-brand-200'
+                      }`}
+                    >
+                      <p className="text-sm font-bold text-slate-900">{option}</p>
+                      {option === currentParameter.suggestedValue ? (
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Sugerido</p>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
             <div>
-              <p className="text-sm font-semibold text-brand-700">{currentParameter.label}</p>
-              <h3 className="text-xl font-bold text-slate-950">{currentParameter.question}</h3>
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-brand-700">Paso automático</p>
+              <h3 className="mt-2 text-xl font-bold text-slate-950">No hay preguntas pendientes para esta carga</h3>
+              <p className="mt-5 text-sm leading-7 text-slate-600">
+                El archivo ya contiene los datos necesarios o las reglas quedaron definidas en el sistema. Puedes seguir directo a la transformación.
+              </p>
             </div>
-          </div>
-
-          <p className="mt-5 text-sm leading-7 text-slate-600">{currentParameter.helperText}</p>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {currentParameter.options.map((option) => {
-              const isActive = parameters[currentParameter.key] === option;
-
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => onChangeParameter(currentParameter.key, option)}
-                  className={`rounded-[24px] border px-4 py-4 text-left transition ${
-                    isActive
-                      ? 'border-brand-500 bg-brand-50 shadow-sm'
-                      : 'border-slate-200 bg-white hover:border-brand-200'
-                  }`}
-                >
-                  <p className="text-sm font-bold text-slate-900">{option}</p>
-                  {option === currentParameter.suggestedValue ? (
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Sugerido</p>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
+          )}
         </div>
       </div>
 
@@ -81,7 +94,7 @@ export default function ParamsWizard({
           {stepIndex === 0 ? 'Volver al archivo' : 'Anterior'}
         </button>
 
-        {!isLastStep ? (
+        {hasParameters && !isLastStep ? (
           <button
             type="button"
             onClick={() => setStepIndex((current) => current + 1)}

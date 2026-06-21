@@ -75,30 +75,19 @@ const PAYMENT_METHOD_ALIASES = {
   cheque: 'Cheque',
 };
 
+const ACCOUNT_TYPE_ALIASES = {
+  corriente: 'Corriente',
+  vista: 'Vista',
+  ahorro: 'Ahorro',
+};
+
 export const bukColaboradoresDestination = {
   id: 'buk',
   nombre: 'BUK',
   hojaTemplate: 'Empleados',
   hojaListas: 'Listas',
   assetPath: 'templates/buk-colaboradores-template.xlsx',
-  userParameters: [
-    {
-      key: 'aumentarCotizacion',
-      label: 'Aumentar la cotización en 1%*',
-      question: '¿Aumentar cotización en 1% por defecto?',
-      helperText: 'Este valor se usa globalmente en el archivo de salida.',
-      suggestedValue: 'No',
-      options: ['Sí', 'No'],
-    },
-    {
-      key: 'regimenPrevisionalDefault',
-      label: 'Régimen Previsional por defecto',
-      question: '¿Régimen previsional por defecto cuando no hay AFP?',
-      helperText: 'Se usará solo para filas donde Talana no informe AFP.',
-      suggestedValue: 'No Cotiza',
-      options: ['AFP', 'No Cotiza', 'IPS (Ex-INP)'],
-    },
-  ],
+  userParameters: [],
 };
 
 export function getDefaultParameterValues() {
@@ -181,13 +170,19 @@ export function getBukColaboradoresFieldDefinitions() {
         }
 
         const normalized = normalizeText(row['Sueldo - Banco']);
-        return BANK_ALIASES[normalized] || cleanCell(row['Sueldo - Banco']) || 'Banco Estado';
+        return BANK_ALIASES[normalized] || cleanCell(row['Sueldo - Banco']);
       },
     },
     {
       target: 'Tipo de Cuenta',
       listName: 'Tipo de Cuenta',
-      resolve: ({ exportedRow }) => (isChequePayment(exportedRow['Forma de Pago*']) ? '' : 'Vista'),
+      resolve: ({ row, exportedRow }) => {
+        if (isChequePayment(exportedRow['Forma de Pago*'])) {
+          return '';
+        }
+
+        return resolveAccountType(row);
+      },
     },
     {
       target: 'Número de Cuenta',
@@ -201,22 +196,21 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Régimen Previsional*',
       listName: 'Régimen Previsional*',
-      resolve: ({ row, parameters }) => {
+      resolve: ({ row }) => {
         const normalizedFund = resolveFundCotizationValue(row.AFP);
-        return normalizedFund ? 'AFP' : parameters.regimenPrevisionalDefault;
+        return normalizedFund ? 'AFP' : 'No Cotiza';
       },
     },
     {
       target: 'Fondo de Cotización',
       listName: 'Fondo de Cotización',
-      resolve: ({ row }) => resolveFundCotizationValue(row.AFP),
-      allowBlank: true,
+      resolve: ({ row }) => resolveFundCotizationValue(row.AFP) || 'No Cotiza',
     },
     { target: 'AFP Recaudadora', resolve: () => '' },
     {
       target: 'Aumentar la cotización en 1%*',
       listName: 'Aumentar la cotización en 1%*',
-      resolve: ({ parameters }) => parameters.aumentarCotizacion,
+      resolve: ({ sourceMeta }) => resolveAdditionalCotizationValue(sourceMeta),
     },
     {
       target: 'Fonasa/Isapre*',
@@ -256,7 +250,12 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Régimen Jubilacion*',
       listName: 'Régimen Jubilacion*',
-      resolve: ({ exportedRow }) => resolveJubilationRegime(exportedRow['Régimen Previsional*']),
+      resolve: ({ exportedRow }) =>
+        exportedRow.Jubilado === 'Sí' ? resolveJubilationRegime(exportedRow['Régimen Previsional*']) : '',
+    },
+    {
+      target: 'Tramo de Asignación',
+      resolve: ({ row }) => cleanCell(row['Tramo de Asignación Familiar']) || 'D',
     },
     { target: 'Cuenta 2', resolve: () => '' },
     { target: 'Plan Cuenta 2', resolve: () => '' },
@@ -279,6 +278,60 @@ function resolveJubilationRegime(regimenPrevisional) {
 
 function isChequePayment(paymentMethod) {
   return normalizeText(paymentMethod) === 'cheque';
+}
+
+function resolveAccountType(row) {
+  const sourceValue = [
+    cleanCell(row['Sueldo - Tipo de Cuenta']),
+    cleanCell(row['Tipo de Cuenta']),
+    cleanCell(row['Sueldo - Tipo Cuenta']),
+  ].find(Boolean);
+
+  if (!sourceValue) {
+    return '';
+  }
+
+  const normalized = normalizeText(sourceValue);
+  return ACCOUNT_TYPE_ALIASES[normalized] || '';
+}
+
+function resolveAdditionalCotizationValue(sourceMeta) {
+  const effectiveDate = resolveSourceEffectiveDate(sourceMeta?.fileName);
+  return effectiveDate >= '2025-08-01' ? 'Sí' : 'No';
+}
+
+function resolveSourceEffectiveDate(fileName) {
+  const normalizedName = cleanCell(fileName).toLowerCase();
+  const isoMatch = normalizedName.match(/(20\d{2})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  const monthMap = {
+    ene: '01',
+    feb: '02',
+    mar: '03',
+    abr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    ago: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dic: '12',
+  };
+  const periodMatch = normalizedName.match(/\b(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\s+(\d{2,4})\b/);
+
+  if (periodMatch) {
+    const [, monthLabel, rawYear] = periodMatch;
+    const fullYear = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+    return `${fullYear}-${monthMap[monthLabel]}-01`;
+  }
+
+  return new Date().toISOString().slice(0, 10);
 }
 
 function normalizePrivateRoleValue(value) {
