@@ -204,12 +204,12 @@ export function getBukColaboradoresFieldDefinitions() {
     {
       target: 'Fondo de Cotización',
       listName: 'Fondo de Cotización',
-      resolve: ({ row }) => resolveFundCotizationValue(row.AFP) || 'No Cotiza',
+      resolve: ({ row }) => resolveFundCotizationValue(row.AFP),
+      allowBlank: true,
     },
     { target: 'AFP Recaudadora', resolve: () => '' },
     {
       target: 'Aumentar la cotización en 1%*',
-      listName: 'Aumentar la cotización en 1%*',
       resolve: ({ sourceMeta }) => resolveAdditionalCotizationValue(sourceMeta),
     },
     {
