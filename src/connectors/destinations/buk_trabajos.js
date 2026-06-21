@@ -87,9 +87,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Código de Ficha Supervisor'] = '';
     exportedRow['Tipo de Contrato*'] = contractType;
     exportedRow.Obra = '';
-    exportedRow['Término de Contrato'] = contractType && contractType !== 'Indefinido'
-      ? formatIsoDate(row['Contrato hasta'])
-      : '';
+    exportedRow['Término de Contrato'] = formatIsoDate(row['Contrato hasta']);
     exportedRow['Término de Contrato 2'] = '';
     exportedRow['Empresa*'] = companyName;
     exportedRow['Recibe Gratificaciones*'] = 'Sí';
