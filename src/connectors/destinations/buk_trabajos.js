@@ -61,7 +61,7 @@ export function buildBukTrabajosSupportSheets({ templateResource }) {
     empresasCatalog: templateResource.empresasCatalog,
     establecimientoPaeCatalog: buildEstablecimientoPaeCatalog(templateResource.establecimientoPaeOptions),
     nombreRbdCatalog: buildNombreRbdCatalog(templateResource.nombreRbdOptions),
-    supervisorFichasCatalog: templateResource.supervisorFichasCatalog ?? {},
+    fichaCodesCatalog: templateResource.fichaCodesCatalog ?? {},
   };
 }
 
@@ -77,7 +77,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     const companyName = findEmpresaName(row['Razón Social'], supportSheets.empresasCatalog);
 
     exportedRow['Número de Documento*'] = formatRutWithDots(row.RUT);
-    exportedRow['Código de Ficha'] = '';
+    exportedRow['Código de Ficha'] = findFichaCode(row.RUT, supportSheets.fichaCodesCatalog);
     exportedRow['Sueldo Base*'] = parseIntegerCurrency(row['Sueldo Base']);
     exportedRow['Moneda*'] = 'CLP';
     exportedRow['Fecha de Inicio*'] = formatIsoDate(row['Fecha de Ingreso']);
@@ -87,7 +87,7 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Número de Documento Supervisor*'] = formatRutWithDots(row['Rut Jefe']);
     exportedRow['Código de Ficha Supervisor'] = findSupervisorFichaCode(
       row['Rut Jefe'],
-      supportSheets.supervisorFichasCatalog,
+      supportSheets.fichaCodesCatalog,
     );
     exportedRow['Tipo de Contrato*'] = contractType;
     exportedRow.Obra = '';
@@ -307,6 +307,16 @@ function normalizeDigits(value) {
   return cleanCell(value).replace(/\D+/g, '');
 }
 
+function findFichaCode(rutValue, catalog) {
+  const normalizedRut = normalizeDigits(rutValue);
+
+  if (!normalizedRut) {
+    return '';
+  }
+
+  return cleanCell(catalog?.[normalizedRut]?.code);
+}
+
 function findSupervisorFichaCode(supervisorRut, catalog) {
   const normalizedRut = normalizeDigits(supervisorRut);
 
@@ -314,7 +324,8 @@ function findSupervisorFichaCode(supervisorRut, catalog) {
     return '';
   }
 
-  return cleanCell(catalog?.[normalizedRut]);
+  const entry = catalog?.[normalizedRut];
+  return entry?.hasMultiple ? cleanCell(entry.code) : '';
 }
 
 function normalizeEstablishmentName(value) {

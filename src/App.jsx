@@ -163,6 +163,7 @@ export default function App() {
         sourceMeta: {
           fileName: sourceFile.fileName,
           workbookName: sourceFile.workbookName,
+          fichaCodesCatalog: colaboradoresTemplateResource.fichaCodesCatalog,
         },
       });
       const trabajosSupportSheets = buildBukTrabajosSupportSheets({

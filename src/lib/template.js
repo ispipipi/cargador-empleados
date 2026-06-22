@@ -5,16 +5,26 @@ const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templa
 const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
 const ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/establecimiento-pae.txt`;
 const NOMBRE_RBD_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/nombre-rbd.txt`;
-const SUPERVISOR_FICHAS_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
+const FICHA_CODES_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
 
 export async function loadBukColaboradoresTemplateResource() {
-  const response = await fetch(BUK_COLABORADORES_TEMPLATE_ASSET_PATH);
+  const [response, fichaCodesResponse] = await Promise.all([
+    fetch(BUK_COLABORADORES_TEMPLATE_ASSET_PATH),
+    fetch(FICHA_CODES_ASSET_PATH),
+  ]);
 
   if (!response.ok) {
     throw new Error('No fue posible cargar el template embebido de BUK Colaboradores.');
   }
 
-  const arrayBuffer = await response.arrayBuffer();
+  if (!fichaCodesResponse.ok) {
+    throw new Error('No fue posible cargar el maestro embebido de fichas.');
+  }
+
+  const [arrayBuffer, fichaCodesCatalog] = await Promise.all([
+    response.arrayBuffer(),
+    fichaCodesResponse.json(),
+  ]);
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const employeesSheet = workbook.Sheets.Empleados;
   const listsSheet = workbook.Sheets.Listas;
@@ -40,30 +50,31 @@ export async function loadBukColaboradoresTemplateResource() {
     employeeHeaders,
     listRows,
     listsCatalog: buildListsCatalog(listRows),
+    fichaCodesCatalog,
   };
 }
 
 export async function loadBukTrabajosTemplateResource() {
-  const [response, establecimientoPaeResponse, nombreRbdResponse, supervisorFichasResponse] = await Promise.all([
+  const [response, establecimientoPaeResponse, nombreRbdResponse, fichaCodesResponse] = await Promise.all([
     fetch(BUK_TRABAJOS_TEMPLATE_ASSET_PATH),
     fetch(ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH),
     fetch(NOMBRE_RBD_OPTIONS_ASSET_PATH),
-    fetch(SUPERVISOR_FICHAS_ASSET_PATH),
+    fetch(FICHA_CODES_ASSET_PATH),
   ]);
 
   if (!response.ok) {
     throw new Error('No fue posible cargar el template base de BUK Trabajos.');
   }
 
-  if (!establecimientoPaeResponse.ok || !nombreRbdResponse.ok || !supervisorFichasResponse.ok) {
+  if (!establecimientoPaeResponse.ok || !nombreRbdResponse.ok || !fichaCodesResponse.ok) {
     throw new Error('No fue posible cargar las listas embebidas de campos personalizados para BUK Trabajos.');
   }
 
-  const [arrayBuffer, establecimientoPaeText, nombreRbdText, supervisorFichasCatalog] = await Promise.all([
+  const [arrayBuffer, establecimientoPaeText, nombreRbdText, fichaCodesCatalog] = await Promise.all([
     response.arrayBuffer(),
     establecimientoPaeResponse.text(),
     nombreRbdResponse.text(),
-    supervisorFichasResponse.json(),
+    fichaCodesResponse.json(),
   ]);
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const trabajosRows = getSheetRows(workbook.Sheets.trabajos);
@@ -101,7 +112,7 @@ export async function loadBukTrabajosTemplateResource() {
     cargosCatalog: buildRowCatalog(cargosRows),
     establecimientoPaeOptions: buildPlainTextOptionsCatalog(establecimientoPaeText),
     nombreRbdOptions: buildPlainTextOptionsCatalog(nombreRbdText),
-    supervisorFichasCatalog,
+    fichaCodesCatalog,
   };
 }
 

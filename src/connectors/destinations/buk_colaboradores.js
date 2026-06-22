@@ -142,7 +142,10 @@ export function getBukColaboradoresFieldDefinitions() {
     { target: 'Calle', resolve: ({ row }) => cleanCell(row.Calle) },
     { target: 'Número de Calle', resolve: ({ row }) => cleanCell(row.Número) },
     { target: 'Depto / Oficina', resolve: ({ row }) => cleanCell(row.Departamento) },
-    { target: 'Código de Ficha*', resolve: () => 'F1' },
+    {
+      target: 'Código de Ficha*',
+      resolve: ({ row, sourceMeta }) => resolveFichaCode(row.RUT, sourceMeta?.fichaCodesCatalog),
+    },
     { target: 'Ingreso Compañía*', resolve: ({ row }) => formatIsoDate(row['Fecha de Ingreso']) },
     {
       target: 'Rol Privado*',
@@ -263,6 +266,11 @@ function resolveFundCotizationValue(value) {
   const normalized = normalizeText(value);
   const resolvedValue = AFP_ALIASES[normalized] ?? cleanCell(value);
   return KNOWN_FUND_VALUES.has(resolvedValue) ? resolvedValue : '';
+}
+
+function resolveFichaCode(rutValue, catalog) {
+  const normalizedRut = cleanCell(rutValue).replace(/\D+/g, '');
+  return cleanCell(catalog?.[normalizedRut]?.code) || 'F1';
 }
 
 function resolveJubilationRegime(regimenPrevisional) {
