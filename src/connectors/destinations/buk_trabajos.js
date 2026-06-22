@@ -61,6 +61,7 @@ export function buildBukTrabajosSupportSheets({ templateResource }) {
     empresasCatalog: templateResource.empresasCatalog,
     establecimientoPaeCatalog: buildEstablecimientoPaeCatalog(templateResource.establecimientoPaeOptions),
     nombreRbdCatalog: buildNombreRbdCatalog(templateResource.nombreRbdOptions),
+    supervisorFichasCatalog: templateResource.supervisorFichasCatalog ?? {},
   };
 }
 
@@ -84,7 +85,10 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Código Cargo*'] = findCargoCode(row.Cargo, supportSheets.cargosCatalog);
     exportedRow['Código Sub-área*'] = findSubAreaCode(row, supportSheets.subAreasCatalog);
     exportedRow['Número de Documento Supervisor*'] = formatRutWithDots(row['Rut Jefe']);
-    exportedRow['Código de Ficha Supervisor'] = '';
+    exportedRow['Código de Ficha Supervisor'] = findSupervisorFichaCode(
+      row['Rut Jefe'],
+      supportSheets.supervisorFichasCatalog,
+    );
     exportedRow['Tipo de Contrato*'] = contractType;
     exportedRow.Obra = '';
     exportedRow['Término de Contrato'] = formatIsoDate(row['Contrato hasta']);
@@ -301,6 +305,16 @@ function normalizeIdentifier(value) {
 
 function normalizeDigits(value) {
   return cleanCell(value).replace(/\D+/g, '');
+}
+
+function findSupervisorFichaCode(supervisorRut, catalog) {
+  const normalizedRut = normalizeDigits(supervisorRut);
+
+  if (!normalizedRut) {
+    return '';
+  }
+
+  return cleanCell(catalog?.[normalizedRut]);
 }
 
 function normalizeEstablishmentName(value) {

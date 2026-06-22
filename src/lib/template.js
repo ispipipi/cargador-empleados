@@ -5,6 +5,7 @@ const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templa
 const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
 const ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/establecimiento-pae.txt`;
 const NOMBRE_RBD_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/nombre-rbd.txt`;
+const SUPERVISOR_FICHAS_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
 
 export async function loadBukColaboradoresTemplateResource() {
   const response = await fetch(BUK_COLABORADORES_TEMPLATE_ASSET_PATH);
@@ -43,24 +44,26 @@ export async function loadBukColaboradoresTemplateResource() {
 }
 
 export async function loadBukTrabajosTemplateResource() {
-  const [response, establecimientoPaeResponse, nombreRbdResponse] = await Promise.all([
+  const [response, establecimientoPaeResponse, nombreRbdResponse, supervisorFichasResponse] = await Promise.all([
     fetch(BUK_TRABAJOS_TEMPLATE_ASSET_PATH),
     fetch(ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH),
     fetch(NOMBRE_RBD_OPTIONS_ASSET_PATH),
+    fetch(SUPERVISOR_FICHAS_ASSET_PATH),
   ]);
 
   if (!response.ok) {
     throw new Error('No fue posible cargar el template base de BUK Trabajos.');
   }
 
-  if (!establecimientoPaeResponse.ok || !nombreRbdResponse.ok) {
+  if (!establecimientoPaeResponse.ok || !nombreRbdResponse.ok || !supervisorFichasResponse.ok) {
     throw new Error('No fue posible cargar las listas embebidas de campos personalizados para BUK Trabajos.');
   }
 
-  const [arrayBuffer, establecimientoPaeText, nombreRbdText] = await Promise.all([
+  const [arrayBuffer, establecimientoPaeText, nombreRbdText, supervisorFichasCatalog] = await Promise.all([
     response.arrayBuffer(),
     establecimientoPaeResponse.text(),
     nombreRbdResponse.text(),
+    supervisorFichasResponse.json(),
   ]);
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const trabajosRows = getSheetRows(workbook.Sheets.trabajos);
@@ -98,6 +101,7 @@ export async function loadBukTrabajosTemplateResource() {
     cargosCatalog: buildRowCatalog(cargosRows),
     establecimientoPaeOptions: buildPlainTextOptionsCatalog(establecimientoPaeText),
     nombreRbdOptions: buildPlainTextOptionsCatalog(nombreRbdText),
+    supervisorFichasCatalog,
   };
 }
 
