@@ -454,19 +454,16 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeName,
     normalizer: normalizeLooseText,
   });
-  const sede = resolveCatalogField({
-    key: 'sede',
-    label: 'Id sede donde se desempeña',
-    catalogName: 'Id sede donde se desempeña',
+  const sede = resolveSedeField({
     sourceValue: cleanCell(sourceRow.UBICACION) || cleanCell(sourceRow['UBICACION WORKDAY']),
     correctionValue: corrections?.sede,
+    sourceCompanyValue: sourceRow.EMPRESA,
+    resolvedCompanyId: company.value,
     templateResource,
     pendingItems,
     rowNumber,
     employeeId,
     employeeName,
-    normalizer: normalizeLooseText,
-    allowHeuristicMatch: true,
   });
   const area = resolveCatalogField({
     key: 'area',
@@ -803,6 +800,87 @@ function resolveBankField({
     normalizer: normalizeBankName,
     allowHeuristicMatch: true,
   });
+}
+
+function resolveSedeField({
+  sourceValue,
+  correctionValue,
+  sourceCompanyValue,
+  resolvedCompanyId,
+  templateResource,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  const directCorrection = cleanCell(correctionValue);
+
+  if (directCorrection) {
+    return { value: directCorrection };
+  }
+
+  const candidate = cleanCell(sourceValue);
+
+  if (!candidate) {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'sede',
+        label: 'Id sede donde se desempeña',
+        type: 'catalog',
+        catalogName: 'Id sede donde se desempeña',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: '',
+      }),
+    );
+    return { value: '' };
+  }
+
+  const catalog = templateResource.catalogs['Id sede donde se desempeña'] ?? [];
+  const candidateOptions = buildSedeCandidates({
+    sourceValue: candidate,
+    sourceCompanyValue,
+    resolvedCompanyId,
+  });
+
+  for (const candidateOption of candidateOptions) {
+    const exactMatch = findCatalogMatch({
+      catalog,
+      candidate: candidateOption,
+      normalizer: normalizeSedeName,
+    });
+
+    if (exactMatch) {
+      return { value: exactMatch.id };
+    }
+  }
+
+  for (const candidateOption of candidateOptions) {
+    const heuristicMatch = findHeuristicCatalogMatch({
+      catalog,
+      candidate: candidateOption,
+      normalizer: normalizeSedeName,
+    });
+
+    if (heuristicMatch) {
+      return { value: heuristicMatch.id };
+    }
+  }
+
+  pendingItems.push(
+    buildPendingItem({
+      key: 'sede',
+      label: 'Id sede donde se desempeña',
+      type: 'catalog',
+      catalogName: 'Id sede donde se desempeña',
+      rowNumber,
+      employeeId,
+      employeeName,
+      sourceValue: candidate,
+    }),
+  );
+  return { value: '' };
 }
 
 function resolveAfpField({ sourceRow, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName, noCotiza }) {
@@ -1321,6 +1399,31 @@ function findHeuristicCatalogMatch({ catalog, candidate, normalizer }) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+function buildSedeCandidates({ sourceValue, sourceCompanyValue, resolvedCompanyId }) {
+  const rawValue = cleanCell(sourceValue);
+  const branchName = rawValue.replace(/^sucursal\s+/i, '').trim();
+  const candidates = [rawValue];
+
+  if (branchName && branchName !== rawValue) {
+    candidates.push(branchName);
+
+    if (isDiperkCompany(sourceCompanyValue, resolvedCompanyId)) {
+      candidates.push(`Diperk ${branchName}`);
+    }
+  }
+
+  return [...new Set(candidates.map(cleanCell).filter(Boolean))];
+}
+
+function isDiperkCompany(sourceCompanyValue, resolvedCompanyId) {
+  if (cleanCell(resolvedCompanyId) === '4') {
+    return true;
+  }
+
+  const normalizedCompany = normalizeLooseText(sourceCompanyValue);
+  return normalizedCompany.includes('distribuidora perkins chilena') || normalizedCompany.includes('diperk');
+}
+
 function isNoCotiza(sourceRow) {
   return normalizeLooseText(sourceRow.AFP) === 'no definida' || cleanCell(sourceRow['CODIGO AFP']) === '9999';
 }
@@ -1397,6 +1500,14 @@ function resolveCityIdForRegion(regionId, comunaName, cityCatalog) {
 function normalizeLooseText(value) {
   return normalizeText(value)
     .replace(/[().,/\\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeSedeName(value) {
+  return normalizeLooseText(value)
+    .replace(/\bsucursal\b/g, '')
+    .replace(/\boficina\b/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
