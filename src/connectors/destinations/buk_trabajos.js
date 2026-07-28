@@ -49,6 +49,7 @@ const CUSTOM_FIELDS_TO_CLEAR = [
   'Tipo PMA',
   'Sindicato 2',
 ];
+
 export function buildBukTrabajosSupportSheets({ templateResource }) {
   return {
     cargosRows: templateResource.cargosRows,
@@ -224,12 +225,7 @@ function findCargoCode(inputValue, catalog) {
     );
   }
 
-  return findBestCatalogCode({
-    catalog,
-    labelKey: 'Cargo',
-    codeKey: 'Código',
-    inputValue,
-  });
+  return '';
 }
 
 function findSubAreaCode(row, catalog) {
@@ -362,6 +358,7 @@ function extractCatalogRbd(value) {
   const prioritizedGroup = digitGroups.find((group) => normalizeDigits(group).length >= 7) ?? digitGroups[0] ?? '';
   return normalizeDigits(prioritizedGroup);
 }
+
 function buildSubAreaSearchCandidates(row) {
   const rawCandidates = [
     cleanCell(row['Nombre Centro Costo 1']),
@@ -622,42 +619,6 @@ function resolvePlanContableValue(row) {
 function isManipuladoraCargo(cargoValue) {
   const normalizedCargo = normalizeText(cargoValue);
   return /(manipulador|manipuladora)/.test(normalizedCargo);
-function findBestCatalogCode({ catalog, labelKey, codeKey, inputValue }) {
-  const normalizedInput = normalizeText(inputValue);
-
-  if (!normalizedInput) {
-    return '';
-  }
-
-  const inputTokens = tokenize(normalizedInput);
-  let bestMatch = null;
-
-  catalog.forEach((entry) => {
-    const normalizedLabel = normalizeText(entry[labelKey]);
-    const labelTokens = tokenize(normalizedLabel);
-    const sharedTokens = inputTokens.filter((token) => labelTokens.includes(token));
-    let score = sharedTokens.length * 10;
-
-    if (normalizedLabel.includes(normalizedInput) || normalizedInput.includes(normalizedLabel)) {
-      score += 30;
-    }
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = {
-        score,
-        code: cleanCell(entry[codeKey]),
-      };
-    }
-  });
-
-  return bestMatch?.score > 0 ? bestMatch.code : '';
-}
-
-function tokenize(value) {
-  return normalizeText(value)
-    .split(/[^a-z0-9]+/g)
-    .filter(Boolean)
-    .filter((token) => token.length > 2);
 }
 
 const CARGO_ALIASES = {

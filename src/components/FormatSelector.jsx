@@ -1,8 +1,14 @@
 import ConfigManager from './ConfigManager';
 
 const SYSTEM_OPTIONS = {
-  origins: [{ id: 'talana', name: 'Talana' }],
-  destinations: [{ id: 'buk', name: 'BUK' }],
+  origins: [
+    { id: 'talana', name: 'Talana' },
+    { id: 'meta4', name: 'Meta 4' },
+  ],
+  destinations: [
+    { id: 'buk', name: 'BUK' },
+    { id: 'rex', name: 'REX+' },
+  ],
 };
 
 export default function FormatSelector({
@@ -12,6 +18,8 @@ export default function FormatSelector({
   onChangeDestination,
   onContinue,
   templateStatus,
+  pairKey,
+  isSupportedPair,
   configurations,
   activeConfigurationId,
   onActivateConfiguration,
@@ -20,6 +28,7 @@ export default function FormatSelector({
   onExportActiveConfiguration,
 }) {
   const templateReady = templateStatus === 'ready';
+  const canContinue = templateReady && isSupportedPair;
 
   return (
     <div className="space-y-8">
@@ -31,7 +40,8 @@ export default function FormatSelector({
               Define el par de transformación y prepara la carga.
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-              El MVP parte con Talana → BUK, pero el motor queda preparado para extenderse a más orígenes y destinos.
+              Hoy quedan operativos dos pares reales: Talana → BUK y Meta 4 → REX+. El selector sigue abierto para
+              que podamos extender el motor sin rehacer la interfaz.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -55,25 +65,24 @@ export default function FormatSelector({
               <p className="text-sm font-semibold text-slate-900">Estado de los templates BUK</p>
               <p className="mt-2 text-sm text-slate-600">
                 {templateStatus === 'loading' && 'Cargando los templates embebidos y las listas controladas…'}
-                {templateStatus === 'ready' && 'Templates listos. Se usarán para listas, headers y exportación final.'}
+                {templateStatus === 'ready' && 'Templates listos. Se usarán para listas, catálogos y exportación final.'}
                 {templateStatus === 'error' && 'No se pudieron cargar los templates. Revisa los assets embebidos.'}
               </p>
             </div>
 
             <div className="rounded-[24px] border border-brand-100 bg-brand-50 p-5">
-              <p className="text-sm font-semibold text-brand-700">Incluye en esta versión</p>
+              <p className="text-sm font-semibold text-brand-700">Pair activo</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                <li>Validación de columnas Talana</li>
-                <li>Wizard de 3 preguntas</li>
-                <li>Matching contra hoja Listas del template</li>
-                <li>Este destino genera 2 archivos: Colaboradores + Trabajos</li>
+                <li>{pairKey === 'talana:buk' ? 'Genera 2 archivos: Colaboradores + Trabajos.' : 'Genera 1 archivo final REX+ Empleados.'}</li>
+                <li>{pairKey === 'talana:buk' ? 'Usa wizard y matching contra listas BUK.' : 'Incluye revisión manual de no-match antes de descargar.'}</li>
+                <li>{isSupportedPair ? 'El par seleccionado está soportado por la app.' : 'Este par aún no está habilitado.'}</li>
               </ul>
             </div>
 
             <button
               type="button"
               onClick={onContinue}
-              disabled={!templateReady}
+              disabled={!canContinue}
               className="rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               Continuar a carga de archivo

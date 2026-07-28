@@ -1,4 +1,5 @@
 export default function FileUploader({
+  originLabel,
   sourceFile,
   validation,
   isReadingFile,
@@ -24,9 +25,9 @@ export default function FileUploader({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Paso 2</p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-950">Carga el archivo Talana</h2>
+            <h2 className="mt-2 text-2xl font-bold text-slate-950">Carga el archivo {originLabel}</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Se leerá la primera hoja del libro y se validarán las columnas clave antes de transformar.
+              Se leerá el Excel en el navegador y se validarán las columnas clave antes de transformar.
             </p>
           </div>
 
@@ -43,7 +44,7 @@ export default function FileUploader({
           <span className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-brand-700 shadow-sm">
             Drag & Drop
           </span>
-          <p className="mt-6 text-xl font-bold text-slate-900">Arrastra tu Excel Talana aquí</p>
+          <p className="mt-6 text-xl font-bold text-slate-900">Arrastra tu Excel {originLabel} aquí</p>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
             También puedes hacer clic para buscar el archivo. El sistema no sube datos a ningún servidor.
           </p>

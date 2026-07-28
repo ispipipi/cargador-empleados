@@ -1,33 +1,25 @@
 import * as XLSX from 'xlsx';
+import { getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
 import { getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
 
 self.onmessage = (event) => {
   try {
-    const { arrayBuffer } = event.data;
+    const { arrayBuffer, originId = 'talana' } = event.data;
     const workbook = XLSX.read(arrayBuffer, {
       type: 'array',
       raw: false,
     });
-    const firstSheetName = workbook.SheetNames[0];
-    const firstSheet = workbook.Sheets[firstSheetName];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, {
-      defval: '',
-      raw: false,
-    });
-    const headers = Object.keys(rows[0] ?? {}).map(cleanCell);
-    const missingColumns = getTalanaMissingColumns(headers);
-    const filteredRows = rows.filter((row) =>
-      Object.values(row).some((value) => cleanCell(value)),
-    );
+    const parsedSource =
+      originId === 'meta4' ? parseMeta4Workbook(workbook) : parseTalanaWorkbook(workbook);
 
     self.postMessage({
       ok: true,
-      workbookName: firstSheetName,
-      headers,
-      missingColumns,
-      rows: filteredRows,
-      previewRows: filteredRows.slice(0, 3),
+      workbookName: parsedSource.workbookName,
+      headers: parsedSource.headers,
+      missingColumns: parsedSource.missingColumns,
+      rows: parsedSource.rows,
+      previewRows: parsedSource.rows.slice(0, 3),
     });
   } catch (error) {
     self.postMessage({
@@ -36,3 +28,66 @@ self.onmessage = (event) => {
     });
   }
 };
+
+function parseTalanaWorkbook(workbook) {
+  const firstSheetName = workbook.SheetNames[0];
+  const firstSheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, {
+    defval: '',
+    raw: false,
+  });
+  const headers = Object.keys(rows[0] ?? {}).map(cleanCell);
+  const missingColumns = getTalanaMissingColumns(headers);
+  const filteredRows = rows
+    .filter((row) => Object.values(row).some((value) => cleanCell(value)))
+    .map((row, index) => ({
+      ...row,
+      __sourceRowNumber: index + 2,
+      __sheetName: firstSheetName,
+    }));
+
+  return {
+    workbookName: firstSheetName,
+    headers,
+    missingColumns,
+    rows: filteredRows,
+  };
+}
+
+function parseMeta4Workbook(workbook) {
+  const firstSheetName = workbook.SheetNames[meta4Origin.hojaDatos];
+  const firstSheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, {
+    header: 1,
+    defval: '',
+    raw: true,
+  });
+  const headers = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
+  const missingColumns = getMeta4MissingColumns(headers);
+  const dataRows = rows
+    .slice(meta4Origin.dataRowStartIndex)
+    .filter((row) => row.some((value) => cleanCell(value)))
+    .map((row, rowIndex) =>
+      headers.reduce(
+        (entry, header, headerIndex) => {
+          if (!header) {
+            return entry;
+          }
+
+          entry[header] = row[headerIndex] ?? '';
+          return entry;
+        },
+        {
+          __sourceRowNumber: meta4Origin.dataRowStartIndex + rowIndex + 1,
+          __sheetName: firstSheetName,
+        },
+      ),
+    );
+
+  return {
+    workbookName: firstSheetName,
+    headers,
+    missingColumns,
+    rows: dataRows,
+  };
+}

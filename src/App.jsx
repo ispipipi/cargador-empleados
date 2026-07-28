@@ -3,12 +3,21 @@ import * as XLSX from 'xlsx';
 import FileUploader from './components/FileUploader';
 import FormatSelector from './components/FormatSelector';
 import ParamsWizard from './components/ParamsWizard';
+import RexCorrectionsStep from './components/RexCorrectionsStep';
+import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
   getDefaultParameterValues,
 } from './connectors/destinations/buk_colaboradores';
+import {
+  buildInitialRexTransformation,
+  buildRexRow,
+  getDefaultRexParameterValues,
+  rexDestination,
+  summarizeRexRows,
+} from './connectors/destinations/rex_empleados';
 import {
   buildBukTrabajosSupportSheets,
   transformBukTrabajosRows,
@@ -17,8 +26,10 @@ import { transformWorkbookRows } from './engine/transformer';
 import {
   buildBukColaboradoresExportWorkbook,
   buildBukTrabajosExportWorkbook,
+  buildRexExportWorkbook,
   loadBukColaboradoresTemplateResource,
   loadBukTrabajosTemplateResource,
+  loadRexTemplateResource,
 } from './lib/template';
 import {
   createConfigurationPayload,
@@ -35,8 +46,11 @@ const STEPS = {
   format: 'format',
   upload: 'upload',
   params: 'params',
+  review: 'review',
   result: 'result',
 };
+
+const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
 
 export default function App() {
   const [step, setStep] = useState(STEPS.format);
@@ -48,6 +62,7 @@ export default function App() {
   const [templateStatus, setTemplateStatus] = useState('loading');
   const [colaboradoresTemplateResource, setColaboradoresTemplateResource] = useState(null);
   const [trabajosTemplateResource, setTrabajosTemplateResource] = useState(null);
+  const [rexTemplateResource, setRexTemplateResource] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
@@ -55,16 +70,25 @@ export default function App() {
   const [isTransforming, setIsTransforming] = useState(false);
   const [globalError, setGlobalError] = useState('');
 
+  const pairKey = `${selectedOrigin}:${selectedDestination}`;
+  const isBukFlow = pairKey === 'talana:buk';
+  const isRexFlow = pairKey === 'meta4:rex';
+  const isSupportedPair = SUPPORTED_PAIRS.has(pairKey);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
+  const activeParameterDefinitions = useMemo(
+    () => (isBukFlow ? bukColaboradoresDestination.userParameters : rexDestination.userParameters),
+    [isBukFlow],
+  );
 
   useEffect(() => {
     let isMounted = true;
 
     async function bootstrapTemplates() {
       try {
-        const [loadedColaboradoresTemplate, loadedTrabajosTemplate] = await Promise.all([
+        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate] = await Promise.all([
           loadBukColaboradoresTemplateResource(),
           loadBukTrabajosTemplateResource(),
+          loadRexTemplateResource(),
         ]);
 
         if (!isMounted) {
@@ -73,6 +97,7 @@ export default function App() {
 
         setColaboradoresTemplateResource(loadedColaboradoresTemplate);
         setTrabajosTemplateResource(loadedTrabajosTemplate);
+        setRexTemplateResource(loadedRexTemplate);
         setTemplateStatus('ready');
       } catch (error) {
         if (!isMounted) {
@@ -92,7 +117,8 @@ export default function App() {
   }, []);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
-  const destinationLabel = 'BUK';
+  const originLabel = selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
+  const destinationLabel = selectedDestination === 'rex' ? 'REX+' : 'BUK';
 
   const handleFileSelected = async (file) => {
     if (!file) {
@@ -116,7 +142,11 @@ export default function App() {
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const parsedSource = await parseSourceWorkbook(arrayBuffer);
+      const parsedSource = await parseSourceWorkbook(arrayBuffer, selectedOrigin);
+      const validationMessage = buildValidationMessage({
+        originId: selectedOrigin,
+        parsedSource,
+      });
 
       setSourceFile({
         fileName: file.name,
@@ -129,10 +159,7 @@ export default function App() {
       setValidation({
         isValid: parsedSource.missingColumns.length === 0 && parsedSource.rows.length > 0,
         missingColumns: parsedSource.missingColumns,
-        message:
-          parsedSource.missingColumns.length === 0
-            ? `Archivo listo. Se detectaron ${parsedSource.rows.length} filas en la hoja ${parsedSource.workbookName}.`
-            : 'El archivo no cumple con las columnas mínimas para Talana.',
+        message: validationMessage,
       });
     } catch (error) {
       setSourceFile(null);
@@ -147,50 +174,72 @@ export default function App() {
   };
 
   const handleTransform = () => {
-    if (!sourceFile || !colaboradoresTemplateResource || !trabajosTemplateResource) {
+    if (!sourceFile || !isSupportedPair) {
       return;
     }
 
     setIsTransforming(true);
 
     try {
-      const colaboradoresTransformation = transformWorkbookRows({
-        sourceRows: sourceFile.rows,
-        fieldDefinitions: colaboradoresFieldDefinitions,
-        employeeHeaders: colaboradoresTemplateResource.employeeHeaders,
-        listsCatalog: colaboradoresTemplateResource.listsCatalog,
-        parameters,
-        sourceMeta: {
-          fileName: sourceFile.fileName,
-          workbookName: sourceFile.workbookName,
-          fichaCodesCatalog: colaboradoresTemplateResource.fichaCodesCatalog,
-        },
-      });
-      const trabajosSupportSheets = buildBukTrabajosSupportSheets({
-        templateResource: trabajosTemplateResource,
-      });
-      const trabajosTransformation = transformBukTrabajosRows({
-        sourceRows: sourceFile.rows,
-        trabajosHeaders: trabajosTemplateResource.trabajosHeaders,
-        supportSheets: trabajosSupportSheets,
-      });
-
-      startTransition(() => {
-        setResult({
-          colaboradores: {
-            ...colaboradoresTransformation,
-            errors: colaboradoresTransformation.allErrors,
-            alerts: colaboradoresTransformation.allAlerts,
+      if (isBukFlow) {
+        const colaboradoresTransformation = transformWorkbookRows({
+          sourceRows: sourceFile.rows,
+          fieldDefinitions: colaboradoresFieldDefinitions,
+          employeeHeaders: colaboradoresTemplateResource.employeeHeaders,
+          listsCatalog: colaboradoresTemplateResource.listsCatalog,
+          parameters,
+          sourceMeta: {
+            fileName: sourceFile.fileName,
+            workbookName: sourceFile.workbookName,
+            fichaCodesCatalog: colaboradoresTemplateResource.fichaCodesCatalog,
           },
-          trabajos: {
-            ...trabajosTransformation,
-            errors: trabajosTransformation.allErrors,
-            supportSheets: trabajosSupportSheets,
-          },
-          generatedAt: todayStamp(),
         });
-        setStep(STEPS.result);
-      });
+        const trabajosSupportSheets = buildBukTrabajosSupportSheets({
+          templateResource: trabajosTemplateResource,
+        });
+        const trabajosTransformation = transformBukTrabajosRows({
+          sourceRows: sourceFile.rows,
+          trabajosHeaders: trabajosTemplateResource.trabajosHeaders,
+          supportSheets: trabajosSupportSheets,
+        });
+
+        startTransition(() => {
+          setResult({
+            kind: 'buk',
+            colaboradores: {
+              ...colaboradoresTransformation,
+              errors: colaboradoresTransformation.allErrors,
+              alerts: colaboradoresTransformation.allAlerts,
+            },
+            trabajos: {
+              ...trabajosTransformation,
+              errors: trabajosTransformation.allErrors,
+              supportSheets: trabajosSupportSheets,
+            },
+            generatedAt: todayStamp(),
+          });
+          setStep(STEPS.result);
+        });
+        return;
+      }
+
+      if (isRexFlow) {
+        const rexTransformation = buildInitialRexTransformation({
+          sourceRows: sourceFile.rows,
+          templateResource: rexTemplateResource,
+        });
+
+        startTransition(() => {
+          setResult({
+            kind: 'rex',
+            rowStates: rexTransformation.rowStates,
+            correctionsByRow: {},
+            summary: rexTransformation.summary,
+            generatedAt: todayStamp(),
+          });
+          setStep(rexTransformation.summary.pendingCount > 0 ? STEPS.review : STEPS.result);
+        });
+      }
     } catch (error) {
       setGlobalError(error.message);
     } finally {
@@ -226,12 +275,99 @@ export default function App() {
     XLSX.writeFile(workbook, `BUK_trabajos_${todayStamp()}.xlsx`);
   };
 
+  const handleDownloadRex = () => {
+    if (!result || !rexTemplateResource || result.kind !== 'rex') {
+      return;
+    }
+
+    const workbook = buildRexExportWorkbook({
+      templateResource: rexTemplateResource,
+      rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
+    });
+
+    XLSX.writeFile(workbook, `REX_empleados_${todayStamp()}.xlsx`);
+  };
+
+  const handleUpdateRexCorrection = (rowNumber, fieldKey, value) => {
+    if (!result || result.kind !== 'rex' || !rexTemplateResource) {
+      return;
+    }
+
+    setResult((current) => {
+      if (!current || current.kind !== 'rex') {
+        return current;
+      }
+
+      const nextCorrectionsByRow = {
+        ...current.correctionsByRow,
+        [rowNumber]: {
+          ...(current.correctionsByRow[rowNumber] ?? {}),
+          [fieldKey]: value,
+        },
+      };
+      const nextRowStates = current.rowStates.map((rowState) =>
+        rowState.rowNumber === rowNumber
+          ? buildRexRow({
+              sourceRow: rowState.sourceRow,
+              templateResource: rexTemplateResource,
+              corrections: nextCorrectionsByRow[rowNumber],
+            })
+          : rowState,
+      );
+
+      return {
+        ...current,
+        correctionsByRow: nextCorrectionsByRow,
+        rowStates: nextRowStates,
+        summary: summarizeRexRows(nextRowStates),
+      };
+    });
+  };
+
+  const handleBulkApplyRexCorrection = (fieldKey, rowNumbers, value) => {
+    if (!result || result.kind !== 'rex' || !rexTemplateResource || !value || rowNumbers.length === 0) {
+      return;
+    }
+
+    setResult((current) => {
+      if (!current || current.kind !== 'rex') {
+        return current;
+      }
+
+      const nextCorrectionsByRow = { ...current.correctionsByRow };
+
+      rowNumbers.forEach((rowNumber) => {
+        nextCorrectionsByRow[rowNumber] = {
+          ...(nextCorrectionsByRow[rowNumber] ?? {}),
+          [fieldKey]: value,
+        };
+      });
+
+      const nextRowStates = current.rowStates.map((rowState) =>
+        rowNumbers.includes(rowState.rowNumber)
+          ? buildRexRow({
+              sourceRow: rowState.sourceRow,
+              templateResource: rexTemplateResource,
+              corrections: nextCorrectionsByRow[rowState.rowNumber],
+            })
+          : rowState,
+      );
+
+      return {
+        ...current,
+        correctionsByRow: nextCorrectionsByRow,
+        rowStates: nextRowStates,
+        summary: summarizeRexRows(nextRowStates),
+      };
+    });
+  };
+
   const handleSaveConfiguration = (name) => {
     const configuration = createConfigurationPayload({
       name,
       origin: selectedOrigin,
       destination: selectedDestination,
-      parameters,
+      parameters: isBukFlow ? parameters : {},
     });
     const nextConfigurations = upsertConfiguration(configuration, configurations);
     setConfigurations(nextConfigurations);
@@ -241,14 +377,15 @@ export default function App() {
   const handleActivateConfiguration = (configuration) => {
     const normalizedConfiguration = {
       ...configuration,
+      origen: normalizeOrigin(configuration.origen),
       destino: normalizeDestination(configuration.destino),
     };
 
-    setSelectedOrigin(configuration.origen);
+    setSelectedOrigin(normalizedConfiguration.origen);
     setSelectedDestination(normalizedConfiguration.destino);
     setParameters({
-      ...getDefaultParameterValues(),
-      ...configuration.parametros,
+      ...(normalizedConfiguration.destino === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
+      ...normalizedConfiguration.parametros,
     });
     setActiveConfiguration(normalizedConfiguration);
   };
@@ -282,6 +419,7 @@ export default function App() {
       const importedConfiguration = {
         ...parsed,
         id: parsed.id || crypto.randomUUID(),
+        origen: normalizeOrigin(parsed.origen),
         destino: normalizeDestination(parsed.destino),
       };
       const nextConfigurations = upsertConfiguration(importedConfiguration, configurations);
@@ -290,7 +428,7 @@ export default function App() {
       setSelectedOrigin(importedConfiguration.origen);
       setSelectedDestination(normalizeDestination(importedConfiguration.destino));
       setParameters({
-        ...getDefaultParameterValues(),
+        ...(importedConfiguration.destino === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
         ...importedConfiguration.parametros,
       });
     } catch (error) {
@@ -328,8 +466,8 @@ export default function App() {
                 <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-300">NPR interno</p>
                 <h1 className="mt-3 text-3xl font-extrabold sm:text-4xl">Cargador Universal de Empleados</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                  Convierte archivos Talana a BUK Colaboradores y BUK Trabajos en un flujo client-side, sin backend y
-                  con trazabilidad de errores de matching.
+                  Convierte archivos {originLabel} a {destinationLabel} en un flujo client-side, sin backend y con
+                  trazabilidad para revisar no-match antes de descargar.
                 </p>
               </div>
 
@@ -357,6 +495,8 @@ export default function App() {
             onChangeDestination={setSelectedDestination}
             onContinue={() => setStep(STEPS.upload)}
             templateStatus={templateStatus}
+            pairKey={pairKey}
+            isSupportedPair={isSupportedPair}
             configurations={configurations}
             activeConfigurationId={activeConfigurationId}
             onActivateConfiguration={handleActivateConfiguration}
@@ -368,6 +508,7 @@ export default function App() {
 
         {step === STEPS.upload ? (
           <FileUploader
+            originLabel={originLabel}
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
@@ -380,7 +521,7 @@ export default function App() {
         {step === STEPS.params ? (
           <ParamsWizard
             parameters={parameters}
-            parameterDefinitions={bukColaboradoresDestination.userParameters}
+            parameterDefinitions={activeParameterDefinitions}
             onChangeParameter={(key, value) => setParameters((current) => ({ ...current, [key]: value }))}
             onBack={() => setStep(STEPS.upload)}
             onTransform={handleTransform}
@@ -388,7 +529,19 @@ export default function App() {
           />
         ) : null}
 
-        {step === STEPS.result && result ? (
+        {step === STEPS.review && result?.kind === 'rex' ? (
+          <RexCorrectionsStep
+            rowStates={result.rowStates}
+            correctionsByRow={result.correctionsByRow}
+            templateResource={rexTemplateResource}
+            onBack={() => setStep(STEPS.upload)}
+            onUpdateCorrection={handleUpdateRexCorrection}
+            onBulkApply={handleBulkApplyRexCorrection}
+            onContinue={() => setStep(STEPS.result)}
+          />
+        ) : null}
+
+        {step === STEPS.result && result?.kind === 'buk' ? (
           <TransformResult
             colaboradoresResult={result.colaboradores}
             trabajosResult={result.trabajos}
@@ -402,16 +555,31 @@ export default function App() {
             onRestart={resetFlow}
           />
         ) : null}
+
+        {step === STEPS.result && result?.kind === 'rex' ? (
+          <RexTransformResult
+            result={result}
+            activeConfiguration={activeConfiguration}
+            onDownload={handleDownloadRex}
+            onSaveConfiguration={handleSaveConfiguration}
+            onExportActiveConfiguration={handleExportActiveConfiguration}
+            onRestart={resetFlow}
+          />
+        ) : null}
       </div>
     </main>
   );
 }
 
 function normalizeDestination(destinationId) {
-  return destinationId === 'buk' ? 'buk' : 'buk';
+  return destinationId === 'rex' ? 'rex' : 'buk';
 }
 
-function parseSourceWorkbook(arrayBuffer) {
+function normalizeOrigin(originId) {
+  return originId === 'meta4' ? 'meta4' : 'talana';
+}
+
+function parseSourceWorkbook(arrayBuffer, originId) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./workers/sourceParser.worker.js', import.meta.url), {
       type: 'module',
@@ -433,6 +601,16 @@ function parseSourceWorkbook(arrayBuffer) {
       reject(new Error('No se pudo procesar el archivo en segundo plano.'));
     };
 
-    worker.postMessage({ arrayBuffer }, [arrayBuffer]);
+    worker.postMessage({ arrayBuffer, originId }, [arrayBuffer]);
   });
+}
+
+function buildValidationMessage({ originId, parsedSource }) {
+  if (parsedSource.missingColumns.length > 0) {
+    return originId === 'meta4'
+      ? 'El archivo no cumple con las columnas mínimas para Meta 4.'
+      : 'El archivo no cumple con las columnas mínimas para Talana.';
+  }
+
+  return `Archivo listo. Se detectaron ${parsedSource.rows.length} filas en la hoja ${parsedSource.workbookName}.`;
 }

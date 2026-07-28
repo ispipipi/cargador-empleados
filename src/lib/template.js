@@ -3,6 +3,8 @@ import { cleanCell } from './utils';
 
 const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-colaboradores-template.xlsx`;
 const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
+const REX_EMPLEADOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-empleados-template.xlsx`;
+const REX_CORREOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-correos-finning.xlsx`;
 const ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/establecimiento-pae.txt`;
 const NOMBRE_RBD_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/nombre-rbd.txt`;
 const FICHA_CODES_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
@@ -116,6 +118,58 @@ export async function loadBukTrabajosTemplateResource() {
   };
 }
 
+export async function loadRexTemplateResource() {
+  const [templateResponse, emailResponse] = await Promise.all([
+    fetch(REX_EMPLEADOS_TEMPLATE_ASSET_PATH),
+    fetch(REX_CORREOS_TEMPLATE_ASSET_PATH),
+  ]);
+
+  if (!templateResponse.ok) {
+    throw new Error('No fue posible cargar el template embebido de REX+.');
+  }
+
+  if (!emailResponse.ok) {
+    throw new Error('No fue posible cargar el maestro embebido de correos Finning.');
+  }
+
+  const [arrayBuffer, emailArrayBuffer] = await Promise.all([
+    templateResponse.arrayBuffer(),
+    emailResponse.arrayBuffer(),
+  ]);
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const employeeSheetName = 'Ejemplo';
+  const employeeRows = getSheetRows(workbook.Sheets[employeeSheetName]);
+
+  if (employeeRows.length < 2) {
+    throw new Error('El template embebido de REX+ no contiene una hoja Ejemplo válida.');
+  }
+
+  const employeeHeaders = employeeRows[1]?.map(cleanCell) ?? [];
+  const sheetRowsByName = workbook.SheetNames.reduce((lookup, sheetName) => {
+    lookup[sheetName] = getSheetRows(workbook.Sheets[sheetName]);
+    return lookup;
+  }, {});
+  const catalogs = workbook.SheetNames.reduce((lookup, sheetName) => {
+    if (sheetName === employeeSheetName) {
+      return lookup;
+    }
+
+    lookup[sheetName] = buildRexCatalog(sheetRowsByName[sheetName]);
+    return lookup;
+  }, {});
+
+  return {
+    arrayBuffer,
+    workbook,
+    employeeSheetName,
+    employeeHeaders,
+    employeeLeadRows: employeeRows.slice(0, 2),
+    sheetRowsByName,
+    catalogs,
+    emailCatalog: buildRexEmailCatalog(emailArrayBuffer),
+  };
+}
+
 function buildListsCatalog(listRows) {
   const [headers = [], ...rows] = listRows;
   return headers.reduce((catalog, header, columnIndex) => {
@@ -212,6 +266,29 @@ export function buildBukTrabajosExportWorkbook({ templateResource, exportedRows,
   return workbook;
 }
 
+export function buildRexExportWorkbook({ templateResource, rowEntries }) {
+  const sourceWorkbook = XLSX.read(templateResource.arrayBuffer, { type: 'array' });
+  const workbook = XLSX.utils.book_new();
+
+  sourceWorkbook.SheetNames.forEach((sheetName) => {
+    const sourceSheet = sourceWorkbook.Sheets[sheetName];
+    const rows =
+      sheetName === templateResource.employeeSheetName
+        ? [
+            ...templateResource.employeeLeadRows,
+            ...rowEntries.map((entry) =>
+              templateResource.employeeHeaders.map((header) => entry[header] ?? ''),
+            ),
+          ]
+        : templateResource.sheetRowsByName[sheetName];
+    const nextSheet = XLSX.utils.aoa_to_sheet(rows);
+    copySheetMeta(sourceSheet, nextSheet);
+    XLSX.utils.book_append_sheet(workbook, nextSheet, sheetName);
+  });
+
+  return workbook;
+}
+
 function copySheetMeta(sourceSheet, targetSheet) {
   ['!cols', '!rows', '!merges', '!autofilter'].forEach((metaKey) => {
     if (sourceSheet?.[metaKey]) {
@@ -256,6 +333,77 @@ function buildPlainTextOptionsCatalog(text) {
     .map(cleanCell)
     .filter(Boolean)
     .filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function buildRexCatalog(rows) {
+  const [headers = [], ...dataRows] = rows;
+  const normalizedHeaders = headers.map(cleanCell);
+  const idIndex = normalizedHeaders.findIndex((header) => normalizeCatalogHeader(header) === 'id');
+  const nameIndex = normalizedHeaders.findIndex((header) => normalizeCatalogHeader(header) === 'nombre');
+
+  return dataRows
+    .filter((row) => row.some((value) => cleanCell(value)))
+    .map((row) => ({
+      id: cleanCell(row[idIndex]),
+      name: cleanCell(row[nameIndex]),
+    }))
+    .filter((row) => row.id || row.name);
+}
+
+function buildRexEmailCatalog(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: '',
+    raw: true,
+  });
+  const headers = (rows[4] ?? []).map(cleanCell);
+  const ciIndex = headers.indexOf('CI');
+  const employeeIdIndex = headers.indexOf('ID EMPLEADO');
+  const emailIndex = headers.indexOf('CORREO');
+  const byCi = new Map();
+  const byEmployeeId = new Map();
+
+  rows
+    .slice(5)
+    .filter((row) => row.some((value) => cleanCell(value)))
+    .forEach((row) => {
+      const ci = cleanCell(row[ciIndex]);
+      const employeeId = cleanCell(row[employeeIdIndex]);
+      const email = cleanCell(row[emailIndex]).toLowerCase();
+
+      if (!email) {
+        return;
+      }
+
+      if (ci) {
+        appendUniqueValue(byCi, ci, email);
+      }
+
+      if (employeeId) {
+        appendUniqueValue(byEmployeeId, employeeId, email);
+      }
+    });
+
+  return { byCi, byEmployeeId };
+}
+
+function normalizeCatalogHeader(value) {
+  return cleanCell(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function appendUniqueValue(lookup, key, value) {
+  const currentValues = lookup.get(key) ?? [];
+
+  if (!currentValues.includes(value)) {
+    currentValues.push(value);
+  }
+
+  lookup.set(key, currentValues);
 }
 
 function applyAlertComments(sheet, headers, alerts) {
