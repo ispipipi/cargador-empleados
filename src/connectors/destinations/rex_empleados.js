@@ -179,6 +179,7 @@ const HEALTH_NAME_ALIASES = {
 };
 
 const BANK_NAME_ALIASES = {
+  'credito inversiones': 'Banco BCI',
   'de chile': 'Banco de CHILE',
   chile: 'Banco de CHILE',
   'banco chile': 'Banco de CHILE',
