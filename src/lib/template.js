@@ -6,6 +6,7 @@ const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/b
 const REX_EMPLEADOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-empleados-template.xlsx`;
 const REX_CORREOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-correos-finning.xlsx`;
 const REX_CARGOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-cargos-finning.xlsx`;
+const REX_SEDES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-sedes-finning.xlsx`;
 const ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/establecimiento-pae.txt`;
 const NOMBRE_RBD_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/nombre-rbd.txt`;
 const FICHA_CODES_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
@@ -120,10 +121,11 @@ export async function loadBukTrabajosTemplateResource() {
 }
 
 export async function loadRexTemplateResource() {
-  const [templateResponse, emailResponse, cargosResponse] = await Promise.all([
+  const [templateResponse, emailResponse, cargosResponse, sedesResponse] = await Promise.all([
     fetch(REX_EMPLEADOS_TEMPLATE_ASSET_PATH),
     fetch(REX_CORREOS_TEMPLATE_ASSET_PATH),
     fetch(REX_CARGOS_TEMPLATE_ASSET_PATH),
+    fetch(REX_SEDES_TEMPLATE_ASSET_PATH),
   ]);
 
   if (!templateResponse.ok) {
@@ -138,13 +140,19 @@ export async function loadRexTemplateResource() {
     throw new Error('No fue posible cargar el maestro embebido de cargos Finning.');
   }
 
-  const [arrayBuffer, emailArrayBuffer, cargosArrayBuffer] = await Promise.all([
+  if (!sedesResponse.ok) {
+    throw new Error('No fue posible cargar el maestro embebido de sedes Finning.');
+  }
+
+  const [arrayBuffer, emailArrayBuffer, cargosArrayBuffer, sedesArrayBuffer] = await Promise.all([
     templateResponse.arrayBuffer(),
     emailResponse.arrayBuffer(),
     cargosResponse.arrayBuffer(),
+    sedesResponse.arrayBuffer(),
   ]);
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const cargosWorkbook = XLSX.read(cargosArrayBuffer, { type: 'array' });
+  const sedesWorkbook = XLSX.read(sedesArrayBuffer, { type: 'array' });
   const employeeSheetName = 'Ejemplo';
   const employeeRows = getSheetRows(workbook.Sheets[employeeSheetName]);
 
@@ -159,9 +167,15 @@ export async function loadRexTemplateResource() {
   }, {});
   const externalCargoSheetName = cargosWorkbook.SheetNames[0];
   const externalCargoRows = getSheetRows(cargosWorkbook.Sheets[externalCargoSheetName]);
+  const externalSedeSheetName = sedesWorkbook.SheetNames[0];
+  const externalSedeRows = getSheetRows(sedesWorkbook.Sheets[externalSedeSheetName]);
 
   if (externalCargoRows.length > 0) {
     sheetRowsByName.Cargo = externalCargoRows;
+  }
+
+  if (externalSedeRows.length > 0) {
+    sheetRowsByName['Id sede donde se desempeña'] = externalSedeRows;
   }
 
   const catalogs = workbook.SheetNames.reduce((lookup, sheetName) => {
@@ -174,7 +188,11 @@ export async function loadRexTemplateResource() {
   }, {});
 
   if (externalCargoRows.length > 0) {
-    catalogs.Cargo = buildRexCargoCatalog(externalCargoRows);
+    catalogs.Cargo = buildRexManagedListCatalog(externalCargoRows);
+  }
+
+  if (externalSedeRows.length > 0) {
+    catalogs['Id sede donde se desempeña'] = buildRexManagedListCatalog(externalSedeRows);
   }
 
   return {
@@ -369,7 +387,7 @@ function buildRexCatalog(rows) {
     .filter((row) => row.id || row.name);
 }
 
-function buildRexCargoCatalog(rows) {
+function buildRexManagedListCatalog(rows) {
   const headerRowIndex = rows.findIndex((row) => {
     const normalizedRow = row.map((value) => normalizeCatalogHeader(value));
     return normalizedRow[0] === 'item' && normalizedRow[1] === 'nombre';
