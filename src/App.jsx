@@ -305,6 +305,31 @@ export default function App() {
     XLSX.writeFile(workbook, `REX_empleados_${todayStamp()}.xlsx`);
   };
 
+  const handleDownloadRexPendingReport = () => {
+    if (!result || result.kind !== 'rex') {
+      return;
+    }
+
+    const pendingRows = result.rowStates.flatMap((rowState) =>
+      rowState.pendingItems.map((item) => ({
+        Fila: rowState.rowNumber,
+        Empleado: rowState.employeeName || '',
+        Identificador: rowState.employeeId || '',
+        Campo: item.label,
+        Clave: item.key,
+        Tipo: item.type,
+        Catalogo: item.catalogName || '',
+        'Valor origen': item.sourceValue || '',
+        'Corrección actual': result.correctionsByRow[rowState.rowNumber]?.[item.key] ?? '',
+      })),
+    );
+
+    const workbook = XLSX.utils.book_new();
+    const pendingSheet = XLSX.utils.json_to_sheet(pendingRows);
+    XLSX.utils.book_append_sheet(workbook, pendingSheet, 'Pendientes');
+    XLSX.writeFile(workbook, `REX_pendientes_${todayStamp()}.xlsx`);
+  };
+
   const handleUpdateRexCorrection = (rowNumber, fieldKey, value) => {
     if (!result || result.kind !== 'rex' || !rexTemplateResource) {
       return;
@@ -567,6 +592,7 @@ export default function App() {
             correctionsByRow={result.correctionsByRow}
             templateResource={rexTemplateResource}
             onBack={() => setStep(STEPS.upload)}
+            onDownloadPendingReport={handleDownloadRexPendingReport}
             onUpdateCorrection={handleUpdateRexCorrection}
             onBulkApply={handleBulkApplyRexCorrection}
             onContinue={() => setStep(STEPS.result)}

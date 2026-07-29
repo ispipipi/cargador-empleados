@@ -6,6 +6,7 @@ export default function RexCorrectionsStep({
   correctionsByRow,
   templateResource,
   onBack,
+  onDownloadPendingReport,
   onUpdateCorrection,
   onBulkApply,
   onContinue,
@@ -123,6 +124,14 @@ export default function RexCorrectionsStep({
                 className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
               >
                 Volver
+              </button>
+              <button
+                type="button"
+                onClick={onDownloadPendingReport}
+                disabled={pendingEntries.length === 0}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                Descargar pendientes
               </button>
               <button
                 type="button"
