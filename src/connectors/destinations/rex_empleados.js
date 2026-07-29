@@ -367,6 +367,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const bank = resolveBankField({
     sourceValue: sourceRow.BANCO,
     correctionValue: corrections?.bank,
+    paymentMethodValue: paymentMethod.value,
     templateResource,
     pendingItems,
     rowNumber,
@@ -430,6 +431,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeName,
     normalizer: normalizeLooseText,
     allowHeuristicMatch: true,
+    allowScoredMatch: true,
   });
   const costCenter = resolveCatalogField({
     key: 'costCenter',
@@ -467,8 +469,9 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     rowNumber,
     employeeId,
     employeeName,
-    normalizer: normalizeLooseText,
+    normalizer: normalizeAreaName,
     allowHeuristicMatch: true,
+    allowScoredMatch: true,
   });
   const union = resolveCatalogField({
     key: 'union',
@@ -505,10 +508,10 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     key: 'ineCategory',
     label: 'Categoría INE',
     correctionValue: corrections?.ineCategory,
-    inferredValue: inferFromKeywordRules({
+    inferredValue: inferIneCategory({
       normalizedSource: normalizedPosition,
       normalizedArea: normalizedAreaSource,
-      rules: CATEGORY_INE_RULES,
+      occupationalLevelId: nivelOcupacional.value,
     }),
     pendingItems,
     rowNumber,
@@ -689,6 +692,7 @@ function resolveCatalogField({
   normalizer = normalizeLooseText,
   allowBlank = false,
   allowHeuristicMatch = false,
+  allowScoredMatch = false,
 }) {
   if (isIntentionalBlankCorrection(correctionValue)) {
     return { value: '' };
@@ -746,6 +750,18 @@ function resolveCatalogField({
     }
   }
 
+  if (allowScoredMatch) {
+    const scoredMatch = findScoredCatalogMatch({
+      catalog,
+      candidate,
+      normalizer,
+    });
+
+    if (scoredMatch) {
+      return { value: scoredMatch.id };
+    }
+  }
+
   pendingItems.push(
     buildPendingItem({
       key,
@@ -764,6 +780,7 @@ function resolveCatalogField({
 function resolveBankField({
   sourceValue,
   correctionValue,
+  paymentMethodValue,
   templateResource,
   pendingItems,
   rowNumber,
@@ -773,6 +790,10 @@ function resolveBankField({
 }) {
   if (!required) {
     return { value: '' };
+  }
+
+  if (paymentMethodValue === 'cuentarut') {
+    return { value: 'estado' };
   }
 
   return resolveCatalogField({
@@ -789,6 +810,7 @@ function resolveBankField({
     aliases: BANK_NAME_ALIASES,
     normalizer: normalizeBankName,
     allowHeuristicMatch: true,
+    allowScoredMatch: true,
   });
 }
 
@@ -1092,7 +1114,7 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   const streetNameCorrection = shouldKeepStreetNameBlank ? '' : cleanCell(corrections?.streetName);
   const streetNumberCorrection = shouldKeepStreetNumberBlank ? '' : cleanCell(corrections?.streetNumber);
 
-  if (!streetNameCorrection && !parsedAddress.streetName && !shouldKeepStreetNameBlank) {
+  if (!streetNameCorrection && !parsedAddress.streetName && !shouldKeepStreetNameBlank && !cleanCell(sourceValue)) {
     pendingItems.push(
       buildPendingItem({
         key: 'streetName',
@@ -1106,7 +1128,7 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
     );
   }
 
-  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank) {
+  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank && hasAddressNumberHint(sourceValue)) {
     pendingItems.push(
       buildPendingItem({
         key: 'streetNumber',
@@ -1141,6 +1163,16 @@ function resolveComuna({ sourceValue, correctionValue, templateResource, pending
   const selectedComuna =
     catalog.find((item) => item.id === directCorrection) ||
     findCatalogMatch({
+      catalog,
+      candidate: sourceValue,
+      normalizer: normalizeLooseText,
+    }) ||
+    findHeuristicCatalogMatch({
+      catalog,
+      candidate: sourceValue,
+      normalizer: normalizeLooseText,
+    }) ||
+    findScoredCatalogMatch({
       catalog,
       candidate: sourceValue,
       normalizer: normalizeLooseText,
@@ -1463,6 +1495,30 @@ function inferFromKeywordRules({ normalizedSource, normalizedArea, rules }) {
   return matchedRule?.id ?? '';
 }
 
+function inferIneCategory({ normalizedSource, normalizedArea, occupationalLevelId }) {
+  const directRule = inferFromKeywordRules({
+    normalizedSource,
+    normalizedArea,
+    rules: CATEGORY_INE_RULES,
+  });
+
+  if (directRule) {
+    return directRule;
+  }
+
+  const occupationalFallbacks = {
+    ejecutivo: 'ine_gerentes',
+    mando_medio: 'ine_profesionales',
+    administrativo: 'ine_administrativos',
+    profesional: 'ine_profesionales',
+    trabajo_calificado: 'ine_tecnicos',
+    trabajo_semi_cali: 'ine_nocal',
+    trabajo_no_cali: 'ine_nocal',
+  };
+
+  return occupationalFallbacks[occupationalLevelId] ?? '';
+}
+
 function findCatalogMatch({ catalog, candidate, normalizer }) {
   const normalizedCandidate = normalizer(candidate);
 
@@ -1486,6 +1542,54 @@ function findHeuristicCatalogMatch({ catalog, candidate, normalizer }) {
   });
 
   return matches.length === 1 ? matches[0] : null;
+}
+
+function findScoredCatalogMatch({ catalog, candidate, normalizer }) {
+  const normalizedCandidate = normalizer(candidate);
+
+  if (!normalizedCandidate) {
+    return null;
+  }
+
+  const candidateTokens = tokenizeNormalized(normalizedCandidate);
+  const rankedMatches = catalog
+    .map((item) => {
+      const normalizedName = normalizer(item.name);
+      const normalizedId = normalizer(item.id);
+      const nameTokens = tokenizeNormalized(normalizedName);
+      const sharedTokens = candidateTokens.filter((token) => nameTokens.includes(token));
+      let score = sharedTokens.length * 18;
+
+      if (normalizedName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedName)) {
+        score += 36;
+      }
+
+      if (normalizedId === normalizedCandidate) {
+        score += 50;
+      }
+
+      if (candidateTokens.length > 0 && sharedTokens.length === candidateTokens.length) {
+        score += 18;
+      }
+
+      return {
+        item,
+        score,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  const [bestMatch, secondMatch] = rankedMatches;
+
+  if (!bestMatch || bestMatch.score < 36) {
+    return null;
+  }
+
+  if (secondMatch && bestMatch.score - secondMatch.score < 12) {
+    return null;
+  }
+
+  return bestMatch.item;
 }
 
 function inferContractTypeId({ sourceValue, endDateValue }) {
@@ -1604,9 +1708,15 @@ function parseAddress(value) {
   const streetMatch = withoutDepartment.match(/^(.*?)(?:\s+|,\s*)(\d+[a-zA-Z-]*)$/);
 
   if (!streetMatch) {
+    const inlineNumberMatch = withoutDepartment.match(/\b(\d+[a-zA-Z-]*)\b/);
+    const streetNumber = inlineNumberMatch?.[1] ?? '';
+    const streetName = streetNumber
+      ? cleanCell(withoutDepartment.replace(inlineNumberMatch[0], '').replace(/\s+/g, ' '))
+      : cleanCell(withoutDepartment);
+
     return {
-      streetName: '',
-      streetNumber: '',
+      streetName,
+      streetNumber,
       department,
     };
   }
@@ -1635,6 +1745,25 @@ function normalizeLooseText(value) {
     .replace(/[().,/\\-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeAreaName(value) {
+  return normalizeLooseText(value)
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\bjuan\b|\bpedro\b|\bcristian\b|\bsebastian\b|\bsebastián\b|\bjoaquin\b|\bjoaquín\b|\bmark\b|\bneil\b|\bdori\b|\btrinidad\b|\bgerman\b|\bgermán\b|\bcheryl\b|\bgray\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeNormalized(value) {
+  return String(value)
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+    .filter((token) => token.length > 2);
+}
+
+function hasAddressNumberHint(value) {
+  return /\d/.test(cleanCell(value));
 }
 
 function normalizeSedeName(value) {
