@@ -117,6 +117,27 @@ export default function RexCorrectionsStep({
               </ul>
             </div>
 
+            <div className="mt-5 rounded-[28px] border border-sky-200 bg-gradient-to-r from-sky-50 via-white to-cyan-50 p-5 shadow-[0_20px_40px_rgba(14,165,233,0.08)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Exportable para revisión</p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Descarga el archivo con pendientes</h3>
+                  <p className="mt-2 max-w-xl text-sm leading-7 text-slate-600">
+                    Baja un Excel con todos los no-match actuales para revisarlos fuera de la app o pasármelos y seguir trabajando sobre eso.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onDownloadPendingReport}
+                  disabled={pendingEntries.length === 0}
+                  className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Descargar Excel de pendientes
+                </button>
+              </div>
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="button"
