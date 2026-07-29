@@ -225,6 +225,12 @@ const OCCUPATIONAL_LEVEL_RULES = [
       'representante de ventas',
       'consultor',
       'especialista',
+      'prevencion',
+      'prevención',
+      'sheq',
+      'seguridad',
+      'proteccion',
+      'protección',
       'ventas',
       'vendedor',
       'vendedora',
@@ -249,7 +255,7 @@ const CATEGORY_INE_RULES = [
   { id: 'ine_comercio', keywords: ['comercial', 'ventas', 'vendedor', 'vendedora', 'representante comercial', 'representante de ventas', 'vts', 'rental', 'arriendo'] },
   { id: 'ine_montaje', keywords: ['operador', 'montaje', 'maquina', 'panolero', 'pañolero', 'bodeguero', 'bodega', 'inventario'] },
   { id: 'ine_sical', keywords: ['calificado', 'especialista'] },
-  { id: 'ine_protecion', keywords: ['seguridad', 'proteccion', 'guardia'] },
+  { id: 'ine_protecion', keywords: ['seguridad', 'proteccion', 'protección', 'guardia', 'prevencion', 'prevención', 'sheq'] },
   { id: 'ine_nocal', keywords: ['auxiliar', 'ayudante', 'aseo', 'peon'] },
 ];
 
