@@ -228,7 +228,10 @@ const OCCUPATIONAL_LEVEL_RULES = [
       'arriendo',
     ],
   },
-  { id: 'trabajo_calificado', keywords: ['tecnico', 'mecanico', 'operador', 'electricista', 'soldador', 'chofer'] },
+  {
+    id: 'trabajo_calificado',
+    keywords: ['tecnico', 'mecanico', 'operador', 'electricista', 'soldador', 'chofer', 'panolero', 'pañolero', 'bodeguero', 'bodega', 'inventario'],
+  },
   { id: 'trabajo_semi_cali', keywords: ['ayudante', 'apoyo', 'auxiliar'] },
   { id: 'trabajo_no_cali', keywords: ['aseo', 'jornal', 'peon'] },
 ];
@@ -239,7 +242,7 @@ const CATEGORY_INE_RULES = [
   { id: 'ine_tecnicos', keywords: ['tecnico', 'instructor tecnico', 'mecanico', 'electricista'] },
   { id: 'ine_administrativos', keywords: ['administrativo', 'asistente', 'secretaria', 'recepcion'] },
   { id: 'ine_comercio', keywords: ['comercial', 'ventas', 'vendedor', 'vendedora', 'representante comercial', 'representante de ventas', 'vts', 'rental', 'arriendo'] },
-  { id: 'ine_montaje', keywords: ['operador', 'montaje', 'maquina'] },
+  { id: 'ine_montaje', keywords: ['operador', 'montaje', 'maquina', 'panolero', 'pañolero', 'bodeguero', 'bodega', 'inventario'] },
   { id: 'ine_sical', keywords: ['calificado', 'especialista'] },
   { id: 'ine_protecion', keywords: ['seguridad', 'proteccion', 'guardia'] },
   { id: 'ine_nocal', keywords: ['auxiliar', 'ayudante', 'aseo', 'peon'] },
