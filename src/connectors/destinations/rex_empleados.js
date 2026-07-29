@@ -216,6 +216,11 @@ const OCCUPATIONAL_LEVEL_RULES = [
       'abogado',
       'analista',
       'contador',
+      'programador',
+      'planificador',
+      'product manager',
+      'project manager',
+      'product specialist',
       'representante comercial',
       'representante de ventas',
       'consultor',
@@ -238,7 +243,7 @@ const OCCUPATIONAL_LEVEL_RULES = [
 
 const CATEGORY_INE_RULES = [
   { id: 'ine_gerentes', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente'] },
-  { id: 'ine_profesionales', keywords: ['ingeniero', 'abogado', 'analista', 'contador', 'consultor'] },
+  { id: 'ine_profesionales', keywords: ['ingeniero', 'abogado', 'analista', 'contador', 'consultor', 'programador', 'planificador', 'product manager', 'project manager', 'product specialist'] },
   { id: 'ine_tecnicos', keywords: ['tecnico', 'instructor tecnico', 'mecanico', 'electricista'] },
   { id: 'ine_administrativos', keywords: ['administrativo', 'asistente', 'secretaria', 'recepcion'] },
   { id: 'ine_comercio', keywords: ['comercial', 'ventas', 'vendedor', 'vendedora', 'representante comercial', 'representante de ventas', 'vts', 'rental', 'arriendo'] },
