@@ -199,14 +199,6 @@ const BANK_NAME_ALIASES = {
 
 const ZONE_EMPTY_ALIASES = new Set(['sin rebaja de zona', 'sin rebaja de zona finning']);
 
-const PROFESSIONAL_KEYWORDS = [
-  ['abogado', 'abogado'],
-  ['ingeniero civil', 'ingenieroCivil'],
-  ['ingenieria civil', 'ingenieroCivil'],
-  ['ingeniero comercial', 'ingenieroComercial'],
-  ['comercial', 'ingenieroComercial'],
-];
-
 const OCCUPATIONAL_LEVEL_RULES = [
   { id: 'ejecutivo', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente'] },
   { id: 'mando_medio', keywords: ['jefe', 'supervisor', 'coordinador', 'encargado', 'lider'] },
@@ -453,7 +445,8 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     normalizer: normalizeLooseText,
   });
   const sede = resolveSedeField({
-    sourceValue: cleanCell(sourceRow.UBICACION) || cleanCell(sourceRow['UBICACION WORKDAY']),
+    sourceValue: cleanCell(sourceRow['UBICACION WORKDAY']) || cleanCell(sourceRow.UBICACION),
+    secondarySourceValue: cleanCell(sourceRow.UBICACION),
     correctionValue: corrections?.sede,
     sourceCompanyValue: sourceRow.EMPRESA,
     resolvedCompanyId: company.value,
@@ -490,14 +483,9 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeName,
     normalizer: normalizeLooseText,
   });
-  const profession = resolveProfessionField({
-    sourceValue: sourceRow.POSICION,
+  const profession = resolveFixedProfessionField({
     correctionValue: corrections?.profession,
     templateResource,
-    pendingItems,
-    rowNumber,
-    employeeId,
-    employeeName,
   });
   const nivelOcupacional = resolveDerivedField({
     key: 'occupationalLevel',
@@ -869,6 +857,7 @@ function resolveContractTypeField({
 
 function resolveSedeField({
   sourceValue,
+  secondarySourceValue,
   correctionValue,
   sourceCompanyValue,
   resolvedCompanyId,
@@ -888,9 +877,9 @@ function resolveSedeField({
     return { value: directCorrection };
   }
 
-  const candidate = cleanCell(sourceValue);
+  const candidateValues = [cleanCell(sourceValue), cleanCell(secondarySourceValue)].filter(Boolean);
 
-  if (!candidate) {
+  if (candidateValues.length === 0) {
     pendingItems.push(
       buildPendingItem({
         key: 'sede',
@@ -907,11 +896,13 @@ function resolveSedeField({
   }
 
   const catalog = templateResource.catalogs['Id sede donde se desempeña'] ?? [];
-  const candidateOptions = buildSedeCandidates({
-    sourceValue: candidate,
-    sourceCompanyValue,
-    resolvedCompanyId,
-  });
+  const candidateOptions = candidateValues.flatMap((candidateValue) =>
+    buildSedeCandidates({
+      sourceValue: candidateValue,
+      sourceCompanyValue,
+      resolvedCompanyId,
+    }),
+  );
 
   for (const candidateOption of candidateOptions) {
     const exactMatch = findCatalogMatch({
@@ -946,7 +937,7 @@ function resolveSedeField({
       rowNumber,
       employeeId,
       employeeName,
-      sourceValue: candidate,
+      sourceValue: candidateValues.join(' / '),
     }),
   );
   return { value: '' };
@@ -1000,7 +991,7 @@ function resolveHealthField({ sourceRow, correctionValue, templateResource, pend
   });
 }
 
-function resolveProfessionField({ sourceValue, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+function resolveFixedProfessionField({ correctionValue, templateResource }) {
   if (isIntentionalBlankCorrection(correctionValue)) {
     return { value: '' };
   }
@@ -1011,37 +1002,20 @@ function resolveProfessionField({ sourceValue, correctionValue, templateResource
     return { value: directCorrection };
   }
 
-  const normalizedValue = normalizeLooseText(sourceValue);
-  const keywordMatch = PROFESSIONAL_KEYWORDS.find(([keyword]) => normalizedValue.includes(keyword));
+  const professionCatalog = templateResource.catalogs.Profesión ?? [];
+  const fixedMatch =
+    findCatalogMatch({
+      catalog: professionCatalog,
+      candidate: 'Sin Definir',
+      normalizer: normalizeLooseText,
+    }) ||
+    findCatalogMatch({
+      catalog: professionCatalog,
+      candidate: 'sinDefinir',
+      normalizer: normalizeLooseText,
+    });
 
-  if (keywordMatch) {
-    return { value: keywordMatch[1] };
-  }
-
-  const exactMatch = findCatalogMatch({
-    catalog: templateResource.catalogs.Profesión ?? [],
-    candidate: sourceValue,
-    normalizer: normalizeLooseText,
-  });
-
-  if (exactMatch) {
-    return { value: exactMatch.id };
-  }
-
-  pendingItems.push(
-    buildPendingItem({
-      key: 'profession',
-      label: 'Profesión',
-      type: 'catalog',
-      catalogName: 'Profesión',
-      rowNumber,
-      employeeId,
-      employeeName,
-      sourceValue: cleanCell(sourceValue),
-    }),
-  );
-
-  return { value: '' };
+  return { value: fixedMatch?.id ?? 'sinDefinir' };
 }
 
 function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
@@ -1545,27 +1519,42 @@ function inferContractTypeId({ sourceValue, endDateValue }) {
 
 function buildSedeCandidates({ sourceValue, sourceCompanyValue, resolvedCompanyId }) {
   const rawValue = cleanCell(sourceValue);
-  const branchName = rawValue.replace(/^sucursal\s+/i, '').trim();
+  const branchName = rawValue.replace(/^(sucursal|oficina|agencia)\s+/i, '').trim();
   const candidates = [rawValue];
 
   if (branchName && branchName !== rawValue) {
     candidates.push(branchName);
 
-    if (isDiperkCompany(sourceCompanyValue, resolvedCompanyId)) {
-      candidates.push(`Diperk ${branchName}`);
+    const companySedePrefix = getCompanySedePrefix(sourceCompanyValue, resolvedCompanyId);
+
+    if (companySedePrefix) {
+      candidates.push(`${companySedePrefix} ${branchName}`);
     }
   }
 
   return [...new Set(candidates.map(cleanCell).filter(Boolean))];
 }
 
-function isDiperkCompany(sourceCompanyValue, resolvedCompanyId) {
+function getCompanySedePrefix(sourceCompanyValue, resolvedCompanyId) {
   if (cleanCell(resolvedCompanyId) === '4') {
-    return true;
+    return 'Diperk';
+  }
+
+  if (cleanCell(resolvedCompanyId) === '5') {
+    return 'Sitech';
   }
 
   const normalizedCompany = normalizeLooseText(sourceCompanyValue);
-  return normalizedCompany.includes('distribuidora perkins chilena') || normalizedCompany.includes('diperk');
+
+  if (normalizedCompany.includes('distribuidora perkins chilena') || normalizedCompany.includes('diperk')) {
+    return 'Diperk';
+  }
+
+  if (normalizedCompany.includes('sitech')) {
+    return 'Sitech';
+  }
+
+  return '';
 }
 
 function isNoCotiza(sourceRow) {
