@@ -1094,6 +1094,10 @@ function resolveEmail({ sourceRow, corrections, templateResource, pendingItems, 
     return { email: uniqueMatches[0] };
   }
 
+  if (uniqueMatches.length === 0) {
+    return { email: 'sincorreo@gmail.com' };
+  }
+
   pendingItems.push(
     buildPendingItem({
       key: 'emails',
