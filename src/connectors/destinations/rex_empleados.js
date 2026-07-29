@@ -1,6 +1,9 @@
 import * as XLSX from 'xlsx';
 import { cleanCell, normalizeText } from '../../lib/utils';
 
+export const REX_KEEP_CURRENT_CORRECTION = '__KEEP_CURRENT__';
+export const REX_EMPTY_CORRECTION = '__EMPTY__';
+
 const REX_FIXED_DEFAULTS = {
   '¿Es expatriado?': 'N',
   'Tramo de asignación familiar': 'A',
@@ -704,6 +707,10 @@ function resolveCatalogField({
   allowBlank = false,
   allowHeuristicMatch = false,
 }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   const directCorrection = cleanCell(correctionValue);
 
   if (directCorrection) {
@@ -813,6 +820,10 @@ function resolveSedeField({
   employeeId,
   employeeName,
 }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   const directCorrection = cleanCell(correctionValue);
 
   if (directCorrection) {
@@ -884,6 +895,10 @@ function resolveSedeField({
 }
 
 function resolveAfpField({ sourceRow, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName, noCotiza }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   if (cleanCell(correctionValue)) {
     return { value: cleanCell(correctionValue) };
   }
@@ -928,6 +943,10 @@ function resolveHealthField({ sourceRow, correctionValue, templateResource, pend
 }
 
 function resolveProfessionField({ sourceValue, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   const directCorrection = cleanCell(correctionValue);
 
   if (directCorrection) {
@@ -968,6 +987,10 @@ function resolveProfessionField({ sourceValue, correctionValue, templateResource
 }
 
 function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(corrections?.[key])) {
+    return '';
+  }
+
   const directCorrection = cleanCell(corrections?.[key]);
 
   if (directCorrection) {
@@ -996,6 +1019,10 @@ function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowN
 }
 
 function resolveEmail({ sourceRow, corrections, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(corrections?.emails)) {
+    return { email: '' };
+  }
+
   const directCorrection = cleanCell(corrections?.emails).toLowerCase();
 
   if (directCorrection) {
@@ -1027,11 +1054,13 @@ function resolveEmail({ sourceRow, corrections, templateResource, pendingItems, 
 }
 
 function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
+  const shouldKeepStreetNameBlank = isIntentionalBlankCorrection(corrections?.streetName);
+  const shouldKeepStreetNumberBlank = isIntentionalBlankCorrection(corrections?.streetNumber);
   const parsedAddress = parseAddress(sourceValue);
-  const streetNameCorrection = cleanCell(corrections?.streetName);
-  const streetNumberCorrection = cleanCell(corrections?.streetNumber);
+  const streetNameCorrection = shouldKeepStreetNameBlank ? '' : cleanCell(corrections?.streetName);
+  const streetNumberCorrection = shouldKeepStreetNumberBlank ? '' : cleanCell(corrections?.streetNumber);
 
-  if (!streetNameCorrection && !parsedAddress.streetName) {
+  if (!streetNameCorrection && !parsedAddress.streetName && !shouldKeepStreetNameBlank) {
     pendingItems.push(
       buildPendingItem({
         key: 'streetName',
@@ -1045,7 +1074,7 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
     );
   }
 
-  if (!streetNumberCorrection && !parsedAddress.streetNumber) {
+  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank) {
     pendingItems.push(
       buildPendingItem({
         key: 'streetNumber',
@@ -1067,6 +1096,14 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
 }
 
 function resolveComuna({ sourceValue, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return {
+      comunaId: '',
+      cityId: '',
+      regionId: '',
+    };
+  }
+
   const directCorrection = cleanCell(correctionValue);
   const catalog = templateResource.catalogs.Comuna ?? [];
   const selectedComuna =
@@ -1108,6 +1145,10 @@ function resolveComuna({ sourceValue, correctionValue, templateResource, pending
 }
 
 function resolveRecognizedMonths({ sourceRow, correctionValue }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return '';
+  }
+
   if (cleanCell(correctionValue)) {
     return cleanCell(correctionValue);
   }
@@ -1121,6 +1162,10 @@ function resolveRecognizedMonths({ sourceRow, correctionValue }) {
 }
 
 function resolveDerivedField({ key, label, correctionValue, inferredValue, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   const directCorrection = cleanCell(correctionValue);
 
   if (directCorrection) {
@@ -1147,6 +1192,10 @@ function resolveDerivedField({ key, label, correctionValue, inferredValue, pendi
 }
 
 function resolveZoneField({ sourceValue, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
   const directCorrection = cleanCell(correctionValue);
 
   if (directCorrection) {
@@ -1177,6 +1226,10 @@ function resolveZoneField({ sourceValue, correctionValue, templateResource, pend
 
 function resolveAccountNumber({ sourceValue, correctionValue, pendingItems, rowNumber, employeeId, employeeName, required }) {
   if (!required) {
+    return '';
+  }
+
+  if (isIntentionalBlankCorrection(correctionValue)) {
     return '';
   }
 
@@ -1228,6 +1281,10 @@ function buildPendingItem({
     sourceValue,
     bulkDefaultValue,
   };
+}
+
+function isIntentionalBlankCorrection(value) {
+  return value === REX_KEEP_CURRENT_CORRECTION || value === REX_EMPTY_CORRECTION;
 }
 
 function splitEmployeeName(value) {

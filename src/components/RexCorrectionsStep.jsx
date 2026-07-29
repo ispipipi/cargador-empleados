@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { REX_EMPTY_CORRECTION, REX_KEEP_CURRENT_CORRECTION } from '../connectors/destinations/rex_empleados';
 
 export default function RexCorrectionsStep({
   rowStates,
@@ -57,7 +58,7 @@ export default function RexCorrectionsStep({
     setBulkValue(activeField?.bulkDefaultValue ?? '');
   }, [activeFieldKey, activeField?.bulkDefaultValue]);
 
-  const isSelectionComplete = selectedRows.length > 0 && bulkValue;
+  const isSelectionComplete = selectedRows.length > 0 && bulkValue !== '';
 
   return (
     <div className="space-y-8">
@@ -87,6 +88,7 @@ export default function RexCorrectionsStep({
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 <li>Selecciona un campo pendiente desde la lista de la derecha.</li>
                 <li>Corrige por fila o usa selección múltiple para cargar el mismo valor a varias filas.</li>
+                <li>Si prefieres no tocar un campo, puedes omitirlo o dejarlo vacío y seguir avanzando.</li>
                 <li>La descarga final se habilita solo cuando no queden pendientes.</li>
               </ul>
             </div>
@@ -177,6 +179,8 @@ export default function RexCorrectionsStep({
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                       >
                         <option value="">Selecciona un valor masivo</option>
+                        <option value={REX_KEEP_CURRENT_CORRECTION}>Omitir y dejar como está</option>
+                        <option value={REX_EMPTY_CORRECTION}>Dejar vacío</option>
                         {activeOptions.map((option) => (
                           <option key={option.id} value={option.id}>
                             {option.name}
@@ -203,7 +207,7 @@ export default function RexCorrectionsStep({
                   </div>
 
                   {activeField.key === 'emails' ? (
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => setBulkValue('sincorreo@gmail.com')}
@@ -211,8 +215,43 @@ export default function RexCorrectionsStep({
                       >
                         Usar sincorreo@gmail.com
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => onBulkApply(activeField.key, selectedRows, REX_KEEP_CURRENT_CORRECTION)}
+                        disabled={selectedRows.length === 0}
+                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Omitir seleccionadas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onBulkApply(activeField.key, selectedRows, REX_EMPTY_CORRECTION)}
+                        disabled={selectedRows.length === 0}
+                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Dejar vacías
+                      </button>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onBulkApply(activeField.key, selectedRows, REX_KEEP_CURRENT_CORRECTION)}
+                        disabled={selectedRows.length === 0}
+                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Omitir seleccionadas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onBulkApply(activeField.key, selectedRows, REX_EMPTY_CORRECTION)}
+                        disabled={selectedRows.length === 0}
+                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Dejar vacías
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200">
@@ -259,6 +298,8 @@ export default function RexCorrectionsStep({
                                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                                 >
                                   <option value="">Selecciona una opción</option>
+                                  <option value={REX_KEEP_CURRENT_CORRECTION}>Omitir y dejar como está</option>
+                                  <option value={REX_EMPTY_CORRECTION}>Dejar vacío</option>
                                   {activeOptions.map((option) => (
                                     <option key={option.id} value={option.id}>
                                       {option.name}
@@ -266,12 +307,30 @@ export default function RexCorrectionsStep({
                                   ))}
                                 </select>
                               ) : (
-                                <input
-                                  defaultValue={correctionsByRow[entry.rowNumber]?.[activeField.key] ?? ''}
-                                  onBlur={(event) => onUpdateCorrection(entry.rowNumber, activeField.key, event.target.value)}
-                                  placeholder={activeField.key === 'emails' ? 'correo@empresa.com' : 'Ingresa el valor'}
-                                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                                />
+                                <div className="space-y-2">
+                                  <input
+                                    defaultValue={correctionsByRow[entry.rowNumber]?.[activeField.key] ?? ''}
+                                    onBlur={(event) => onUpdateCorrection(entry.rowNumber, activeField.key, event.target.value)}
+                                    placeholder={activeField.key === 'emails' ? 'correo@empresa.com' : 'Ingresa el valor'}
+                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                                  />
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => onUpdateCorrection(entry.rowNumber, activeField.key, REX_KEEP_CURRENT_CORRECTION)}
+                                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                    >
+                                      Omitir
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => onUpdateCorrection(entry.rowNumber, activeField.key, REX_EMPTY_CORRECTION)}
+                                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                    >
+                                      Dejar vacío
+                                    </button>
+                                  </div>
+                                </div>
                               )}
                             </td>
                           </tr>

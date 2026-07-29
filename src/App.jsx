@@ -119,6 +119,23 @@ export default function App() {
   const activeConfigurationId = activeConfiguration?.id ?? null;
   const originLabel = selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
   const destinationLabel = selectedDestination === 'rex' ? 'REX+' : 'BUK';
+  const busyState =
+    templateStatus === 'loading'
+      ? {
+          title: 'Preparando la app',
+          detail: 'Estamos cargando templates, listas y catálogos para que la transformación sea segura.',
+        }
+      : isReadingFile
+        ? {
+            title: 'Leyendo el archivo',
+            detail: 'Estamos validando el Excel y armando la vista previa. En archivos grandes puede tardar un poco.',
+          }
+        : isTransforming
+          ? {
+              title: 'Procesando la transformación',
+              detail: 'Estamos aplicando reglas, armando el resultado y preparando las correcciones necesarias.',
+            }
+          : null;
 
   const handleFileSelected = async (file) => {
     if (!file) {
@@ -298,12 +315,19 @@ export default function App() {
         return current;
       }
 
+      const currentRowCorrections = {
+        ...(current.correctionsByRow[rowNumber] ?? {}),
+      };
+
+      if (value === '') {
+        delete currentRowCorrections[fieldKey];
+      } else {
+        currentRowCorrections[fieldKey] = value;
+      }
+
       const nextCorrectionsByRow = {
         ...current.correctionsByRow,
-        [rowNumber]: {
-          ...(current.correctionsByRow[rowNumber] ?? {}),
-          [fieldKey]: value,
-        },
+        [rowNumber]: currentRowCorrections,
       };
       const nextRowStates = current.rowStates.map((rowState) =>
         rowState.rowNumber === rowNumber
@@ -325,7 +349,7 @@ export default function App() {
   };
 
   const handleBulkApplyRexCorrection = (fieldKey, rowNumbers, value) => {
-    if (!result || result.kind !== 'rex' || !rexTemplateResource || !value || rowNumbers.length === 0) {
+    if (!result || result.kind !== 'rex' || !rexTemplateResource || value === '' || rowNumbers.length === 0) {
       return;
     }
 
@@ -337,10 +361,17 @@ export default function App() {
       const nextCorrectionsByRow = { ...current.correctionsByRow };
 
       rowNumbers.forEach((rowNumber) => {
-        nextCorrectionsByRow[rowNumber] = {
+        const rowCorrections = {
           ...(nextCorrectionsByRow[rowNumber] ?? {}),
-          [fieldKey]: value,
         };
+
+        if (value === '') {
+          delete rowCorrections[fieldKey];
+        } else {
+          rowCorrections[fieldKey] = value;
+        }
+
+        nextCorrectionsByRow[rowNumber] = rowCorrections;
       });
 
       const nextRowStates = current.rowStates.map((rowState) =>
@@ -458,6 +489,7 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+      {busyState ? <WorkInProgressOverlay title={busyState.title} detail={busyState.detail} /> : null}
       <div className="mx-auto max-w-7xl">
         <header className="mb-8">
           <div className="panel bg-slate-950 px-6 py-6 text-white sm:px-8">
@@ -568,6 +600,34 @@ export default function App() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function WorkInProgressOverlay({ title, detail }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-[32px] border border-white/20 bg-slate-950 px-6 py-7 text-white shadow-2xl">
+        <div className="flex items-center gap-4">
+          <div className="relative flex h-16 w-16 items-center justify-center">
+            <span className="absolute h-16 w-16 rounded-full border border-cyan-300/30" />
+            <span className="absolute h-11 w-11 rounded-full border-2 border-cyan-300 border-t-transparent animate-spin" />
+            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 -translate-x-8 -translate-y-1/2 rounded-full bg-cyan-300" />
+            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300" />
+            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 translate-x-6 -translate-y-1/2 rounded-full bg-amber-300" />
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200">Trabajando</p>
+            <h3 className="mt-2 text-2xl font-extrabold">{title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-300">{detail}</p>
+          </div>
+        </div>
+
+        <div className="loader-track mt-6 h-2 overflow-hidden rounded-full bg-white/10">
+          <span className="block h-full w-1/3 rounded-full bg-gradient-to-r from-cyan-300 via-emerald-300 to-amber-300" />
+        </div>
+      </div>
+    </div>
   );
 }
 

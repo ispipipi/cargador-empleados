@@ -59,7 +59,17 @@ export default function FileUploader({
 
         {isReadingFile ? (
           <div className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-700">
-            Leyendo y validando el Excel en segundo plano. En archivos grandes puede tardar unos segundos, pero la página ya no debería quedar pegada.
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="loader-orb h-2.5 w-2.5 rounded-full bg-sky-500" />
+                <span className="loader-orb h-2.5 w-2.5 rounded-full bg-cyan-500" />
+                <span className="loader-orb h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </div>
+              <p className="font-semibold">Leyendo y validando el Excel</p>
+            </div>
+            <p className="mt-2">
+              En archivos grandes puede tardar un poco. La app sigue trabajando aunque todavía no veas el resultado.
+            </p>
           </div>
         ) : null}
 
