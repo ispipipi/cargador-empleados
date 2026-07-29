@@ -136,6 +136,7 @@ const NATION_ALIASES = {
 };
 
 const PAYMENT_METHOD_ALIASES = {
+  'deposito vale vista': 'valevista',
   'deposito cuenta corriente': 'actacorr',
   'deposito cta corriente': 'actacorr',
   'abono en cuenta corriente': 'actacorr',
@@ -153,7 +154,7 @@ const PAYMENT_METHOD_ALIASES = {
   efectivo: 'directo',
 };
 
-const PAYMENT_METHODS_WITHOUT_BANK = new Set(['cheque', 'chequeElec', 'directo', 'efectivo', 'ordenpago', 'servipag']);
+const PAYMENT_METHODS_WITHOUT_BANK = new Set(['cheque', 'chequeElec', 'directo', 'efectivo', 'ordenpago', 'servipag', 'valevista']);
 
 const AFP_NAME_ALIASES = {
   inp: 'Servicio Seguro Social',
