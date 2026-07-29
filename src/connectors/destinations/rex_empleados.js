@@ -272,19 +272,14 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const sourceEstado = cleanCell(sourceRow.ESTADO);
   const noCotiza = isNoCotiza(sourceRow);
   const parsedName = splitEmployeeName(sourceRow.NOMBRE);
-  const contractType = resolveCatalogField({
-    key: 'contractType',
-    label: 'Tipo del contrato',
-    catalogName: 'Tipo del contrato',
-    sourceValue: sourceRow['NOMBRE CONTRATO'],
+  const contractType = resolveContractTypeField({
+    sourceRow,
     correctionValue: corrections?.contractType,
     templateResource,
     pendingItems,
     rowNumber,
     employeeId,
     employeeName,
-    aliases: CONTRACT_TYPE_ALIASES,
-    normalizer: normalizeLooseText,
   });
   const contractTypeValue = contractType.value;
   const maritalStatus = resolveCatalogField({
@@ -805,6 +800,69 @@ function resolveBankField({
     employeeName,
     aliases: BANK_NAME_ALIASES,
     normalizer: normalizeBankName,
+    allowHeuristicMatch: true,
+  });
+}
+
+function resolveContractTypeField({
+  sourceRow,
+  correctionValue,
+  templateResource,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
+  const directCorrection = cleanCell(correctionValue);
+
+  if (directCorrection) {
+    return { value: directCorrection };
+  }
+
+  const sourceValue = cleanCell(sourceRow['NOMBRE CONTRATO']);
+  const inferredContractTypeId = inferContractTypeId({
+    sourceValue,
+    endDateValue: sourceRow['FEC FIN CONTRATO'],
+  });
+
+  if (inferredContractTypeId) {
+    const catalog = templateResource.catalogs['Tipo del contrato'] ?? [];
+    const inferredMatch =
+      findCatalogMatch({
+        catalog,
+        candidate: inferredContractTypeId,
+        normalizer: normalizeLooseText,
+      }) ||
+      findCatalogMatch({
+        catalog,
+        candidate: inferredContractTypeId === 'I' ? 'Indefinido' : 'Plazo fijo',
+        normalizer: normalizeLooseText,
+      });
+
+    if (inferredMatch) {
+      return { value: inferredMatch.id };
+    }
+
+    return { value: inferredContractTypeId };
+  }
+
+  return resolveCatalogField({
+    key: 'contractType',
+    label: 'Tipo del contrato',
+    catalogName: 'Tipo del contrato',
+    sourceValue,
+    correctionValue,
+    templateResource,
+    pendingItems,
+    rowNumber,
+    employeeId,
+    employeeName,
+    aliases: CONTRACT_TYPE_ALIASES,
+    normalizer: normalizeLooseText,
     allowHeuristicMatch: true,
   });
 }
@@ -1454,6 +1512,35 @@ function findHeuristicCatalogMatch({ catalog, candidate, normalizer }) {
   });
 
   return matches.length === 1 ? matches[0] : null;
+}
+
+function inferContractTypeId({ sourceValue, endDateValue }) {
+  const normalizedSource = normalizeLooseText(sourceValue);
+
+  if (
+    normalizedSource.includes('indef') ||
+    normalizedSource.includes('indefinido')
+  ) {
+    return 'I';
+  }
+
+  if (
+    normalizedSource.includes('plazo') ||
+    normalizedSource.includes('fijo') ||
+    normalizedSource.includes('pf')
+  ) {
+    return 'F';
+  }
+
+  if (cleanCell(endDateValue)) {
+    return 'F';
+  }
+
+  if (normalizedSource) {
+    return 'I';
+  }
+
+  return '';
 }
 
 function buildSedeCandidates({ sourceValue, sourceCompanyValue, resolvedCompanyId }) {

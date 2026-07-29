@@ -51,7 +51,30 @@ export default function RexCorrectionsStep({
 
   const activeField = fieldGroups.find((fieldGroup) => fieldGroup.key === activeFieldKey) ?? null;
   const activeEntries = pendingEntries.filter((entry) => entry.key === activeFieldKey);
-  const activeOptions = activeField?.catalogName ? templateResource.catalogs[activeField.catalogName] ?? [] : [];
+  const activeOptions = useMemo(
+    () => (activeField?.catalogName ? templateResource.catalogs[activeField.catalogName] ?? [] : []),
+    [activeField?.catalogName, templateResource.catalogs],
+  );
+  const activeSuggestedOptions = useMemo(() => {
+    if (!activeField?.catalogName) {
+      return [];
+    }
+
+    const usedIds = [...new Set(
+      rowStates
+        .map((rowState) => rowState.exportedRow?.[activeField.label] ?? '')
+        .map((value) => String(value).trim())
+        .filter(Boolean),
+    )];
+
+    return usedIds
+      .map((id) => activeOptions.find((option) => option.id === id))
+      .filter(Boolean);
+  }, [activeField?.catalogName, activeField?.label, activeOptions, rowStates]);
+  const remainingOptions = useMemo(() => {
+    const suggestedIds = new Set(activeSuggestedOptions.map((option) => option.id));
+    return activeOptions.filter((option) => !suggestedIds.has(option.id));
+  }, [activeOptions, activeSuggestedOptions]);
 
   useEffect(() => {
     setSelectedRows([]);
@@ -181,11 +204,24 @@ export default function RexCorrectionsStep({
                         <option value="">Selecciona un valor masivo</option>
                         <option value={REX_KEEP_CURRENT_CORRECTION}>Omitir y dejar como está</option>
                         <option value={REX_EMPTY_CORRECTION}>Dejar vacío</option>
-                        {activeOptions.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.name}
-                          </option>
-                        ))}
+                        {activeSuggestedOptions.length > 0 ? (
+                          <optgroup label="Sugeridos por matches previos">
+                            {activeSuggestedOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {remainingOptions.length > 0 ? (
+                          <optgroup label="Todas las opciones">
+                            {remainingOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </select>
                     ) : (
                       <input
@@ -300,11 +336,24 @@ export default function RexCorrectionsStep({
                                   <option value="">Selecciona una opción</option>
                                   <option value={REX_KEEP_CURRENT_CORRECTION}>Omitir y dejar como está</option>
                                   <option value={REX_EMPTY_CORRECTION}>Dejar vacío</option>
-                                  {activeOptions.map((option) => (
-                                    <option key={option.id} value={option.id}>
-                                      {option.name}
-                                    </option>
-                                  ))}
+                                  {activeSuggestedOptions.length > 0 ? (
+                                    <optgroup label="Sugeridos por matches previos">
+                                      {activeSuggestedOptions.map((option) => (
+                                        <option key={option.id} value={option.id}>
+                                          {option.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+                                  {remainingOptions.length > 0 ? (
+                                    <optgroup label="Todas las opciones">
+                                      {remainingOptions.map((option) => (
+                                        <option key={option.id} value={option.id}>
+                                          {option.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
                                 </select>
                               ) : (
                                 <div className="space-y-2">
