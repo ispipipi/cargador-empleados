@@ -447,8 +447,8 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     normalizer: normalizeLooseText,
   });
   const sede = resolveSedeField({
-    sourceValue: cleanCell(sourceRow['UBICACION WORKDAY']) || cleanCell(sourceRow.UBICACION),
-    secondarySourceValue: cleanCell(sourceRow.UBICACION),
+    sourceValue: cleanCell(sourceRow.UBICACION),
+    secondarySourceValue: '',
     correctionValue: corrections?.sede,
     sourceCompanyValue: sourceRow.EMPRESA,
     resolvedCompanyId: company.value,
