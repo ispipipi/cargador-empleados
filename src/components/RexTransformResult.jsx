@@ -2,6 +2,7 @@ export default function RexTransformResult({
   result,
   activeConfiguration,
   onDownload,
+  isDownloading = false,
   onSaveConfiguration,
   onExportActiveConfiguration,
   onRestart,
@@ -31,8 +32,9 @@ export default function RexTransformResult({
             <div className="grid gap-4">
               <ActionCard
                 title="Descargar REX+ Empleados"
-                subtitle="Incluye todas las filas ya corregidas"
+                subtitle={isDownloading ? 'Estamos preparando el archivo para descargarlo' : 'Incluye todas las filas ya corregidas'}
                 onClick={onDownload}
+                isLoading={isDownloading}
               />
 
               <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -101,14 +103,22 @@ function MetricCard({ label, value, tone }) {
   );
 }
 
-function ActionCard({ title, subtitle, onClick }) {
+function ActionCard({ title, subtitle, onClick, isLoading = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_rgba(255,255,255,1),_rgba(248,250,252,1))] px-5 py-5 text-left transition hover:border-brand-300 hover:shadow-sm"
+      disabled={isLoading}
+      className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_rgba(255,255,255,1),_rgba(248,250,252,1))] px-5 py-5 text-left transition hover:border-brand-300 hover:shadow-sm disabled:cursor-wait disabled:opacity-80"
     >
-      <p className="text-lg font-bold text-slate-950">{title}</p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-lg font-bold text-slate-950">{title}</p>
+        {isLoading ? (
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-sky-50">
+            <span className="h-4 w-4 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
+          </span>
+        ) : null}
+      </div>
       <p className="mt-2 text-sm text-slate-600">{subtitle}</p>
     </button>
   );

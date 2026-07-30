@@ -68,6 +68,7 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
+  const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
 
   const pairKey = `${selectedOrigin}:${selectedDestination}`;
@@ -135,6 +136,8 @@ export default function App() {
               title: 'Procesando la transformación',
               detail: 'Estamos aplicando reglas, armando el resultado y preparando las correcciones necesarias.',
             }
+          : exportState
+            ? exportState
           : null;
 
   const handleFileSelected = async (file) => {
@@ -264,45 +267,77 @@ export default function App() {
     }
   };
 
-  const handleDownloadColaboradores = (mode) => {
+  const downloadWorkbookWithFeedback = async ({ title, detail, fileName, buildWorkbook }) => {
+    if (exportState) {
+      return;
+    }
+
+    setGlobalError('');
+    setExportState({ title, detail });
+
+    try {
+      await nextPaint();
+      const workbook = buildWorkbook();
+      await nextPaint();
+      triggerWorkbookDownload(workbook, fileName);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo preparar la descarga.');
+    } finally {
+      setExportState(null);
+    }
+  };
+
+  const handleDownloadColaboradores = async (mode) => {
     if (!result || !colaboradoresTemplateResource) {
       return;
     }
 
-    const workbook = buildBukColaboradoresExportWorkbook({
-      templateResource: colaboradoresTemplateResource,
-      rowEntries:
-        mode === 'all' ? result.colaboradores.transformedRows : result.colaboradores.cleanTransformedRows,
+    await downloadWorkbookWithFeedback({
+      title: 'Preparando BUK Colaboradores',
+      detail: 'Estamos armando el Excel final para descargarlo sin congelar la pantalla.',
+      fileName: `BUK_colaboradores_${todayStamp()}.xlsx`,
+      buildWorkbook: () =>
+        buildBukColaboradoresExportWorkbook({
+          templateResource: colaboradoresTemplateResource,
+          rowEntries:
+            mode === 'all' ? result.colaboradores.transformedRows : result.colaboradores.cleanTransformedRows,
+        }),
     });
-
-    XLSX.writeFile(workbook, `BUK_colaboradores_${todayStamp()}.xlsx`);
   };
 
-  const handleDownloadTrabajos = (mode) => {
+  const handleDownloadTrabajos = async (mode) => {
     if (!result || !trabajosTemplateResource) {
       return;
     }
 
-    const workbook = buildBukTrabajosExportWorkbook({
-      templateResource: trabajosTemplateResource,
-      exportedRows: mode === 'all' ? result.trabajos.allExportedRows : result.trabajos.cleanExportedRows,
-      supportSheets: result.trabajos.supportSheets,
+    await downloadWorkbookWithFeedback({
+      title: 'Preparando BUK Trabajos',
+      detail: 'Estamos consolidando la hoja de trabajos y sus listas de apoyo para la descarga.',
+      fileName: `BUK_trabajos_${todayStamp()}.xlsx`,
+      buildWorkbook: () =>
+        buildBukTrabajosExportWorkbook({
+          templateResource: trabajosTemplateResource,
+          exportedRows: mode === 'all' ? result.trabajos.allExportedRows : result.trabajos.cleanExportedRows,
+          supportSheets: result.trabajos.supportSheets,
+        }),
     });
-
-    XLSX.writeFile(workbook, `BUK_trabajos_${todayStamp()}.xlsx`);
   };
 
-  const handleDownloadRex = () => {
+  const handleDownloadRex = async () => {
     if (!result || !rexTemplateResource || result.kind !== 'rex') {
       return;
     }
 
-    const workbook = buildRexExportWorkbook({
-      templateResource: rexTemplateResource,
-      rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
+    await downloadWorkbookWithFeedback({
+      title: 'Preparando REX+ Empleados',
+      detail: 'Estamos construyendo el Excel final de REX+ y activando la descarga en tu navegador.',
+      fileName: `REX_empleados_${todayStamp()}.xlsx`,
+      buildWorkbook: () =>
+        buildRexExportWorkbook({
+          templateResource: rexTemplateResource,
+          rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
+        }),
     });
-
-    XLSX.writeFile(workbook, `REX_empleados_${todayStamp()}.xlsx`);
   };
 
   const handleDownloadRexPendingReport = () => {
@@ -619,6 +654,7 @@ export default function App() {
             result={result}
             activeConfiguration={activeConfiguration}
             onDownload={handleDownloadRex}
+            isDownloading={Boolean(exportState)}
             onSaveConfiguration={handleSaveConfiguration}
             onExportActiveConfiguration={handleExportActiveConfiguration}
             onRestart={resetFlow}
@@ -655,6 +691,29 @@ function WorkInProgressOverlay({ title, detail }) {
       </div>
     </div>
   );
+}
+
+async function nextPaint() {
+  await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function triggerWorkbookDownload(workbook, fileName) {
+  const arrayBuffer = XLSX.write(workbook, {
+    bookType: 'xlsx',
+    type: 'array',
+  });
+  const blob = new Blob([arrayBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 function normalizeDestination(destinationId) {
