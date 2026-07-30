@@ -64,9 +64,23 @@ function parseMeta4Workbook(workbook) {
   });
   const headers = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
   const missingColumns = getMeta4MissingColumns(headers);
+  const identityColumnIndexes = [
+    'ID EMPLEADO',
+    'CI',
+    'NOMBRE',
+    'EMPRESA',
+    'POSICION',
+    'JOB CODE',
+    'UBICACION',
+    'CENTRO COSTO',
+    'ESTADO',
+  ]
+    .map((header) => headers.indexOf(header))
+    .filter((index) => index >= 0);
   const dataRows = rows
     .slice(meta4Origin.dataRowStartIndex)
     .filter((row) => row.some((value) => cleanCell(value)))
+    .filter((row) => identityColumnIndexes.some((index) => cleanCell(row[index])))
     .map((row, rowIndex) =>
       headers.reduce(
         (entry, header, headerIndex) => {

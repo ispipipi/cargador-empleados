@@ -92,6 +92,7 @@ const COMPANY_ALIASES = {
   'finning chile s a': 'Finning Chile S.A.',
   'centro de formacion tecnica finning ltda': 'Centro de Formacion Tecnica Finning Ltda',
   'distribuidora perkins chilena s a c': 'Distribuidora Perkins Chilena S.A.C',
+  'distribuidora perkins chilena sac': 'Distribuidora Perkins Chilena S.A.C',
   'sitech southern cone spa': 'Sitech Southern Cone SPA',
 };
 
@@ -120,6 +121,8 @@ const CONTRACT_TYPE_ALIASES = {
 const MARITAL_STATUS_ALIASES = {
   'soltero a': 'S',
   soltero: 'S',
+  'no especif': 'S',
+  'no especificado': 'S',
   'casado a': 'C',
   casado: 'C',
   'viudo a': 'V',
@@ -127,12 +130,55 @@ const MARITAL_STATUS_ALIASES = {
   divorciado: 'D',
   divorciada: 'D',
   'conviviente civil': 'U',
+  'ac u civil': 'U',
 };
 
 const NATION_ALIASES = {
   chileno: 'chile',
   chilena: 'chile',
   'chileno a': 'chile',
+  venezolano: 'venezuela',
+  venezolana: 'venezuela',
+  'venezolano a': 'venezuela',
+  peruano: 'peru',
+  peruana: 'peru',
+  'peruano a': 'peru',
+  boliviano: 'bolivia',
+  boliviana: 'bolivia',
+  'boliviano a': 'bolivia',
+  colombiano: 'colombia',
+  colombiana: 'colombia',
+  'colombiano a': 'colombia',
+  argentino: 'argentina',
+  argentina: 'argentina',
+  'argentino a': 'argentina',
+  ecuatoriano: 'ecuador',
+  ecuatoriana: 'ecuador',
+  'ecuatoriano a': 'ecuador',
+  brasileno: 'brasil',
+  brasilena: 'brasil',
+  'brasileno a': 'brasil',
+  uruguayo: 'uruguay',
+  uruguaya: 'uruguay',
+  'uruguayo a': 'uruguay',
+  chino: 'china',
+  china: 'china',
+  'chino a': 'china',
+  paraguayo: 'paraguay',
+  paraguaya: 'paraguay',
+  'paraguayo a': 'paraguay',
+  guatemalteco: 'guatemala',
+  guatemalteca: 'guatemala',
+  'guatemalteco a': 'guatemala',
+  espanol: 'espana',
+  espanola: 'espana',
+  'espanol a': 'espana',
+  mexicano: 'mexico',
+  mexicana: 'mexico',
+  'mexicano a': 'mexico',
+  haitiano: 'haiti',
+  haitiana: 'haiti',
+  'haitiano a': 'haiti',
 };
 
 const PAYMENT_METHOD_ALIASES = {
@@ -181,7 +227,7 @@ const HEALTH_NAME_ALIASES = {
 
 const BANK_NAME_ALIASES = {
   'credito inversiones': 'Banco BCI',
-  desarrollo: '',
+  desarrollo: 'Scotiabank',
   'de chile': 'Banco de CHILE',
   chile: 'Banco de CHILE',
   'banco chile': 'Banco de CHILE',
@@ -202,19 +248,85 @@ const BANK_NAME_ALIASES = {
 
 const ZONE_EMPTY_ALIASES = new Set(['sin rebaja de zona', 'sin rebaja de zona finning']);
 
+const ZONE_NAME_ALIASES = {
+  'rebaja de zona iquique finning': 'tarapaca_zona1',
+  'rebaja de zona punta arenas finning': 'magallanes_zona1',
+};
+
+const SEDE_NAME_ALIASES = {
+  'radomiro tomic i': ['Contrato Radomiro Tomic'],
+  'suc antof': ['ANTOFAGASTA'],
+  'tte rajo sur': ['Contrato Teniente Rajo Sur'],
+  concepcion: ['Contrato Arauco Concepcion'],
+  'suc concepcion': ['Contrato Arauco Concepcion'],
+  'sucursal concepcion': ['Contrato Arauco Concepcion'],
+  'minera centinela sulfuro i': ['Contrato Centinela Sulfuro'],
+  'suc pto montt': ['Sucursal Puerto Montt'],
+  'suc pta arenas': ['Sucursal Punta Arenas'],
+  'proyecto cosayach iquique': ['Contrato Proyecto Cosayach Iquique'],
+  'minera centinela oxido': ['Contrato Centinela Oxido'],
+  'serv min mtos blanc': ['Contrato Mantos Blancos'],
+  'suc valdivia': ['Contrato Arauco Valdivia'],
+};
+
+const CARGO_NAME_ALIASES = {
+  abogado: 'ABOGADO - FINSA',
+  'administrativo de repuesto': 'ADMINISTRATIVO DE REPUESTOS',
+  'analista de compras tecnicas junio': 'ANALISTA DE COMPRAS TECNICAS JUNIOR - F',
+  'analista de repuestos a finsa chile': 'ANALISTA DE REPUESTOS A - FINAS - CHILE',
+  'analista de repuestos b': 'ANALISTA DE REPUESTOS B - FINSA - CHILE',
+  'analista i': 'ANALISTA I - FINSA - CHILE',
+  'analista sos ii': 'ANALISTA SOS II - FINSA - CHILE',
+  'ing de ventas repuestos servicios': 'Ingeniero de Ventas Repuestos & Servicio',
+  'ingeniero control de gestion senio': 'INGENIERO CONTROL DE GESTION SENIOR- FI',
+  'ingeniero de servicios electrico': 'Ingeniero de Servicio',
+  'ingeniero de venta equipos e m': 'Ingeniero de Ventas Equipos',
+  'ingeniero de ventas semi senior finsa': 'Ingeniero de Ventas Semi Senior',
+  'ingeniero en prevencion de riesgos y ges': 'INGENIERO EN PREVENCION DE RIESGOS Y GE',
+  'interprete sos ii': 'INTERPRETE SOS II - FINSA',
+  'jefe de industria': 'JEFE DE INDUSTRIA - FINSA - CHILE',
+  'jefe de infraestructura': 'JEFE DE INFRAESTRUCTURA - FINSA - CHILE',
+  'jefe de servicios ti': 'JEFE DE SERVICIOS TI - FINSA',
+  'jefe de ventas': 'JEFE DE VENTAS - FINSA',
+  'jefe servicio tecnico senior fins': 'JEFE SERVICIO TECNICO SENIOR- FINSA - C',
+  'jefe sucursal': 'JEFE SUCURSAL - FINSA',
+  'lider de revision operacional': 'Lid de Revision Operacional -FINSA-Chile',
+  'maestro ii': 'MAESTRO II - FINSA - CHILE',
+  'mecanico a dpp': 'MECANICO A DPP - FINSA - CHILE',
+  'pintor lavador crc antofagasta': 'PINTOR LAVADOR - FINSA - CHILE',
+  'supervisor de rec y despacho': 'SUPERVISOR DE REC Y DESPACHO - FINSA -',
+  'supervisor de terreno': 'SUPERVISOR DE TERRENO - FINSA - CHILE',
+  'tecnico implem': 'Tecnico Implementacion Tecnologico',
+  'tecnico implementacion': 'Tecnico Implementacion Tecnologico',
+};
+
+const CARGO_TOKEN_STOPWORDS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'finsa', 'finas', 'chile']);
+
+const COMUNA_ALIASES = {
+  'san pedro de atacama': 'San Pedro Atacama',
+  'andacollo coquimbo': 'Andacollo',
+  'bulnes 1031 quillota': 'Quillota',
+  'almirante grau 2833 quilpue valparaiso': 'Quilpue',
+  calera: 'La Calera',
+};
+
 const OCCUPATIONAL_LEVEL_RULES = [
-  { id: 'ejecutivo', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente'] },
-  { id: 'mando_medio', keywords: ['jefe', 'supervisor', 'coordinador', 'encargado', 'lider'] },
+  { id: 'ejecutivo', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente', 'gte', 'dtor', 'head of'] },
+  { id: 'mando_medio', keywords: ['jefe', 'jefa', 'supervisor', 'coordinador', 'encargado', 'lider'] },
   {
     id: 'administrativo',
-    keywords: ['administrativo', 'administrativa', 'asistente', 'secretaria', 'recepcion', 'analista administrativo'],
+    keywords: ['administrativo', 'administrativa', 'asistente', 'secretaria', 'recepcion', 'analista administrativo', 'digitador'],
   },
   {
     id: 'profesional',
     keywords: [
+      'instructor',
       'ingeniero',
       'abogado',
       'analista',
+      'analyst',
+      'architect',
+      'arquitecto',
       'contador',
       'programador',
       'planificador',
@@ -237,6 +349,46 @@ const OCCUPATIONAL_LEVEL_RULES = [
       'vts',
       'rental',
       'arriendo',
+      'business partner',
+      'planner',
+      'soporte al producto',
+      'post venta',
+      'account manager',
+      'category manager',
+      'developer',
+      'desarrollador',
+      'engineer',
+      'manager',
+      'lead',
+      'leader',
+      'comprador',
+      'pmo',
+      'customer success',
+      'cientifico de datos',
+      'auditoria interna',
+      'auditoría interna',
+      'ejecutivo de cuenta',
+      'pricing',
+      'administrador de contrato',
+      'administrador aplicaciones',
+      'interprete',
+      'intérprete',
+      'global services lead',
+      'specialist',
+      'human resources',
+      'procurement',
+      'mejoramiento de procesos',
+      'instructor operaciones',
+      'asesor de repuestos',
+      'asesor de operaciones',
+      'expert',
+      'experto',
+      'sap',
+      'black belt',
+      'comunicaciones',
+      'diversity',
+      'equity',
+      'inclusion',
     ],
   },
   {
@@ -254,6 +406,21 @@ const OCCUPATIONAL_LEVEL_RULES = [
       'bodeguero',
       'bodega',
       'inventario',
+      'auditor de inventario',
+      'expeditor',
+      'expeditora',
+      'mentor',
+      'inspector de calidad',
+      'inspector de motores',
+      'inspector de cores',
+      'inspector terreno',
+      'calderero',
+      'pintor',
+      'responsable de pintura',
+      'armador de mangueras',
+      'armador',
+      'instalador',
+      'operario',
       'maestro',
       'inspector tecnico',
       'asesor tecnico',
@@ -265,8 +432,28 @@ const OCCUPATIONAL_LEVEL_RULES = [
 
 const CATEGORY_INE_RULES = [
   { id: 'ine_gerentes', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente'] },
-  { id: 'ine_profesionales', keywords: ['ingeniero', 'abogado', 'analista', 'contador', 'consultor', 'programador', 'planificador', 'product manager', 'project manager', 'product specialist'] },
-  { id: 'ine_tecnicos', keywords: ['tecnico', 'instructor tecnico', 'mecanico', 'electricista', 'electrico', 'maestro', 'inspector tecnico', 'asesor tecnico'] },
+  {
+    id: 'ine_profesionales',
+    keywords: [
+      'ingeniero',
+      'abogado',
+      'analista',
+      'contador',
+      'consultor',
+      'programador',
+      'planificador',
+      'planner',
+      'developer',
+      'business partner',
+      'pricing',
+      'product manager',
+      'project manager',
+      'product specialist',
+      'business intelligence',
+      'workday',
+    ],
+  },
+  { id: 'ine_tecnicos', keywords: ['tecnico', 'instructor', 'instructor tecnico', 'mecanico', 'electricista', 'electrico', 'maestro', 'inspector tecnico', 'asesor tecnico'] },
   { id: 'ine_administrativos', keywords: ['administrativo', 'asistente', 'secretaria', 'recepcion'] },
   { id: 'ine_comercio', keywords: ['comercial', 'ventas', 'vendedor', 'vendedora', 'representante comercial', 'representante de ventas', 'vts', 'rental', 'arriendo'] },
   { id: 'ine_montaje', keywords: ['operador', 'montaje', 'maquina', 'panolero', 'pañolero', 'bodeguero', 'bodega', 'inventario'] },
@@ -307,7 +494,6 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const rowNumber = Number(sourceRow.__sourceRowNumber) || 0;
   const employeeId = cleanCell(sourceRow.CI);
   const employeeName = cleanCell(sourceRow.NOMBRE);
-  const normalizedPosition = normalizeLooseText(sourceRow.POSICION);
   const normalizedAreaSource = normalizeLooseText(sourceRow['UNIDAD DE NEGOCIOS']);
   const sourceEstado = cleanCell(sourceRow.ESTADO);
   const noCotiza = isNoCotiza(sourceRow);
@@ -466,21 +652,19 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     aliases: COMPANY_ALIASES,
     normalizer: normalizeLooseText,
   });
-  const cargo = resolveCatalogField({
-    key: 'cargo',
-    label: 'Cargo',
-    catalogName: 'Cargo',
-    sourceValue: sourceRow.POSICION,
+  const cargo = resolveCargoField({
+    sourceRow,
     correctionValue: corrections?.cargo,
     templateResource,
     pendingItems,
     rowNumber,
     employeeId,
     employeeName,
-    normalizer: normalizeLooseText,
-    allowHeuristicMatch: true,
-    allowScoredMatch: true,
   });
+  const resolvedCargoName = getCatalogItemName(templateResource.catalogs.Cargo ?? [], cargo.value);
+  const normalizedOccupationSource = normalizeLooseText(
+    `${sourceRow.POSICION ?? ''} ${sourceRow['JOB CODE'] ?? ''} ${resolvedCargoName}`,
+  );
   const costCenter = resolveCatalogField({
     key: 'costCenter',
     label: 'Id centro de costo',
@@ -543,7 +727,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     label: 'Nivel Ocupacional',
     correctionValue: corrections?.occupationalLevel,
     inferredValue: inferFromKeywordRules({
-      normalizedSource: normalizedPosition,
+      normalizedSource: normalizedOccupationSource,
       normalizedArea: normalizedAreaSource,
       rules: OCCUPATIONAL_LEVEL_RULES,
     }),
@@ -557,7 +741,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     label: 'Categoría INE',
     correctionValue: corrections?.ineCategory,
     inferredValue: inferIneCategory({
-      normalizedSource: normalizedPosition,
+      normalizedSource: normalizedOccupationSource,
       normalizedArea: normalizedAreaSource,
       occupationalLevelId: nivelOcupacional.value,
     }),
@@ -566,10 +750,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeId,
     employeeName,
   });
-  const terminationCause = resolveCatalogField({
-    key: 'terminationCause',
-    label: 'Causal de término del contrato',
-    catalogName: 'Causal de término de contrato',
+  const terminationCause = resolveTerminationCauseField({
     sourceValue: sourceRow['MOTIVO RETIRO'],
     correctionValue: corrections?.terminationCause,
     templateResource,
@@ -577,8 +758,6 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     rowNumber,
     employeeId,
     employeeName,
-    normalizer: normalizeLooseText,
-    allowBlank: true,
   });
   const zone = resolveZoneField({
     sourceValue: sourceRow['TIPO REBAJA ZONA'],
@@ -925,6 +1104,190 @@ function resolveContractTypeField({
   });
 }
 
+function resolveCargoField({
+  sourceRow,
+  correctionValue,
+  templateResource,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
+  const directCorrection = cleanCell(correctionValue);
+
+  if (directCorrection) {
+    return { value: directCorrection };
+  }
+
+  const catalog = templateResource.catalogs.Cargo ?? [];
+  const candidateValues = [cleanCell(sourceRow.POSICION), cleanCell(sourceRow['JOB CODE'])]
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index);
+
+  for (const candidateValue of candidateValues) {
+    const aliasedCandidate = CARGO_NAME_ALIASES[normalizeLooseText(candidateValue)];
+
+    if (!aliasedCandidate) {
+      continue;
+    }
+
+    const aliasMatch = findCatalogMatch({
+      catalog,
+      candidate: aliasedCandidate,
+      normalizer: normalizeLooseText,
+    });
+
+    if (aliasMatch) {
+      return { value: aliasMatch.id };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    const exactMatch = findCatalogMatch({
+      catalog,
+      candidate: candidateValue,
+      normalizer: normalizeLooseText,
+    });
+
+    if (exactMatch) {
+      return { value: exactMatch.id };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    const heuristicMatch = findHeuristicCatalogMatch({
+      catalog,
+      candidate: candidateValue,
+      normalizer: normalizeLooseText,
+    });
+
+    if (heuristicMatch) {
+      return { value: heuristicMatch.id };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    const scoredCargoMatch = findScoredCargoCatalogMatch({
+      catalog,
+      candidate: candidateValue,
+    });
+
+    if (scoredCargoMatch) {
+      return { value: scoredCargoMatch.id };
+    }
+  }
+
+  for (const candidateValue of candidateValues) {
+    const scoredMatch = findScoredCatalogMatch({
+      catalog,
+      candidate: candidateValue,
+      normalizer: normalizeLooseText,
+    });
+
+    if (scoredMatch) {
+      return { value: scoredMatch.id };
+    }
+  }
+
+  pendingItems.push(
+    buildPendingItem({
+      key: 'cargo',
+      label: 'Cargo',
+      type: 'catalog',
+      catalogName: 'Cargo',
+      rowNumber,
+      employeeId,
+      employeeName,
+      sourceValue: candidateValues.join(' / '),
+    }),
+  );
+
+  return { value: '' };
+}
+
+function inferTerminationCauseId(sourceValue) {
+  const normalizedSource = normalizeLooseText(sourceValue);
+
+  if (!normalizedSource) {
+    return '';
+  }
+
+  if (normalizedSource.includes('mutuo acuerdo') || normalizedSource.startsWith('159 1')) {
+    return '159i1';
+  }
+
+  if (normalizedSource.includes('renuncia')) {
+    return '159i2';
+  }
+
+  if (normalizedSource.includes('inciso 2do') || normalizedSource.includes('desahucio')) {
+    return '161i2';
+  }
+
+  if (normalizedSource.includes('necesidades de la empresa') || normalizedSource.startsWith('161')) {
+    return '161i1';
+  }
+
+  if (normalizedSource.includes('falta de probidad')) {
+    return '160i1a';
+  }
+
+  if (normalizedSource.includes('actos omisiones o imprudencias')) {
+    return '160i5';
+  }
+
+  if (normalizedSource.includes('incumplimiento grave')) {
+    return '160i7';
+  }
+
+  return '';
+}
+
+function resolveTerminationCauseField({
+  sourceValue,
+  correctionValue,
+  templateResource,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  if (isIntentionalBlankCorrection(correctionValue)) {
+    return { value: '' };
+  }
+
+  const directCorrection = cleanCell(correctionValue);
+
+  if (directCorrection) {
+    return { value: directCorrection };
+  }
+
+  const inferredCauseId = inferTerminationCauseId(sourceValue);
+
+  if (inferredCauseId) {
+    return { value: inferredCauseId };
+  }
+
+  return resolveCatalogField({
+    key: 'terminationCause',
+    label: 'Causal de término del contrato',
+    catalogName: 'Causal de término de contrato',
+    sourceValue,
+    correctionValue,
+    templateResource,
+    pendingItems,
+    rowNumber,
+    employeeId,
+    employeeName,
+    normalizer: normalizeLooseText,
+    allowBlank: true,
+  });
+}
+
 function resolveSedeField({
   sourceValue,
   secondarySourceValue,
@@ -1212,23 +1575,28 @@ function resolveComuna({ sourceValue, correctionValue, templateResource, pending
 
   const directCorrection = cleanCell(correctionValue);
   const catalog = templateResource.catalogs.Comuna ?? [];
+  const candidateValues = buildComunaCandidates(sourceValue);
   const selectedComuna =
     catalog.find((item) => item.id === directCorrection) ||
-    findCatalogMatch({
-      catalog,
-      candidate: sourceValue,
-      normalizer: normalizeLooseText,
-    }) ||
-    findHeuristicCatalogMatch({
-      catalog,
-      candidate: sourceValue,
-      normalizer: normalizeLooseText,
-    }) ||
-    findScoredCatalogMatch({
-      catalog,
-      candidate: sourceValue,
-      normalizer: normalizeLooseText,
-    });
+    candidateValues
+      .map((candidate) =>
+        findCatalogMatch({
+          catalog,
+          candidate,
+          normalizer: normalizeLooseText,
+        }) ||
+        findHeuristicCatalogMatch({
+          catalog,
+          candidate,
+          normalizer: normalizeLooseText,
+        }) ||
+        findScoredCatalogMatch({
+          catalog,
+          candidate,
+          normalizer: normalizeLooseText,
+        }),
+      )
+      .find(Boolean);
 
   if (!selectedComuna) {
     pendingItems.push(
@@ -1335,6 +1703,7 @@ function resolveZoneField({ sourceValue, correctionValue, templateResource, pend
     rowNumber,
     employeeId,
     employeeName,
+    aliases: ZONE_NAME_ALIASES,
     normalizer: normalizeLooseText,
     allowHeuristicMatch: true,
   });
@@ -1543,7 +1912,7 @@ function calculateMonthDifference(startValue, endValue) {
 
 function inferFromKeywordRules({ normalizedSource, normalizedArea, rules }) {
   const combinedSource = `${normalizedSource} ${normalizedArea}`.trim();
-  const matchedRule = rules.find((rule) => rule.keywords.some((keyword) => combinedSource.includes(keyword)));
+  const matchedRule = rules.find((rule) => rule.keywords.some((keyword) => matchesKeywordRule(combinedSource, keyword)));
   return matchedRule?.id ?? '';
 }
 
@@ -1644,6 +2013,89 @@ function findScoredCatalogMatch({ catalog, candidate, normalizer }) {
   return bestMatch.item;
 }
 
+function getCatalogItemName(catalog, id) {
+  if (!id) {
+    return '';
+  }
+
+  return catalog.find((item) => item.id === id)?.name ?? '';
+}
+
+function matchesKeywordRule(normalizedSource, keyword) {
+  const normalizedKeyword = normalizeLooseText(keyword);
+
+  if (!normalizedSource || !normalizedKeyword) {
+    return false;
+  }
+
+  if (normalizedSource.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const sourceTokens = tokenizeNormalized(normalizedSource);
+  const keywordTokens = tokenizeNormalized(normalizedKeyword);
+
+  if (!sourceTokens.length || !keywordTokens.length) {
+    return false;
+  }
+
+  return keywordTokens.every((token) => sourceTokens.includes(token));
+}
+
+function findScoredCargoCatalogMatch({ catalog, candidate }) {
+  const normalizedCandidate = normalizeCargoName(candidate);
+
+  if (!normalizedCandidate) {
+    return null;
+  }
+
+  const candidateTokens = tokenizeCargoName(candidate);
+
+  if (!candidateTokens.length) {
+    return null;
+  }
+
+  const rankedMatches = catalog
+    .map((item) => {
+      const normalizedName = normalizeCargoName(item.name);
+      const nameTokens = tokenizeCargoName(item.name);
+      const sharedTokens = candidateTokens.filter((token) => nameTokens.includes(token));
+      let score = sharedTokens.length * 26;
+
+      if (normalizedName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedName)) {
+        score += 34;
+      }
+
+      if (sharedTokens.length === candidateTokens.length) {
+        score += 32;
+      }
+
+      if (candidateTokens[0] && nameTokens[0] === candidateTokens[0]) {
+        score += 10;
+      }
+
+      score -= Math.max(0, nameTokens.length - candidateTokens.length) * 3;
+
+      return {
+        item,
+        score,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  const [bestMatch, secondMatch] = rankedMatches;
+
+  if (!bestMatch || bestMatch.score < 58) {
+    return null;
+  }
+
+  if (secondMatch && bestMatch.score - secondMatch.score < 10) {
+    return null;
+  }
+
+  return bestMatch.item;
+}
+
 function inferContractTypeId({ sourceValue, endDateValue }) {
   const normalizedSource = normalizeLooseText(sourceValue);
 
@@ -1677,6 +2129,10 @@ function buildSedeCandidates({ sourceValue, sourceCompanyValue, resolvedCompanyI
   const rawValue = cleanCell(sourceValue);
   const branchName = rawValue.replace(/^(sucursal|oficina|agencia)\s+/i, '').trim();
   const candidates = [rawValue];
+  const normalizedRawValue = normalizeSedeName(rawValue);
+  const aliasCandidates = SEDE_NAME_ALIASES[normalizedRawValue] ?? [];
+
+  candidates.push(...aliasCandidates);
 
   if (branchName && branchName !== rawValue) {
     candidates.push(branchName);
@@ -1754,30 +2210,65 @@ function parseAddress(value) {
     };
   }
 
-  const departmentMatch = rawValue.match(/(?:depto|dpto|of|oficina)\s+([a-z0-9-]+)/i);
-  const department = departmentMatch?.[1] ?? '';
+  const departmentMatch = rawValue.match(/(depto|dpto|depa|departamento|of|oficina|block|bloque)\s+([a-z0-9-]+)/i);
+  const departmentKeyword = departmentMatch?.[1]?.toLowerCase() ?? '';
+  const department = departmentMatch?.[2] ?? '';
   const withoutDepartment = departmentMatch ? rawValue.replace(departmentMatch[0], '').trim() : rawValue;
-  const streetMatch = withoutDepartment.match(/^(.*?)(?:\s+|,\s*)(\d+[a-zA-Z-]*)$/);
+  const normalizedAddress = withoutDepartment
+    .replace(/\bN\s*(?=[a-zA-Z]?\d)/gi, ' ')
+    .replace(/([a-zA-Z])(\d{2,}[a-zA-Z-]*)/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const streetMatch = normalizedAddress.match(/^(.*?)(?:\s+|,\s*|#\s*)([a-zA-Z]?\d+[a-zA-Z0-9-]*)$/i);
 
   if (!streetMatch) {
-    const inlineNumberMatch = withoutDepartment.match(/\b(\d+[a-zA-Z-]*)\b/);
-    const streetNumber = inlineNumberMatch?.[1] ?? '';
+    const kilometerMatch = normalizedAddress.match(/\bkm\s*(\d+[a-zA-Z-]*)\b/i);
+    const kilometerNumber = kilometerMatch ? `KM${kilometerMatch[1]}` : '';
+    const inlineNumberMatch = normalizedAddress.match(/\b([a-zA-Z]?\d+[a-zA-Z0-9-]*)\b/i);
+    const derivedBlockNumber =
+      !inlineNumberMatch && department && ['block', 'bloque'].includes(departmentKeyword) ? department : '';
+    const streetNumber = inlineNumberMatch?.[1] || kilometerNumber || derivedBlockNumber;
     const streetName = streetNumber
-      ? cleanCell(withoutDepartment.replace(inlineNumberMatch[0], '').replace(/\s+/g, ' '))
-      : cleanCell(withoutDepartment);
+      ? cleanCell(
+          normalizedAddress
+            .replace(inlineNumberMatch?.[0] ?? kilometerMatch?.[0] ?? '', '')
+            .replace(/\bN\b/gi, '')
+            .replace(/\s+/g, ' '),
+        )
+      : cleanCell(normalizedAddress);
 
     return {
       streetName,
       streetNumber,
-      department,
+      department: derivedBlockNumber ? '' : department,
     };
   }
 
   return {
-    streetName: cleanCell(streetMatch[1]),
+    streetName: cleanCell(streetMatch[1].replace(/\bN\b/gi, '')),
     streetNumber: cleanCell(streetMatch[2]),
     department: cleanCell(department),
   };
+}
+
+function buildComunaCandidates(value) {
+  const rawValue = cleanCell(value);
+
+  if (!rawValue) {
+    return [];
+  }
+
+  const normalizedRawValue = normalizeLooseText(rawValue);
+  const aliasCandidate = COMUNA_ALIASES[normalizedRawValue];
+  const commaSegments = rawValue
+    .split(',')
+    .map((segment) => cleanCell(segment))
+    .filter(Boolean);
+  const trailingTokenCandidate = cleanCell(rawValue.replace(/^.*\d+\s*/u, ''));
+
+  return [rawValue, aliasCandidate, ...commaSegments, trailingTokenCandidate]
+    .filter(Boolean)
+    .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
 }
 
 function resolveCityIdForRegion(regionId, comunaName, cityCatalog) {
@@ -1799,6 +2290,13 @@ function normalizeLooseText(value) {
     .trim();
 }
 
+function normalizeCargoName(value) {
+  return normalizeLooseText(value)
+    .replace(/\bfinsa\b|\bfinas\b|\bchile\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeAreaName(value) {
   return normalizeLooseText(value)
     .replace(/\([^)]*\)/g, ' ')
@@ -1812,6 +2310,37 @@ function tokenizeNormalized(value) {
     .split(/[^a-z0-9]+/g)
     .filter(Boolean)
     .filter((token) => token.length > 2);
+}
+
+function normalizeCargoToken(token) {
+  const normalizedToken = String(token).trim();
+
+  if (!normalizedToken) {
+    return '';
+  }
+
+  const aliasMap = {
+    implem: 'implementacion',
+    inspecto: 'inspector',
+    vts: 'ventas',
+  };
+
+  const aliasedToken = aliasMap[normalizedToken] ?? normalizedToken;
+
+  if (aliasedToken.length > 4 && aliasedToken.endsWith('s')) {
+    return aliasedToken.slice(0, -1);
+  }
+
+  return aliasedToken;
+}
+
+function tokenizeCargoName(value) {
+  return normalizeCargoName(value)
+    .split(/[^a-z0-9]+/g)
+    .map(normalizeCargoToken)
+    .filter(Boolean)
+    .filter((token) => token.length > 1)
+    .filter((token) => !CARGO_TOKEN_STOPWORDS.has(token));
 }
 
 function hasAddressNumberHint(value) {
