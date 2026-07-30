@@ -69,6 +69,8 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
+  const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
+  const [preparedRexDownload, setPreparedRexDownload] = useState(null);
   const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
 
@@ -137,9 +139,73 @@ export default function App() {
               title: 'Procesando la transformación',
               detail: 'Estamos aplicando reglas, armando el resultado y preparando las correcciones necesarias.',
             }
+          : isPreparingRexDownload
+            ? {
+                title: 'Preparando descarga final',
+                detail: 'Estamos dejando listo el Excel de REX+ para que el botón descargue directo apenas termine.',
+              }
           : exportState
             ? exportState
           : null;
+
+  useEffect(() => {
+    if (step !== STEPS.result || result?.kind !== 'rex' || !rexTemplateResource) {
+      setIsPreparingRexDownload(false);
+      setPreparedRexDownload((current) => {
+        revokePreparedDownload(current);
+        return null;
+      });
+      return undefined;
+    }
+
+    let isActive = true;
+
+    setIsPreparingRexDownload(true);
+    setPreparedRexDownload((current) => {
+      revokePreparedDownload(current);
+      return null;
+    });
+
+    const timerId = window.setTimeout(() => {
+      try {
+        const workbook = buildRexExportWorkbook({
+          templateResource: rexTemplateResource,
+          rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
+        });
+        const nextDownload = createPreparedDownload(workbook, `REX_empleados_${todayStamp()}.xlsx`);
+
+        if (!isActive) {
+          revokePreparedDownload(nextDownload);
+          return;
+        }
+
+        setGlobalError('');
+        setPreparedRexDownload(nextDownload);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setGlobalError(error instanceof Error ? error.message : 'No se pudo preparar la descarga de REX+.');
+      } finally {
+        if (isActive) {
+          setIsPreparingRexDownload(false);
+        }
+      }
+    }, 80);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timerId);
+    };
+  }, [step, result, rexTemplateResource]);
+
+  useEffect(
+    () => () => {
+      revokePreparedDownload(preparedRexDownload);
+    },
+    [preparedRexDownload],
+  );
 
   const handleFileSelected = async (file) => {
     if (!file) {
@@ -326,6 +392,15 @@ export default function App() {
 
   const handleDownloadRex = () => {
     if (!result || !rexTemplateResource || result.kind !== 'rex') {
+      return;
+    }
+
+    if (preparedRexDownload) {
+      triggerPreparedDownload(preparedRexDownload);
+      return;
+    }
+
+    if (isPreparingRexDownload) {
       return;
     }
 
@@ -655,7 +730,9 @@ export default function App() {
             result={result}
             activeConfiguration={activeConfiguration}
             onDownload={handleDownloadRex}
-            isDownloading={Boolean(exportState)}
+            downloadHref={preparedRexDownload?.objectUrl ?? ''}
+            downloadName={preparedRexDownload?.fileName ?? ''}
+            isDownloading={isPreparingRexDownload || Boolean(exportState)}
             onSaveConfiguration={handleSaveConfiguration}
             onExportActiveConfiguration={handleExportActiveConfiguration}
             onRestart={resetFlow}
@@ -695,6 +772,10 @@ function WorkInProgressOverlay({ title, detail }) {
 }
 
 function triggerWorkbookDownload(workbook, fileName) {
+  triggerPreparedDownload(createPreparedDownload(workbook, fileName));
+}
+
+function createPreparedDownload(workbook, fileName) {
   const arrayBuffer = XLSX.write(workbook, {
     bookType: 'xlsx',
     type: 'array',
@@ -702,14 +783,31 @@ function triggerWorkbookDownload(workbook, fileName) {
   const blob = new Blob([arrayBuffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const objectUrl = URL.createObjectURL(blob);
+  return {
+    fileName,
+    objectUrl: URL.createObjectURL(blob),
+  };
+}
+
+function triggerPreparedDownload(downloadResource) {
+  if (!downloadResource?.objectUrl || !downloadResource?.fileName) {
+    return;
+  }
+
   const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
+  link.href = downloadResource.objectUrl;
+  link.download = downloadResource.fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+}
+
+function revokePreparedDownload(downloadResource) {
+  if (!downloadResource?.objectUrl) {
+    return;
+  }
+
+  URL.revokeObjectURL(downloadResource.objectUrl);
 }
 
 function normalizeDestination(destinationId) {

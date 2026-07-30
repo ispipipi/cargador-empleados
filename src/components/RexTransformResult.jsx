@@ -2,11 +2,15 @@ export default function RexTransformResult({
   result,
   activeConfiguration,
   onDownload,
+  downloadHref = '',
+  downloadName = '',
   isDownloading = false,
   onSaveConfiguration,
   onExportActiveConfiguration,
   onRestart,
 }) {
+  const isDownloadReady = Boolean(downloadHref && downloadName && !isDownloading);
+
   return (
     <div className="space-y-8">
       <section className="panel overflow-hidden">
@@ -32,9 +36,18 @@ export default function RexTransformResult({
             <div className="grid gap-4">
               <ActionCard
                 title="Descargar REX+ Empleados"
-                subtitle={isDownloading ? 'Estamos preparando el archivo para descargarlo' : 'Incluye todas las filas ya corregidas'}
+                subtitle={
+                  isDownloading
+                    ? 'Estamos preparando el archivo para descargarlo'
+                    : isDownloadReady
+                      ? 'Incluye todas las filas ya corregidas y ya está listo para bajar'
+                      : 'La descarga se habilitará apenas termine la preparación'
+                }
                 onClick={onDownload}
+                href={isDownloadReady ? downloadHref : ''}
+                downloadName={isDownloadReady ? downloadName : ''}
                 isLoading={isDownloading}
+                isDisabled={!isDownloading && !isDownloadReady}
               />
 
               <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -103,13 +116,30 @@ function MetricCard({ label, value, tone }) {
   );
 }
 
-function ActionCard({ title, subtitle, onClick, isLoading = false }) {
+function ActionCard({ title, subtitle, onClick, href = '', downloadName = '', isLoading = false, isDisabled = false }) {
+  const className =
+    'rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_rgba(255,255,255,1),_rgba(248,250,252,1))] px-5 py-5 text-left transition hover:border-brand-300 hover:shadow-sm disabled:cursor-wait disabled:opacity-80';
+
+  if (href && downloadName) {
+    return (
+      <a href={href} download={downloadName} className={`block ${className}`}>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-lg font-bold text-slate-950">{title}</p>
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
+            Descargar
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-slate-600">{subtitle}</p>
+      </a>
+    );
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={isLoading}
-      className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_rgba(255,255,255,1),_rgba(248,250,252,1))] px-5 py-5 text-left transition hover:border-brand-300 hover:shadow-sm disabled:cursor-wait disabled:opacity-80"
+      disabled={isLoading || isDisabled}
+      className={className}
     >
       <div className="flex items-center justify-between gap-4">
         <p className="text-lg font-bold text-slate-950">{title}</p>
