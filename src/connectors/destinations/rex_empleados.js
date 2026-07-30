@@ -310,6 +310,48 @@ const COMUNA_ALIASES = {
   calera: 'La Calera',
 };
 
+const LOCATION_COMUNA_ALIASES = {
+  'sucursal antofagasta': 'Antofagasta',
+  'centro de servicio la negra csar': 'Antofagasta',
+  'centro de servicio antofagasta csan': 'Antofagasta',
+  'centro formacion tecnico antofagasta': 'Antofagasta',
+  'centro hidraulico antofagasta': 'Antofagasta',
+  'dpp antofagasta': 'Antofagasta',
+  'sucursal santiago': 'Santiago',
+  'diperk sucursal santiago': 'Santiago',
+  'huechuraba edificio corporativo': 'Huechuraba',
+  'sucursal coquimbo': 'Coquimbo',
+  'sucursal copiapo': 'Copiapo',
+  'sucursal concepcion': 'Concepcion',
+  'diperk sucursal concepcion': 'Concepcion',
+  'sucursal puerto montt': 'Puerto Montt',
+  'sucursal calama': 'Calama',
+  'sucursal iquique': 'Iquique',
+  'sucursal temuco': 'Temuco',
+  'centro de distribucion enea': 'Pudahuel',
+  'contrato radomiro tomic': 'Calama',
+  'contrato ministro hales': 'Calama',
+  'chuquicamata ug': 'Calama',
+  'contrato gabriela mistral': 'Calama',
+  'contrato teniente rajo sur': 'Rancagua',
+  'contrato collahuasi': 'Iquique',
+  'contrato quebrada blanca': 'Iquique',
+  'contrato andina': 'Los Andes',
+  'contrato candelaria': 'Copiapo',
+  'contrato los colorados': 'Copiapo',
+  'contrato manto verde': 'Copiapo',
+  'contrato pucobre': 'Copiapo',
+  'contrato el abra': 'Calama',
+  'contrato escondida': 'Antofagasta',
+  'centro logistica la negra cl la negra': 'Antofagasta',
+  'contrato sierra gorda': 'Sierra Gorda',
+  'contrato marc sierra gorda': 'Sierra Gorda',
+  'contrato centinela sulfuro': 'Sierra Gorda',
+  'contrato centinela oxido': 'Sierra Gorda',
+  'contrato spence': 'Sierra Gorda',
+  'contrato carmen de andacollo': 'Andacollo',
+};
+
 const OCCUPATIONAL_LEVEL_RULES = [
   { id: 'ejecutivo', keywords: ['gerente', 'director', 'chief', 'vp', 'vicepresidente', 'gte', 'dtor', 'head of'] },
   { id: 'mando_medio', keywords: ['jefe', 'jefa', 'supervisor', 'coordinador', 'encargado', 'lider'] },
@@ -567,6 +609,8 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   });
   const comunaResolution = resolveComuna({
     sourceValue: sourceRow.COMUNA,
+    locationValue: sourceRow.UBICACION,
+    secondaryLocationValue: sourceRow['UBICACION WORKDAY'],
     correctionValue: corrections?.comuna,
     templateResource,
     pendingItems,
@@ -1564,7 +1608,17 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   };
 }
 
-function resolveComuna({ sourceValue, correctionValue, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
+function resolveComuna({
+  sourceValue,
+  locationValue,
+  secondaryLocationValue,
+  correctionValue,
+  templateResource,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
   if (isIntentionalBlankCorrection(correctionValue)) {
     return {
       comunaId: '',
@@ -1575,7 +1629,11 @@ function resolveComuna({ sourceValue, correctionValue, templateResource, pending
 
   const directCorrection = cleanCell(correctionValue);
   const catalog = templateResource.catalogs.Comuna ?? [];
-  const candidateValues = buildComunaCandidates(sourceValue);
+  const candidateValues = buildComunaCandidates({
+    sourceValue,
+    locationValue,
+    secondaryLocationValue,
+  });
   const selectedComuna =
     catalog.find((item) => item.id === directCorrection) ||
     candidateValues
@@ -2251,24 +2309,82 @@ function parseAddress(value) {
   };
 }
 
-function buildComunaCandidates(value) {
-  const rawValue = cleanCell(value);
+function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationValue }) {
+  const rawValue = cleanCell(sourceValue);
+  const locationCandidates = [secondaryLocationValue, locationValue]
+    .map((value) => cleanCell(value))
+    .filter(Boolean);
+  const inferredLocationCandidate = rawValue
+    ? ''
+    : locationCandidates
+        .map((value) => inferComunaFromLocation(value))
+        .find(Boolean);
 
-  if (!rawValue) {
+  if (!rawValue && !inferredLocationCandidate) {
     return [];
   }
 
   const normalizedRawValue = normalizeLooseText(rawValue);
-  const aliasCandidate = COMUNA_ALIASES[normalizedRawValue];
+  const aliasCandidate = rawValue ? COMUNA_ALIASES[normalizedRawValue] : '';
   const commaSegments = rawValue
-    .split(',')
-    .map((segment) => cleanCell(segment))
-    .filter(Boolean);
-  const trailingTokenCandidate = cleanCell(rawValue.replace(/^.*\d+\s*/u, ''));
+    ? rawValue
+        .split(',')
+        .map((segment) => cleanCell(segment))
+        .filter(Boolean)
+    : [];
+  const trailingTokenCandidate = rawValue ? cleanCell(rawValue.replace(/^.*\d+\s*/u, '')) : '';
 
-  return [rawValue, aliasCandidate, ...commaSegments, trailingTokenCandidate]
+  return [rawValue, aliasCandidate, inferredLocationCandidate, ...commaSegments, trailingTokenCandidate]
     .filter(Boolean)
     .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
+}
+
+function inferComunaFromLocation(value) {
+  const normalizedValue = normalizeLooseText(value);
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  if (LOCATION_COMUNA_ALIASES[normalizedValue]) {
+    return LOCATION_COMUNA_ALIASES[normalizedValue];
+  }
+
+  const keywordRules = [
+    ['radomiro tomic', 'Calama'],
+    ['ministro hales', 'Calama'],
+    ['gabriela mistral', 'Calama'],
+    ['chuquicamata', 'Calama'],
+    ['el abra', 'Calama'],
+    ['candelaria', 'Copiapo'],
+    ['los colorados', 'Copiapo'],
+    ['manto verde', 'Copiapo'],
+    ['pucobre', 'Copiapo'],
+    ['collahuasi', 'Iquique'],
+    ['quebrada blanca', 'Iquique'],
+    ['sierra gorda', 'Sierra Gorda'],
+    ['centinela', 'Sierra Gorda'],
+    ['spence', 'Sierra Gorda'],
+    ['andacollo', 'Andacollo'],
+    ['teniente', 'Rancagua'],
+    ['rajo sur', 'Rancagua'],
+    ['antofagasta', 'Antofagasta'],
+    ['la negra', 'Antofagasta'],
+    ['huechuraba', 'Huechuraba'],
+    ['copiapo', 'Copiapo'],
+    ['coquimbo', 'Coquimbo'],
+    ['concepcion', 'Concepcion'],
+    ['puerto montt', 'Puerto Montt'],
+    ['calama', 'Calama'],
+    ['iquique', 'Iquique'],
+    ['temuco', 'Temuco'],
+    ['santiago', 'Santiago'],
+    ['enea', 'Pudahuel'],
+    ['pudahuel', 'Pudahuel'],
+  ];
+
+  const matchedRule = keywordRules.find(([keyword]) => normalizedValue.includes(keyword));
+  return matchedRule?.[1] ?? '';
 }
 
 function resolveCityIdForRegion(regionId, comunaName, cityCatalog) {
