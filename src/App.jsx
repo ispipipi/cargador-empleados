@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import * as XLSX from 'xlsx';
 import FileUploader from './components/FileUploader';
 import FormatSelector from './components/FormatSelector';
@@ -267,18 +268,18 @@ export default function App() {
     }
   };
 
-  const downloadWorkbookWithFeedback = async ({ title, detail, fileName, buildWorkbook }) => {
+  const downloadWorkbookWithFeedback = ({ title, detail, fileName, buildWorkbook }) => {
     if (exportState) {
       return;
     }
 
-    setGlobalError('');
-    setExportState({ title, detail });
+    flushSync(() => {
+      setGlobalError('');
+      setExportState({ title, detail });
+    });
 
     try {
-      await nextPaint();
       const workbook = buildWorkbook();
-      await nextPaint();
       triggerWorkbookDownload(workbook, fileName);
     } catch (error) {
       setGlobalError(error instanceof Error ? error.message : 'No se pudo preparar la descarga.');
@@ -287,12 +288,12 @@ export default function App() {
     }
   };
 
-  const handleDownloadColaboradores = async (mode) => {
+  const handleDownloadColaboradores = (mode) => {
     if (!result || !colaboradoresTemplateResource) {
       return;
     }
 
-    await downloadWorkbookWithFeedback({
+    downloadWorkbookWithFeedback({
       title: 'Preparando BUK Colaboradores',
       detail: 'Estamos armando el Excel final para descargarlo sin congelar la pantalla.',
       fileName: `BUK_colaboradores_${todayStamp()}.xlsx`,
@@ -305,12 +306,12 @@ export default function App() {
     });
   };
 
-  const handleDownloadTrabajos = async (mode) => {
+  const handleDownloadTrabajos = (mode) => {
     if (!result || !trabajosTemplateResource) {
       return;
     }
 
-    await downloadWorkbookWithFeedback({
+    downloadWorkbookWithFeedback({
       title: 'Preparando BUK Trabajos',
       detail: 'Estamos consolidando la hoja de trabajos y sus listas de apoyo para la descarga.',
       fileName: `BUK_trabajos_${todayStamp()}.xlsx`,
@@ -323,12 +324,12 @@ export default function App() {
     });
   };
 
-  const handleDownloadRex = async () => {
+  const handleDownloadRex = () => {
     if (!result || !rexTemplateResource || result.kind !== 'rex') {
       return;
     }
 
-    await downloadWorkbookWithFeedback({
+    downloadWorkbookWithFeedback({
       title: 'Preparando REX+ Empleados',
       detail: 'Estamos construyendo el Excel final de REX+ y activando la descarga en tu navegador.',
       fileName: `REX_empleados_${todayStamp()}.xlsx`,
@@ -691,11 +692,6 @@ function WorkInProgressOverlay({ title, detail }) {
       </div>
     </div>
   );
-}
-
-async function nextPaint() {
-  await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
-  await new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 function triggerWorkbookDownload(workbook, fileName) {
