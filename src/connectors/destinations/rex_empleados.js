@@ -752,6 +752,8 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     geographyResolution,
     templateResource,
     sourceComunaValue: sourceRow.COMUNA,
+    sourceLocationValue: sourceRow.UBICACION,
+    secondaryLocationValue: sourceRow['UBICACION WORKDAY'],
     addressValue: sourceRow.DIRECCION,
     pendingItems,
     rowNumber,
@@ -1833,6 +1835,8 @@ function ensureRequiredGeography({
   geographyResolution,
   templateResource,
   sourceComunaValue,
+  sourceLocationValue,
+  secondaryLocationValue,
   addressValue,
   pendingItems,
   rowNumber,
@@ -1858,6 +1862,12 @@ function ensureRequiredGeography({
     regionId: currentRegionId,
   };
   const geographySourceValue = cleanCell(sourceComunaValue) || cleanCell(addressValue);
+  const geographyContext = buildPendingContext([
+    ['Comuna origen', sourceComunaValue],
+    ['Ubicación', sourceLocationValue],
+    ['Ubicación Workday', secondaryLocationValue],
+    ['Dirección', addressValue],
+  ]);
 
   if (!isValidComunaId(resolvedGeography.comunaId) && !hasPendingItem(pendingItems, 'comuna')) {
     pendingItems.push(
@@ -1870,6 +1880,7 @@ function ensureRequiredGeography({
         employeeId,
         employeeName,
         sourceValue: geographySourceValue,
+        sourceContext: geographyContext,
       }),
     );
   }
@@ -1885,6 +1896,7 @@ function ensureRequiredGeography({
         employeeId,
         employeeName,
         sourceValue: geographySourceValue,
+        sourceContext: geographyContext,
       }),
     );
   }
@@ -1900,6 +1912,7 @@ function ensureRequiredGeography({
         employeeId,
         employeeName,
         sourceValue: geographySourceValue,
+        sourceContext: geographyContext,
       }),
     );
   }
@@ -2015,6 +2028,7 @@ function buildPendingItem({
   employeeId,
   employeeName,
   sourceValue,
+  sourceContext = [],
   bulkDefaultValue = '',
 }) {
   return {
@@ -2026,8 +2040,18 @@ function buildPendingItem({
     employeeId,
     employeeName,
     sourceValue,
+    sourceContext,
     bulkDefaultValue,
   };
+}
+
+function buildPendingContext(entries) {
+  return entries
+    .map(([label, value]) => ({
+      label,
+      value: cleanCell(value),
+    }))
+    .filter((entry) => entry.value);
 }
 
 function isIntentionalBlankCorrection(value) {

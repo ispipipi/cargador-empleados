@@ -439,6 +439,10 @@ export default function App() {
             Tipo: item.type,
             Catalogo: item.catalogName || '',
             'Valor origen': item.sourceValue || '',
+            'Contexto origen': (item.sourceContext ?? [])
+              .filter((entry) => entry?.value)
+              .map((entry) => `${entry.label}: ${entry.value}`)
+              .join(' | '),
             'Corrección actual': result.correctionsByRow[rowState.rowNumber]?.[item.key] ?? '',
           })),
         );

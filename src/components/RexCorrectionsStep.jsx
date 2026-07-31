@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { REX_EMPTY_CORRECTION, REX_KEEP_CURRENT_CORRECTION } from '../connectors/destinations/rex_empleados';
 
+function formatSourceContext(sourceContext = []) {
+  return sourceContext
+    .filter((entry) => entry?.value)
+    .map((entry) => `${entry.label}: ${entry.value}`);
+}
+
 export default function RexCorrectionsStep({
   rowStates,
   correctionsByRow,
@@ -355,7 +361,18 @@ export default function RexCorrectionsStep({
                               <p className="font-semibold text-slate-900">{entry.employeeName || '—'}</p>
                               <p className="text-xs text-slate-500">{entry.employeeId || 'Sin identificador'}</p>
                             </td>
-                            <td className="px-4 py-3 text-slate-600">{entry.sourceValue || '—'}</td>
+                            <td className="px-4 py-3">
+                              <p className="text-slate-600">{entry.sourceValue || '—'}</p>
+                              {formatSourceContext(entry.sourceContext).length > 0 ? (
+                                <div className="mt-2 space-y-1 rounded-2xl border border-amber-200 bg-amber-50/80 p-3">
+                                  {formatSourceContext(entry.sourceContext).map((line) => (
+                                    <p key={`${entry.key}-${entry.rowNumber}-${line}`} className="text-xs leading-5 text-slate-600">
+                                      {line}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </td>
                             <td className="px-4 py-3">
                               {activeField.type === 'catalog' ? (
                                 <select
