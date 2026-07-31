@@ -1601,7 +1601,7 @@ function resolveEmail({ sourceRow, corrections, templateResource, pendingItems, 
   return { email: '' };
 }
 
-function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
+function resolveAddress({ sourceValue, corrections }) {
   const shouldKeepStreetNameBlank = isIntentionalBlankCorrection(corrections?.streetName);
   const shouldKeepStreetNumberBlank = isIntentionalBlankCorrection(corrections?.streetNumber);
   const parsedAddress = parseAddress(sourceValue);
@@ -1609,34 +1609,6 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   const streetNumberCorrection = shouldKeepStreetNumberBlank ? '' : cleanCell(corrections?.streetNumber);
   const resolvedStreetName = streetNameCorrection || parsedAddress.streetName;
   const resolvedStreetNumber = streetNumberCorrection || parsedAddress.streetNumber || inferStreetNumberFallback(sourceValue);
-
-  if (!streetNameCorrection && !parsedAddress.streetName && !shouldKeepStreetNameBlank && !cleanCell(sourceValue)) {
-    pendingItems.push(
-      buildPendingItem({
-        key: 'streetName',
-        label: 'Nombre Calle',
-        type: 'text',
-        rowNumber,
-        employeeId,
-        employeeName,
-        sourceValue: cleanCell(sourceValue),
-      }),
-    );
-  }
-
-  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank && !resolvedStreetNumber) {
-    pendingItems.push(
-      buildPendingItem({
-        key: 'streetNumber',
-        label: 'Numero Calle',
-        type: 'text',
-        rowNumber,
-        employeeId,
-        employeeName,
-        sourceValue: cleanCell(sourceValue),
-      }),
-    );
-  }
 
   const sanitizedDepartment = sanitizeStreetSegment(parsedAddress.department);
   const normalizedStreetName = normalizeLooseText(resolvedStreetName);
@@ -1649,7 +1621,7 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   const fallbackStreetName =
     resolvedSanitizedStreetName ||
     sanitizeStreetSegment(inferStreetNameFallback(sourceValue)) ||
-    'Sin direccion';
+    'XXX';
 
   return {
     streetName: fallbackStreetName,
@@ -2571,8 +2543,8 @@ function isValidCityId(value) {
   return Boolean(cleanCell(value));
 }
 
-function inferStreetNumberFallback(value) {
-  return cleanCell(value) ? '0' : '';
+function inferStreetNumberFallback() {
+  return '0';
 }
 
 function inferStreetNameFallback(value) {
