@@ -2424,6 +2424,7 @@ function isValidEmailFormat(value) {
 
 function sanitizeStreetSegment(value) {
   const repairedValue = repairCommonMojibake(cleanCell(value))
+    .replace(/[º°]\s*\d+[a-zA-Z0-9-]*/g, ' ')
     .replace(/[;,]+/g, ' ')
     .replace(/\b(depto|dpto|depa|depart\w*|casa)\b.*$/iu, '')
     .replace(/[^\p{L}\d\s.-]+/gu, ' ')
@@ -2431,7 +2432,7 @@ function sanitizeStreetSegment(value) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return repairedValue;
+  return isPlaceholderStreetValue(repairedValue) ? '' : repairedValue;
 }
 
 function resolveContractStartField({
@@ -2515,11 +2516,18 @@ function inferStreetNumberFallback(value) {
 }
 
 function inferStreetNameFallback(value) {
-  return cleanCell(value)
+  const fallbackValue = cleanCell(value)
     .replace(/\b\d+[a-zA-Z0-9-]*\b/g, ' ')
     .replace(/\b(depto|dpto|depa|depart\w*|of|oficina|block|bloque|km)\b/giu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  return isPlaceholderStreetValue(fallbackValue) ? '' : fallbackValue;
+}
+
+function isPlaceholderStreetValue(value) {
+  const normalizedValue = normalizeLooseText(value);
+  return !normalizedValue || /^(x|xx|xxx|xxxx|xxxxx)$/.test(normalizedValue);
 }
 
 function parseAddress(value) {
