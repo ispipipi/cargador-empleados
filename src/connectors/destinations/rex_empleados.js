@@ -739,6 +739,10 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     sedeValue: sede.value,
     templateResource,
   });
+  const requiredGeography = ensureRequiredGeography({
+    geographyResolution,
+    templateResource,
+  });
   const area = resolveCatalogField({
     key: 'area',
     label: 'Área',
@@ -847,9 +851,9 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Estado civil'] = maritalStatus.value;
   exportedRow['Numero de teléfono 1'] = phoneOneValue;
   exportedRow['Numero de teléfono 2'] = phoneTwoValue;
-  exportedRow.Comuna = geographyResolution.comunaId;
-  exportedRow.Ciudad = geographyResolution.cityId;
-  exportedRow.Region = geographyResolution.regionId;
+  exportedRow.Comuna = requiredGeography.comunaId;
+  exportedRow.Ciudad = requiredGeography.cityId;
+  exportedRow.Region = requiredGeography.regionId;
   exportedRow['Nombre Calle'] = address.streetName;
   exportedRow['Numero Calle'] = address.streetNumber;
   exportedRow.Departamento = address.department;
@@ -1623,9 +1627,16 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   const shouldPromoteDepartmentToStreet =
     (!resolvedStreetName || normalizedStreetName.startsWith('depa') || normalizedStreetName.startsWith('casa')) &&
     /^[\p{L}\s]+$/u.test(sanitizedDepartment);
+  const resolvedSanitizedStreetName = shouldPromoteDepartmentToStreet
+    ? sanitizedDepartment
+    : sanitizeStreetSegment(resolvedStreetName);
+  const fallbackStreetName =
+    resolvedSanitizedStreetName ||
+    sanitizeStreetSegment(inferStreetNameFallback(sourceValue)) ||
+    'Sin direccion';
 
   return {
-    streetName: shouldPromoteDepartmentToStreet ? sanitizedDepartment : sanitizeStreetSegment(resolvedStreetName),
+    streetName: fallbackStreetName,
     streetNumber: resolvedStreetNumber,
     department: shouldPromoteDepartmentToStreet ? '' : sanitizedDepartment,
   };
@@ -1807,6 +1818,28 @@ function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource
       cityMatch?.id ||
       fallbackCityId,
     regionId: nextRegionId,
+  };
+}
+
+function ensureRequiredGeography({ geographyResolution, templateResource }) {
+  const cityCatalog = templateResource.catalogs.Ciudad ?? [];
+  const comunaCatalog = templateResource.catalogs.Comuna ?? [];
+  const currentComunaId = cleanCell(geographyResolution.comunaId);
+  const currentRegionId =
+    cleanCell(geographyResolution.regionId) ||
+    (currentComunaId ? currentComunaId.slice(0, 2) : '');
+  const currentComunaName = currentComunaId
+    ? getCatalogItemName(comunaCatalog, currentComunaId)
+    : '';
+  const rebuiltCityId =
+    resolveCityIdForRegion(currentRegionId, currentComunaName, cityCatalog) ||
+    cityCatalog.find((item) => cleanCell(item.id).startsWith(`${currentRegionId}-`))?.id ||
+    '';
+
+  return {
+    comunaId: currentComunaId,
+    cityId: isValidCityId(geographyResolution.cityId) ? geographyResolution.cityId : rebuiltCityId,
+    regionId: currentRegionId,
   };
 }
 
@@ -2479,6 +2512,14 @@ function isValidCityId(value) {
 
 function inferStreetNumberFallback(value) {
   return cleanCell(value) ? '0' : '';
+}
+
+function inferStreetNameFallback(value) {
+  return cleanCell(value)
+    .replace(/\b\d+[a-zA-Z0-9-]*\b/g, ' ')
+    .replace(/\b(depto|dpto|depa|depart\w*|of|oficina|block|bloque|km)\b/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function parseAddress(value) {
