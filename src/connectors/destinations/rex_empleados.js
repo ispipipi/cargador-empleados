@@ -833,6 +833,17 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeId,
     employeeName,
   });
+  const retirementStatus = resolveRetirementStatus(sourceRow.JUBILADO);
+  const heavyWork = resolveHeavyWorkField({
+    sourceRow,
+    correctionValue: corrections?.heavyWorkFlag,
+    retirementStatus,
+    pendingItems,
+    alerts,
+    rowNumber,
+    employeeId,
+    employeeName,
+  });
 
   Object.entries(REX_FIXED_DEFAULTS).forEach(([header, value]) => {
     exportedRow[header] = value;
@@ -866,7 +877,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Cuenta del banco'] = accountNumber;
   exportedRow['Id forma de pago'] = paymentMethod.value;
   exportedRow['Id AFP'] = afp.value;
-  exportedRow['Estado de jubilación'] = resolveRetirementStatus(sourceRow.JUBILADO);
+  exportedRow['Estado de jubilación'] = retirementStatus;
   exportedRow['Sistema de pensiones'] = resolvePensionSystem(sourceRow.AFP);
   exportedRow['Id institución de salud'] = health.value;
   exportedRow['Monto cotizado en la Isapre en UF'] = resolveHealthAmount(health.value);
@@ -879,7 +890,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow.Cargo = cargo.value;
   exportedRow['Id centro de costo'] = costCenter.value;
   exportedRow['Id sede donde se desempeña'] = sede.value;
-  exportedRow['¿Realiza trabajo pesado?'] = resolveHeavyWorkFlag(sourceRow);
+  exportedRow['¿Realiza trabajo pesado?'] = heavyWork;
   exportedRow['Porcentaje de cotización por trabajo pesado'] =
     exportedRow['¿Realiza trabajo pesado?'] === 'S' ? '2' : '';
   exportedRow['Id sindicato'] = union.value;
@@ -2058,6 +2069,55 @@ function resolveHeavyWorkFlag(sourceRow) {
   ];
 
   return heavyWorkFields.some((field) => Number(cleanCell(sourceRow[field])) > 0) ? 'S' : 'N';
+}
+
+function resolveHeavyWorkField({
+  sourceRow,
+  correctionValue,
+  retirementStatus,
+  pendingItems,
+  alerts,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  const directCorrection = normalizeYesNoCorrection(correctionValue);
+  const sourceHeavyWork = resolveHeavyWorkFlag(sourceRow);
+  const resolvedHeavyWork = directCorrection || sourceHeavyWork;
+  const isRetired = cleanCell(retirementStatus) !== '0';
+
+  if (isRetired && resolvedHeavyWork === 'S') {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'heavyWorkFlag',
+        label: '¿Realiza trabajo pesado?',
+        type: 'text',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: sourceHeavyWork,
+      }),
+    );
+
+    alerts.push({
+      row: rowNumber,
+      field: '¿Realiza trabajo pesado?',
+      appliedValue: resolvedHeavyWork,
+      message: 'Si el empleado esta jubilado no puede tener trabajo pesado. Requiere correccion manual.',
+    });
+  }
+
+  return resolvedHeavyWork;
+}
+
+function normalizeYesNoCorrection(value) {
+  const normalizedValue = cleanCell(value).toUpperCase();
+
+  if (normalizedValue === 'S' || normalizedValue === 'N') {
+    return normalizedValue;
+  }
+
+  return '';
 }
 
 function resolveContributionFlag({ noCotiza, afpValue, healthValue }) {
