@@ -821,8 +821,14 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     sourceRow,
     correctionValue: corrections?.recognizedMonths,
   });
-  const contractStartDate = resolveContractStartDate(sourceRow);
-  const unemploymentInsuranceDate = resolveUnemploymentInsuranceDate(sourceRow, contractStartDate);
+  const contractStartDate = resolveContractStartField({
+    sourceRow,
+    correctionValue: corrections?.contractStartDate,
+    pendingItems,
+    rowNumber,
+    employeeId,
+    employeeName,
+  });
 
   Object.entries(REX_FIXED_DEFAULTS).forEach(([header, value]) => {
     exportedRow[header] = value;
@@ -863,7 +869,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Moneda de la cotización'] = resolveHealthCurrency(health.value);
   exportedRow['Nombre del contrato'] = cleanCell(sourceRow['NOMBRE CONTRATO']);
   exportedRow['Tipo del contrato'] = contractTypeValue;
-  exportedRow['Fecha de inicio del contrato'] = formatDateAsDmy(contractStartDate);
+  exportedRow['Fecha de inicio del contrato'] = contractStartDate;
   exportedRow['Fecha de término del contrato'] = formatRexDate(sourceRow['FEC FIN CONTRATO']);
   exportedRow['Sueldo base'] = formatIntegerValue(sourceRow['SUELDO BASE']);
   exportedRow.Cargo = cargo.value;
@@ -876,7 +882,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['¿Jornada parcial?'] = resolvePartialShift(sourceRow['HORAS JORNADA']);
   exportedRow['Horas de trabajo semanales'] = resolveWeeklyHours(sourceRow['HORAS JORNADA']);
   exportedRow['¿Cotiza seguro de cesantía?'] = sourceRow['FECHA SEGURO CESANTIA'] ? 'S' : 'N';
-  exportedRow['Fecha de incorporación al seguro de cesantía'] = formatDateAsDmy(unemploymentInsuranceDate);
+  exportedRow['Fecha de incorporación al seguro de cesantía'] = formatRexDate(sourceRow['FECHA SEGURO CESANTIA']);
   exportedRow['Id empresa'] = company.value;
   exportedRow['Id plantilla grupal'] = 'GRUPO01';
   exportedRow['Causal de término del contrato'] = terminationCause.value;
@@ -890,7 +896,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   });
   exportedRow['Modalidad del contrato'] = 'C';
   exportedRow['Zona extrema'] = zone.value;
-  exportedRow['Fecha de afiliación a AFP'] = formatDateAsDmy(contractStartDate);
+  exportedRow['Fecha de afiliación a AFP'] = formatRexDate(sourceRow['FECHA INGRESO']);
   exportedRow['Fecha primera renovación'] = contractTypeValue === 'F' ? formatRexDate(sourceRow['FEC FIN CONTRATO']) : '';
   exportedRow['Fecha segunda renovación'] = '';
   exportedRow.Ocupación = '19';
@@ -2395,30 +2401,49 @@ function sanitizeStreetSegment(value) {
   return repairedValue;
 }
 
-function resolveContractStartDate(sourceRow) {
+function resolveContractStartField({
+  sourceRow,
+  correctionValue,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
+  const normalizedCorrection = cleanCell(correctionValue);
+
+  if (normalizedCorrection && !isIntentionalBlankCorrection(normalizedCorrection)) {
+    return formatRexDate(normalizedCorrection) || normalizedCorrection;
+  }
+
+  const sourceFormattedDate = formatRexDate(sourceRow['FECHA INGRESO']);
+
+  if (isContractStartBeforeLegalAge(sourceRow)) {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'contractStartDate',
+        label: 'Fecha de inicio del contrato',
+        type: 'text',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: sourceFormattedDate,
+      }),
+    );
+  }
+
+  return sourceFormattedDate;
+}
+
+function isContractStartBeforeLegalAge(sourceRow) {
   const ingresoDate = toDateOnly(sourceRow['FECHA INGRESO']);
   const birthDate = toDateOnly(sourceRow['FECHA NACIMIENTO']);
 
   if (!ingresoDate || !birthDate) {
-    return ingresoDate;
+    return false;
   }
 
   const minimumLegalStartDate = new Date(birthDate.getFullYear() + 15, birthDate.getMonth(), birthDate.getDate());
-  return ingresoDate.getTime() < minimumLegalStartDate.getTime() ? minimumLegalStartDate : ingresoDate;
-}
-
-function resolveUnemploymentInsuranceDate(sourceRow, contractStartDate) {
-  const insuranceDate = toDateOnly(sourceRow['FECHA SEGURO CESANTIA']);
-
-  if (!insuranceDate) {
-    return null;
-  }
-
-  if (!contractStartDate) {
-    return insuranceDate;
-  }
-
-  return insuranceDate.getTime() < contractStartDate.getTime() ? contractStartDate : insuranceDate;
+  return ingresoDate.getTime() < minimumLegalStartDate.getTime();
 }
 
 function repairCommonMojibake(value) {
