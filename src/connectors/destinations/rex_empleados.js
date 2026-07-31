@@ -734,6 +734,11 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeId,
     employeeName,
   });
+  const geographyResolution = enrichGeographyFromSede({
+    comunaResolution,
+    sedeValue: sede.value,
+    templateResource,
+  });
   const area = resolveCatalogField({
     key: 'area',
     label: 'Área',
@@ -834,9 +839,9 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Estado civil'] = maritalStatus.value;
   exportedRow['Numero de teléfono 1'] = phoneOneValue;
   exportedRow['Numero de teléfono 2'] = phoneTwoValue;
-  exportedRow.Comuna = comunaResolution.comunaId;
-  exportedRow.Ciudad = comunaResolution.cityId;
-  exportedRow.Region = comunaResolution.regionId;
+  exportedRow.Comuna = geographyResolution.comunaId;
+  exportedRow.Ciudad = geographyResolution.cityId;
+  exportedRow.Region = geographyResolution.regionId;
   exportedRow['Nombre Calle'] = address.streetName;
   exportedRow['Numero Calle'] = address.streetNumber;
   exportedRow.Departamento = address.department;
@@ -1605,10 +1610,16 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
     );
   }
 
+  const sanitizedDepartment = sanitizeStreetSegment(parsedAddress.department);
+  const normalizedStreetName = normalizeLooseText(resolvedStreetName);
+  const shouldPromoteDepartmentToStreet =
+    (!resolvedStreetName || normalizedStreetName.startsWith('depa') || normalizedStreetName.startsWith('casa')) &&
+    /^[\p{L}\s]+$/u.test(sanitizedDepartment);
+
   return {
-    streetName: resolvedStreetName,
+    streetName: shouldPromoteDepartmentToStreet ? sanitizedDepartment : sanitizeStreetSegment(resolvedStreetName),
     streetNumber: resolvedStreetNumber,
-    department: parsedAddress.department,
+    department: shouldPromoteDepartmentToStreet ? '' : sanitizedDepartment,
   };
 }
 
@@ -1705,6 +1716,52 @@ function resolveRecognizedMonths({ sourceRow, correctionValue }) {
 
   const suggestedMonths = calculateMonthDifference(sourceRow['FECHA ANTIGUEDAD'], sourceRow['FECHA INGRESO']);
   return suggestedMonths > 0 ? String(suggestedMonths) : '';
+}
+
+function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource }) {
+  if (comunaResolution.comunaId && comunaResolution.cityId && comunaResolution.regionId) {
+    return comunaResolution;
+  }
+
+  const sedeName = getCatalogItemName(templateResource.catalogs['Id sede donde se desempeña'] ?? [], sedeValue);
+  const cityCatalog = templateResource.catalogs.Ciudad ?? [];
+  const comunaCatalog = templateResource.catalogs.Comuna ?? [];
+  const cityMatch =
+    findCatalogMatch({
+      catalog: cityCatalog,
+      candidate: sedeName,
+      normalizer: normalizeLooseText,
+    }) ||
+    findHeuristicCatalogMatch({
+      catalog: cityCatalog,
+      candidate: sedeName,
+      normalizer: normalizeLooseText,
+    }) ||
+    findScoredCatalogMatch({
+      catalog: cityCatalog,
+      candidate: sedeName,
+      normalizer: normalizeLooseText,
+    });
+
+  if (!cityMatch) {
+    return comunaResolution;
+  }
+
+  const nextRegionId = comunaResolution.regionId || cleanCell(cityMatch.id).slice(0, 2);
+  const nextComunaId =
+    comunaResolution.comunaId ||
+    comunaCatalog.find(
+      (item) =>
+        item.id.startsWith(nextRegionId) &&
+        normalizeLooseText(item.name) === normalizeLooseText(cityMatch.name),
+    )?.id ||
+    '';
+
+  return {
+    comunaId: nextComunaId,
+    cityId: comunaResolution.cityId || cityMatch.id,
+    regionId: nextRegionId,
+  };
 }
 
 function resolveDerivedField({ key, label, correctionValue, inferredValue, pendingItems, rowNumber, employeeId, employeeName }) {
@@ -2284,6 +2341,34 @@ function normalizeEmailValue(value) {
 
 function isValidEmailFormat(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanCell(value));
+}
+
+function sanitizeStreetSegment(value) {
+  const repairedValue = repairCommonMojibake(cleanCell(value))
+    .replace(/[;,]+/g, ' ')
+    .replace(/\b(depto|dpto|depa|departamento|departa|casa)\b.*$/iu, '')
+    .replace(/^[^0-9\p{L}]+|[^0-9\p{L}]+$/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return repairedValue;
+}
+
+function repairCommonMojibake(value) {
+  return cleanCell(value)
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Ã‘/g, 'Ñ')
+    .replace(/Ã¼/gi, 'ü');
 }
 
 function inferStreetNumberFallback(value) {
