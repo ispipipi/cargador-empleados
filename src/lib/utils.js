@@ -15,6 +15,16 @@ export function cleanCell(value) {
   return String(value).trim();
 }
 
+export function extractValidEmail(value) {
+  const normalizedValue = cleanCell(value).toLowerCase();
+
+  if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
+    return '';
+  }
+
+  return normalizedValue.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0] ?? '';
+}
+
 export function titleCase(value) {
   return cleanCell(value)
     .toLowerCase()

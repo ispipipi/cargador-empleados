@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { cleanCell } from './utils';
+import { cleanCell, extractValidEmail } from './utils';
 
 const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-colaboradores-template.xlsx`;
 const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
@@ -447,13 +447,7 @@ function buildRexEmailCatalog(arrayBuffer) {
 }
 
 function normalizeImportedEmail(value) {
-  const normalizedValue = cleanCell(value).toLowerCase();
-
-  if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
-    return '';
-  }
-
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedValue) ? normalizedValue : '';
+  return extractValidEmail(value);
 }
 
 function normalizeCatalogHeader(value) {

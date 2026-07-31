@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { cleanCell, normalizeText } from '../../lib/utils';
+import { cleanCell, extractValidEmail, normalizeText } from '../../lib/utils';
 
 export const REX_KEEP_CURRENT_CORRECTION = '__KEEP_CURRENT__';
 export const REX_EMPTY_CORRECTION = '__EMPTY__';
@@ -99,11 +99,11 @@ const COMPANY_ALIASES = {
 const STATUS_ALIASES = {
   activo: 'A',
   vigente: 'A',
-  inactivo: 'I',
-  desvinculado: 'I',
-  retirado: 'I',
-  finiquitado: 'I',
-  baja: 'I',
+  inactivo: 'A',
+  desvinculado: 'A',
+  retirado: 'A',
+  finiquitado: 'A',
+  baja: 'A',
 };
 
 const CONTRACT_TYPE_ALIASES = {
@@ -1983,7 +1983,7 @@ function splitEmployeeName(value) {
 }
 
 function resolveStatusValue(value) {
-  return STATUS_ALIASES[normalizeLooseText(value)] ?? 'I';
+  return STATUS_ALIASES[normalizeLooseText(value)] ?? 'A';
 }
 
 function resolveSexValue(value) {
@@ -2409,12 +2409,7 @@ function normalizePhone(value) {
 }
 
 function normalizeEmailValue(value) {
-  const normalizedValue = cleanCell(value).toLowerCase();
-
-  if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
-    return '';
-  }
-
+  const normalizedValue = extractValidEmail(value);
   return isValidEmailFormat(normalizedValue) ? normalizedValue : '';
 }
 
