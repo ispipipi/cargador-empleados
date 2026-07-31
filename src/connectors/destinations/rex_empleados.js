@@ -3,6 +3,7 @@ import { cleanCell, extractValidEmail, normalizeText } from '../../lib/utils';
 
 export const REX_KEEP_CURRENT_CORRECTION = '__KEEP_CURRENT__';
 export const REX_EMPTY_CORRECTION = '__EMPTY__';
+const REX_DEFAULT_PRIMARY_PHONE = '+56999999999';
 
 const REX_FIXED_DEFAULTS = {
   '¿Es expatriado?': 'N',
@@ -1527,7 +1528,7 @@ function resolveFixedProfessionField({ correctionValue, templateResource }) {
 
 function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
   if (isIntentionalBlankCorrection(corrections?.[key])) {
-    return '';
+    return key === 'phoneOne' ? REX_DEFAULT_PRIMARY_PHONE : '';
   }
 
   const directCorrection = cleanCell(corrections?.[key]);
@@ -1540,6 +1541,10 @@ function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowN
 
   if (normalizedPhone) {
     return normalizedPhone;
+  }
+
+  if (key === 'phoneOne') {
+    return REX_DEFAULT_PRIMARY_PHONE;
   }
 
   pendingItems.push(
