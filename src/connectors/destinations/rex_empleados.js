@@ -1882,7 +1882,7 @@ function resolveHealthAmount(healthValue) {
     return '';
   }
 
-  return '0';
+  return '1';
 }
 
 function resolveHealthCurrency(healthValue) {
