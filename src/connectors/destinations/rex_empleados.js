@@ -1719,14 +1719,44 @@ function resolveRecognizedMonths({ sourceRow, correctionValue }) {
 }
 
 function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource }) {
-  if (comunaResolution.comunaId && comunaResolution.cityId && comunaResolution.regionId) {
+  if (
+    isValidComunaId(comunaResolution.comunaId) &&
+    isValidCityId(comunaResolution.cityId) &&
+    isValidRegionId(comunaResolution.regionId)
+  ) {
     return comunaResolution;
   }
 
   const sedeName = getCatalogItemName(templateResource.catalogs['Id sede donde se desempeña'] ?? [], sedeValue);
   const cityCatalog = templateResource.catalogs.Ciudad ?? [];
   const comunaCatalog = templateResource.catalogs.Comuna ?? [];
+  const inferredComunaName = inferComunaFromLocation(sedeName);
+  const seededComuna =
+    (isValidComunaId(comunaResolution.comunaId)
+      ? comunaCatalog.find((item) => item.id === comunaResolution.comunaId)
+      : null) ||
+    (inferredComunaName
+      ? findCatalogMatch({
+          catalog: comunaCatalog,
+          candidate: inferredComunaName,
+          normalizer: normalizeLooseText,
+        }) ||
+        findHeuristicCatalogMatch({
+          catalog: comunaCatalog,
+          candidate: inferredComunaName,
+          normalizer: normalizeLooseText,
+        }) ||
+        findScoredCatalogMatch({
+          catalog: comunaCatalog,
+          candidate: inferredComunaName,
+          normalizer: normalizeLooseText,
+        })
+      : null);
   const cityMatch =
+    (isValidCityId(comunaResolution.cityId) ? cityCatalog.find((item) => item.id === comunaResolution.cityId) : null) ||
+    (seededComuna
+      ? cityCatalog.find((item) => normalizeLooseText(item.name) === normalizeLooseText(seededComuna.name))
+      : null) ||
     findCatalogMatch({
       catalog: cityCatalog,
       candidate: sedeName,
@@ -1743,23 +1773,25 @@ function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource
       normalizer: normalizeLooseText,
     });
 
-  if (!cityMatch) {
-    return comunaResolution;
-  }
-
-  const nextRegionId = comunaResolution.regionId || cleanCell(cityMatch.id).slice(0, 2);
+  const nextRegionId =
+    (isValidRegionId(comunaResolution.regionId) ? comunaResolution.regionId : '') ||
+    (isValidComunaId(comunaResolution.comunaId) ? cleanCell(comunaResolution.comunaId).slice(0, 2) : '') ||
+    (seededComuna ? cleanCell(seededComuna.id).slice(0, 2) : '') ||
+    (cityMatch ? cleanCell(cityMatch.id).slice(0, 2) : '');
   const nextComunaId =
-    comunaResolution.comunaId ||
+    (isValidComunaId(comunaResolution.comunaId) ? comunaResolution.comunaId : '') ||
+    seededComuna?.id ||
     comunaCatalog.find(
       (item) =>
         item.id.startsWith(nextRegionId) &&
+        cityMatch &&
         normalizeLooseText(item.name) === normalizeLooseText(cityMatch.name),
     )?.id ||
     '';
 
   return {
     comunaId: nextComunaId,
-    cityId: comunaResolution.cityId || cityMatch.id,
+    cityId: (isValidCityId(comunaResolution.cityId) ? comunaResolution.cityId : '') || cityMatch?.id || '',
     regionId: nextRegionId,
   };
 }
@@ -2369,6 +2401,20 @@ function repairCommonMojibake(value) {
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã‘/g, 'Ñ')
     .replace(/Ã¼/gi, 'ü');
+}
+
+function isValidRegionId(value) {
+  const normalizedValue = cleanCell(value);
+  return Boolean(normalizedValue) && normalizedValue !== '99';
+}
+
+function isValidComunaId(value) {
+  const normalizedValue = cleanCell(value);
+  return Boolean(normalizedValue) && normalizedValue !== '99999';
+}
+
+function isValidCityId(value) {
+  return Boolean(cleanCell(value));
 }
 
 function inferStreetNumberFallback(value) {
