@@ -612,6 +612,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     sourceValue: sourceRow.COMUNA,
     locationValue: sourceRow.UBICACION,
     secondaryLocationValue: sourceRow['UBICACION WORKDAY'],
+    addressValue: sourceRow.DIRECCION,
     correctionValue: corrections?.comuna,
     templateResource,
     pendingItems,
@@ -743,6 +744,12 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const requiredGeography = ensureRequiredGeography({
     geographyResolution,
     templateResource,
+    sourceComunaValue: sourceRow.COMUNA,
+    addressValue: sourceRow.DIRECCION,
+    pendingItems,
+    rowNumber,
+    employeeId,
+    employeeName,
   });
   const area = resolveCatalogField({
     key: 'area',
@@ -1634,6 +1641,7 @@ function resolveComuna({
   sourceValue,
   locationValue,
   secondaryLocationValue,
+  addressValue,
   correctionValue,
   templateResource,
   pendingItems,
@@ -1655,6 +1663,7 @@ function resolveComuna({
     sourceValue,
     locationValue,
     secondaryLocationValue,
+    addressValue,
   });
   const selectedComuna =
     catalog.find((item) => item.id === directCorrection) ||
@@ -1809,7 +1818,16 @@ function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource
   };
 }
 
-function ensureRequiredGeography({ geographyResolution, templateResource }) {
+function ensureRequiredGeography({
+  geographyResolution,
+  templateResource,
+  sourceComunaValue,
+  addressValue,
+  pendingItems,
+  rowNumber,
+  employeeId,
+  employeeName,
+}) {
   const cityCatalog = templateResource.catalogs.Ciudad ?? [];
   const comunaCatalog = templateResource.catalogs.Comuna ?? [];
   const currentComunaId = cleanCell(geographyResolution.comunaId);
@@ -1823,12 +1841,59 @@ function ensureRequiredGeography({ geographyResolution, templateResource }) {
     resolveCityIdForRegion(currentRegionId, currentComunaName, cityCatalog) ||
     cityCatalog.find((item) => cleanCell(item.id).startsWith(`${currentRegionId}-`))?.id ||
     '';
-
-  return {
+  const resolvedGeography = {
     comunaId: currentComunaId,
     cityId: isValidCityId(geographyResolution.cityId) ? geographyResolution.cityId : rebuiltCityId,
     regionId: currentRegionId,
   };
+  const geographySourceValue = cleanCell(sourceComunaValue) || cleanCell(addressValue);
+
+  if (!isValidComunaId(resolvedGeography.comunaId) && !hasPendingItem(pendingItems, 'comuna')) {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'comuna',
+        label: 'Comuna',
+        type: 'catalog',
+        catalogName: 'Comuna',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: geographySourceValue,
+      }),
+    );
+  }
+
+  if (!isValidCityId(resolvedGeography.cityId) && !hasPendingItem(pendingItems, 'city')) {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'city',
+        label: 'Ciudad',
+        type: 'catalog',
+        catalogName: 'Ciudad',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: geographySourceValue,
+      }),
+    );
+  }
+
+  if (!isValidRegionId(resolvedGeography.regionId) && !hasPendingItem(pendingItems, 'region')) {
+    pendingItems.push(
+      buildPendingItem({
+        key: 'region',
+        label: 'Region',
+        type: 'catalog',
+        catalogName: 'Region',
+        rowNumber,
+        employeeId,
+        employeeName,
+        sourceValue: geographySourceValue,
+      }),
+    );
+  }
+
+  return resolvedGeography;
 }
 
 function resolveDerivedField({ key, label, correctionValue, inferredValue, pendingItems, rowNumber, employeeId, employeeName }) {
@@ -2614,18 +2679,20 @@ function parseAddress(value) {
   };
 }
 
-function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationValue }) {
+function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationValue, addressValue }) {
   const rawValue = cleanCell(sourceValue);
   const locationCandidates = [secondaryLocationValue, locationValue]
     .map((value) => cleanCell(value))
     .filter(Boolean);
+  const rawAddressValue = cleanCell(addressValue);
   const inferredLocationCandidate = rawValue
     ? ''
     : locationCandidates
         .map((value) => inferComunaFromLocation(value))
         .find(Boolean);
+  const inferredAddressCandidate = rawValue ? '' : inferComunaFromLocation(rawAddressValue);
 
-  if (!rawValue && !inferredLocationCandidate) {
+  if (!rawValue && !inferredLocationCandidate && !inferredAddressCandidate) {
     return [];
   }
 
@@ -2639,9 +2706,13 @@ function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationVa
     : [];
   const trailingTokenCandidate = rawValue ? cleanCell(rawValue.replace(/^.*\d+\s*/u, '')) : '';
 
-  return [rawValue, aliasCandidate, inferredLocationCandidate, ...commaSegments, trailingTokenCandidate]
+  return [rawValue, aliasCandidate, inferredLocationCandidate, inferredAddressCandidate, rawAddressValue, ...commaSegments, trailingTokenCandidate]
     .filter(Boolean)
     .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
+}
+
+function hasPendingItem(pendingItems, key) {
+  return pendingItems.some((item) => item.key === key);
 }
 
 function inferComunaFromLocation(value) {
