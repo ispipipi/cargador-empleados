@@ -323,8 +323,11 @@ const LOCATION_COMUNA_ALIASES = {
   'centro de servicio la negra csar': 'Antofagasta',
   'centro de servicio antofagasta csan': 'Antofagasta',
   'centro formacion tecnico antofagasta': 'Antofagasta',
+  'centro hidraulico': 'Antofagasta',
   'centro hidraulico antofagasta': 'Antofagasta',
   'dpp antofagasta': 'Antofagasta',
+  'contrato escondida': 'Antofagasta',
+  'contrato andina': 'Los Andes',
   'sucursal santiago': 'Santiago',
   'diperk sucursal santiago': 'Santiago',
   'huechuraba edificio corporativo': 'Huechuraba',
@@ -344,13 +347,11 @@ const LOCATION_COMUNA_ALIASES = {
   'contrato teniente rajo sur': 'Rancagua',
   'contrato collahuasi': 'Iquique',
   'contrato quebrada blanca': 'Iquique',
-  'contrato andina': 'Los Andes',
   'contrato candelaria': 'Copiapo',
   'contrato los colorados': 'Copiapo',
   'contrato manto verde': 'Copiapo',
   'contrato pucobre': 'Copiapo',
   'contrato el abra': 'Calama',
-  'contrato escondida': 'Antofagasta',
   'centro logistica la negra cl la negra': 'Antofagasta',
   'contrato sierra gorda': 'Sierra Gorda',
   'contrato marc sierra gorda': 'Sierra Gorda',
@@ -2278,10 +2279,21 @@ function inferIneCategory({ normalizedSource, normalizedArea, occupationalLevelI
 function findCatalogMatch({ catalog, candidate, normalizer }) {
   const normalizedCandidate = normalizer(candidate);
 
+  if (!normalizedCandidate) {
+    return null;
+  }
+
   return catalog.find(
-    (item) =>
-      normalizer(item.name) === normalizedCandidate ||
-      normalizer(item.id) === normalizedCandidate,
+    (item) => {
+      const normalizedName = normalizer(item.name);
+      const normalizedId = normalizer(item.id);
+
+      if (!normalizedName && !normalizedId) {
+        return false;
+      }
+
+      return normalizedName === normalizedCandidate || normalizedId === normalizedCandidate;
+    },
   );
 }
 
@@ -2294,6 +2306,11 @@ function findHeuristicCatalogMatch({ catalog, candidate, normalizer }) {
 
   const matches = catalog.filter((item) => {
     const normalizedName = normalizer(item.name);
+
+    if (!normalizedName) {
+      return false;
+    }
+
     return normalizedName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedName);
   });
 
@@ -2312,11 +2329,19 @@ function findScoredCatalogMatch({ catalog, candidate, normalizer }) {
     .map((item) => {
       const normalizedName = normalizer(item.name);
       const normalizedId = normalizer(item.id);
+
+      if (!normalizedName && !normalizedId) {
+        return {
+          item,
+          score: -1,
+        };
+      }
+
       const nameTokens = tokenizeNormalized(normalizedName);
       const sharedTokens = candidateTokens.filter((token) => nameTokens.includes(token));
       let score = sharedTokens.length * 18;
 
-      if (normalizedName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedName)) {
+      if (normalizedName && (normalizedName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedName))) {
         score += 36;
       }
 
