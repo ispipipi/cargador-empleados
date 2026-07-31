@@ -2094,8 +2094,8 @@ function resolveRetirementStatus(value) {
   return '0';
 }
 
-function resolvePensionSystem(afpValue) {
-  return normalizeAfpName(afpValue) === 'inp' ? 'S' : 'N';
+function resolvePensionSystem() {
+  return 'N';
 }
 
 function resolveHealthAmount(healthValue) {

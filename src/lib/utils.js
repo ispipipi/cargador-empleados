@@ -16,7 +16,10 @@ export function cleanCell(value) {
 }
 
 export function extractValidEmail(value) {
-  const normalizedValue = cleanCell(value).toLowerCase();
+  const normalizedValue = cleanCell(value)
+    .toLowerCase()
+    .replace(/\.+@/g, '@')
+    .replace(/\s+/g, '');
 
   if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
     return '';
