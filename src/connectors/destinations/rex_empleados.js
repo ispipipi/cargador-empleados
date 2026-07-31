@@ -311,6 +311,11 @@ const COMUNA_ALIASES = {
   calera: 'La Calera',
   'llay llay': 'Llaillay',
   chillnn: 'Chillán',
+  maipau: 'Maipu',
+  epcion: 'Concepcion',
+  curicaao: 'Curico',
+  paipote: 'Copiapo',
+  'quillota 700': 'Quillota',
 };
 
 const LOCATION_COMUNA_ALIASES = {
@@ -1536,6 +1541,10 @@ function resolveFixedProfessionField({ correctionValue, templateResource }) {
 }
 
 function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowNumber, employeeId, employeeName }) {
+  if (key === 'phoneTwo') {
+    return '';
+  }
+
   if (isIntentionalBlankCorrection(corrections?.[key])) {
     return key === 'phoneOne' ? REX_DEFAULT_PRIMARY_PHONE : '';
   }
@@ -2592,6 +2601,7 @@ function repairCommonMojibake(value) {
     .replace(/Ãæ/g, 'ñ')
     .replace(/Ãi/g, 'í')
     .replace(/Ãü/g, 'á')
+    .replace(/ÃâÃ´/g, 'ó')
     .replace(/Ã/g, 'Á')
     .replace(/Ã‰/g, 'É')
     .replace(/Ã/g, 'Í')
@@ -2694,12 +2704,11 @@ function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationVa
     .filter(Boolean);
   const rawAddressValue = cleanCell(addressValue);
   const repairedAddressValue = repairCommonMojibake(rawAddressValue);
-  const inferredLocationCandidate = rawValue
-    ? ''
-    : locationCandidates
-        .map((value) => inferComunaFromLocation(value))
-        .find(Boolean);
-  const inferredAddressCandidate = rawValue ? '' : inferComunaFromLocation(repairedAddressValue || rawAddressValue);
+  const inferredRawCandidate = inferComunaFromLocation(repairedRawValue || rawValue);
+  const inferredLocationCandidate = locationCandidates
+    .map((value) => inferComunaFromLocation(value))
+    .find(Boolean);
+  const inferredAddressCandidate = inferComunaFromLocation(repairedAddressValue || rawAddressValue);
 
   if (!rawValue && !inferredLocationCandidate && !inferredAddressCandidate) {
     return [];
@@ -2716,8 +2725,24 @@ function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationVa
   const trailingTokenCandidate = (repairedRawValue || rawValue)
     ? cleanCell((repairedRawValue || rawValue).replace(/^.*\d+\s*/u, ''))
     : '';
+  const leadingTextCandidate = (repairedRawValue || rawValue)
+    ? cleanCell((repairedRawValue || rawValue).split(/\d/u)[0])
+    : '';
 
-  return [rawValue, repairedRawValue, aliasCandidate, inferredLocationCandidate, inferredAddressCandidate, rawAddressValue, repairedAddressValue, ...commaSegments, trailingTokenCandidate]
+  return [
+    rawValue,
+    repairedRawValue,
+    aliasCandidate,
+    inferredRawCandidate,
+    inferredLocationCandidate,
+    inferredAddressCandidate,
+    rawAddressValue,
+    repairedAddressValue,
+    ...locationCandidates,
+    ...commaSegments,
+    leadingTextCandidate,
+    trailingTokenCandidate,
+  ]
     .filter(Boolean)
     .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
 }
