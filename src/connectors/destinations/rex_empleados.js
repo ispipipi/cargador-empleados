@@ -2232,7 +2232,18 @@ function getCompanySedePrefix(sourceCompanyValue, resolvedCompanyId) {
 }
 
 function isNoCotiza(sourceRow) {
-  return normalizeLooseText(sourceRow.AFP) === 'no definida' || cleanCell(sourceRow['CODIGO AFP']) === '9999';
+  const hasAfpNoCotizaSignal =
+    normalizeLooseText(sourceRow.AFP) === 'no definida' || cleanCell(sourceRow['CODIGO AFP']) === '9999';
+
+  if (!hasAfpNoCotizaSignal) {
+    return false;
+  }
+
+  const normalizedHealth = normalizeLooseText(sourceRow.ISAPRE);
+  return (
+    !cleanCell(sourceRow.ISAPRE) ||
+    ['no definida', 'sin definir', 'no cotiza', 'sindefinir'].includes(normalizedHealth)
+  );
 }
 
 function normalizePhone(value) {
