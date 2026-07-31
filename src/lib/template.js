@@ -428,7 +428,7 @@ function buildRexEmailCatalog(arrayBuffer) {
     .forEach((row) => {
       const ci = cleanCell(row[ciIndex]);
       const employeeId = cleanCell(row[employeeIdIndex]);
-      const email = cleanCell(row[emailIndex]).toLowerCase();
+      const email = normalizeImportedEmail(row[emailIndex]);
 
       if (!email) {
         return;
@@ -444,6 +444,16 @@ function buildRexEmailCatalog(arrayBuffer) {
     });
 
   return { byCi, byEmployeeId };
+}
+
+function normalizeImportedEmail(value) {
+  const normalizedValue = cleanCell(value).toLowerCase();
+
+  if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
+    return '';
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedValue) ? normalizedValue : '';
 }
 
 function normalizeCatalogHeader(value) {

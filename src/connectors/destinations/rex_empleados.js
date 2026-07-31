@@ -1529,10 +1529,10 @@ function resolvePhone({ key, label, sourceValue, corrections, pendingItems, rowN
 
 function resolveEmail({ sourceRow, corrections, templateResource, pendingItems, rowNumber, employeeId, employeeName }) {
   if (isIntentionalBlankCorrection(corrections?.emails)) {
-    return { email: '' };
+    return { email: 'sincorreo@gmail.com' };
   }
 
-  const directCorrection = cleanCell(corrections?.emails).toLowerCase();
+  const directCorrection = normalizeEmailValue(corrections?.emails);
 
   if (directCorrection) {
     return { email: directCorrection };
@@ -1572,6 +1572,8 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   const parsedAddress = parseAddress(sourceValue);
   const streetNameCorrection = shouldKeepStreetNameBlank ? '' : cleanCell(corrections?.streetName);
   const streetNumberCorrection = shouldKeepStreetNumberBlank ? '' : cleanCell(corrections?.streetNumber);
+  const resolvedStreetName = streetNameCorrection || parsedAddress.streetName;
+  const resolvedStreetNumber = streetNumberCorrection || parsedAddress.streetNumber || inferStreetNumberFallback(sourceValue);
 
   if (!streetNameCorrection && !parsedAddress.streetName && !shouldKeepStreetNameBlank && !cleanCell(sourceValue)) {
     pendingItems.push(
@@ -1587,7 +1589,7 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
     );
   }
 
-  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank && hasAddressNumberHint(sourceValue)) {
+  if (!streetNumberCorrection && !parsedAddress.streetNumber && !shouldKeepStreetNumberBlank && !resolvedStreetNumber) {
     pendingItems.push(
       buildPendingItem({
         key: 'streetNumber',
@@ -1602,8 +1604,8 @@ function resolveAddress({ sourceValue, corrections, pendingItems, rowNumber, emp
   }
 
   return {
-    streetName: streetNameCorrection || parsedAddress.streetName,
-    streetNumber: streetNumberCorrection || parsedAddress.streetNumber,
+    streetName: resolvedStreetName,
+    streetNumber: resolvedStreetNumber,
     department: parsedAddress.department,
   };
 }
@@ -1893,7 +1895,7 @@ function resolveWeeklyHours(value) {
   const numericValue = Number(cleanCell(value));
 
   if (!Number.isFinite(numericValue) || numericValue <= 0) {
-    return '';
+    return '40';
   }
 
   return String(Math.round(numericValue / 4));
@@ -2257,6 +2259,24 @@ function normalizePhone(value) {
   return '';
 }
 
+function normalizeEmailValue(value) {
+  const normalizedValue = cleanCell(value).toLowerCase();
+
+  if (!normalizedValue || ['0', 'null', 'undefined', 'nan'].includes(normalizedValue)) {
+    return '';
+  }
+
+  return isValidEmailFormat(normalizedValue) ? normalizedValue : '';
+}
+
+function isValidEmailFormat(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanCell(value));
+}
+
+function inferStreetNumberFallback(value) {
+  return cleanCell(value) ? '0' : '';
+}
+
 function parseAddress(value) {
   const rawValue = cleanCell(value).replace(/\s+/g, ' ');
 
@@ -2457,10 +2477,6 @@ function tokenizeCargoName(value) {
     .filter(Boolean)
     .filter((token) => token.length > 1)
     .filter((token) => !CARGO_TOKEN_STOPWORDS.has(token));
-}
-
-function hasAddressNumberHint(value) {
-  return /\d/.test(cleanCell(value));
 }
 
 function normalizeSedeName(value) {
