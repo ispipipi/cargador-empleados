@@ -228,6 +228,7 @@ export default function App() {
     setIsReadingFile(true);
 
     try {
+      await waitForUiToPaint();
       const arrayBuffer = await file.arrayBuffer();
       const parsedSource = await parseSourceWorkbook(arrayBuffer, selectedOrigin);
       const validationMessage = buildValidationMessage({
@@ -260,7 +261,7 @@ export default function App() {
     }
   };
 
-  const handleTransform = () => {
+  const handleTransform = async () => {
     if (!sourceFile || !isSupportedPair) {
       return;
     }
@@ -268,6 +269,8 @@ export default function App() {
     setIsTransforming(true);
 
     try {
+      await waitForUiToPaint();
+
       if (isBukFlow) {
         const colaboradoresTransformation = transformWorkbookRows({
           sourceRows: sourceFile.rows,
@@ -421,24 +424,31 @@ export default function App() {
       return;
     }
 
-    const pendingRows = result.rowStates.flatMap((rowState) =>
-      rowState.pendingItems.map((item) => ({
-        Fila: rowState.rowNumber,
-        Empleado: rowState.employeeName || '',
-        Identificador: rowState.employeeId || '',
-        Campo: item.label,
-        Clave: item.key,
-        Tipo: item.type,
-        Catalogo: item.catalogName || '',
-        'Valor origen': item.sourceValue || '',
-        'Corrección actual': result.correctionsByRow[rowState.rowNumber]?.[item.key] ?? '',
-      })),
-    );
+    downloadWorkbookWithFeedback({
+      title: 'Preparando reporte de pendientes',
+      detail: 'Estamos consolidando los campos pendientes para que puedas revisarlos o compartirlos.',
+      fileName: `REX_pendientes_${todayStamp()}.xlsx`,
+      buildWorkbook: () => {
+        const pendingRows = result.rowStates.flatMap((rowState) =>
+          rowState.pendingItems.map((item) => ({
+            Fila: rowState.rowNumber,
+            Empleado: rowState.employeeName || '',
+            Identificador: rowState.employeeId || '',
+            Campo: item.label,
+            Clave: item.key,
+            Tipo: item.type,
+            Catalogo: item.catalogName || '',
+            'Valor origen': item.sourceValue || '',
+            'Corrección actual': result.correctionsByRow[rowState.rowNumber]?.[item.key] ?? '',
+          })),
+        );
 
-    const workbook = XLSX.utils.book_new();
-    const pendingSheet = XLSX.utils.json_to_sheet(pendingRows);
-    XLSX.utils.book_append_sheet(workbook, pendingSheet, 'Pendientes');
-    XLSX.writeFile(workbook, `REX_pendientes_${todayStamp()}.xlsx`);
+        const workbook = XLSX.utils.book_new();
+        const pendingSheet = XLSX.utils.json_to_sheet(pendingRows);
+        XLSX.utils.book_append_sheet(workbook, pendingSheet, 'Pendientes');
+        return workbook;
+      },
+    });
   };
 
   const handleUpdateRexCorrection = (rowNumber, fieldKey, value) => {
@@ -841,6 +851,14 @@ function parseSourceWorkbook(arrayBuffer, originId) {
     };
 
     worker.postMessage({ arrayBuffer, originId }, [arrayBuffer]);
+  });
+}
+
+function waitForUiToPaint() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(resolve, 0);
+    });
   });
 }
 
