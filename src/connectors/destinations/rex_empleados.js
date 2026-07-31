@@ -309,6 +309,8 @@ const COMUNA_ALIASES = {
   'bulnes 1031 quillota': 'Quillota',
   'almirante grau 2833 quilpue valparaiso': 'Quilpue',
   calera: 'La Calera',
+  'llay llay': 'Llaillay',
+  chillnn: 'Chillán',
 };
 
 const LOCATION_COMUNA_ALIASES = {
@@ -2681,32 +2683,36 @@ function parseAddress(value) {
 
 function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationValue, addressValue }) {
   const rawValue = cleanCell(sourceValue);
+  const repairedRawValue = repairCommonMojibake(rawValue);
   const locationCandidates = [secondaryLocationValue, locationValue]
     .map((value) => cleanCell(value))
     .filter(Boolean);
   const rawAddressValue = cleanCell(addressValue);
+  const repairedAddressValue = repairCommonMojibake(rawAddressValue);
   const inferredLocationCandidate = rawValue
     ? ''
     : locationCandidates
         .map((value) => inferComunaFromLocation(value))
         .find(Boolean);
-  const inferredAddressCandidate = rawValue ? '' : inferComunaFromLocation(rawAddressValue);
+  const inferredAddressCandidate = rawValue ? '' : inferComunaFromLocation(repairedAddressValue || rawAddressValue);
 
   if (!rawValue && !inferredLocationCandidate && !inferredAddressCandidate) {
     return [];
   }
 
-  const normalizedRawValue = normalizeLooseText(rawValue);
-  const aliasCandidate = rawValue ? COMUNA_ALIASES[normalizedRawValue] : '';
-  const commaSegments = rawValue
-    ? rawValue
+  const normalizedRawValue = normalizeLooseText(repairedRawValue || rawValue);
+  const aliasCandidate = normalizedRawValue ? COMUNA_ALIASES[normalizedRawValue] : '';
+  const commaSegments = (repairedRawValue || rawValue)
+    ? (repairedRawValue || rawValue)
         .split(',')
         .map((segment) => cleanCell(segment))
         .filter(Boolean)
     : [];
-  const trailingTokenCandidate = rawValue ? cleanCell(rawValue.replace(/^.*\d+\s*/u, '')) : '';
+  const trailingTokenCandidate = (repairedRawValue || rawValue)
+    ? cleanCell((repairedRawValue || rawValue).replace(/^.*\d+\s*/u, ''))
+    : '';
 
-  return [rawValue, aliasCandidate, inferredLocationCandidate, inferredAddressCandidate, rawAddressValue, ...commaSegments, trailingTokenCandidate]
+  return [rawValue, repairedRawValue, aliasCandidate, inferredLocationCandidate, inferredAddressCandidate, rawAddressValue, repairedAddressValue, ...commaSegments, trailingTokenCandidate]
     .filter(Boolean)
     .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
 }
@@ -2776,7 +2782,7 @@ function resolveCityIdForRegion(regionId, comunaName, cityCatalog) {
 }
 
 function normalizeLooseText(value) {
-  return normalizeText(value)
+  return normalizeText(repairCommonMojibake(value))
     .replace(/[().,/\\-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
