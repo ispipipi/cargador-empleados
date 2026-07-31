@@ -890,7 +890,9 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Fecha de inicio de vacaciones'] = resolveVacationStartDate(sourceRow);
   exportedRow['Nivel Ocupacional'] = nivelOcupacional.value;
   exportedRow['Periodicidad de licencias a pagar'] = '';
-  exportedRow['Reconocimiento de Antigüedad'] = hasRecognizedAntiquity(sourceRow) ? 'S' : '';
+  exportedRow['Reconocimiento de Antigüedad'] = hasRecognizedAntiquity(sourceRow)
+    ? formatRexDate(sourceRow['FECHA ANTIGUEDAD'])
+    : '';
   exportedRow['Contrato por servicios transitorios'] = 'N';
   exportedRow['Categoría INE'] = categoriaIne.value;
 
