@@ -1788,10 +1788,16 @@ function enrichGeographyFromSede({ comunaResolution, sedeValue, templateResource
         normalizeLooseText(item.name) === normalizeLooseText(cityMatch.name),
     )?.id ||
     '';
+  const fallbackCityId =
+    cityCatalog.find((item) => item.id.startsWith(`${nextRegionId}-`))?.id ||
+    '';
 
   return {
     comunaId: nextComunaId,
-    cityId: (isValidCityId(comunaResolution.cityId) ? comunaResolution.cityId : '') || cityMatch?.id || '',
+    cityId:
+      (isValidCityId(comunaResolution.cityId) ? comunaResolution.cityId : '') ||
+      cityMatch?.id ||
+      fallbackCityId,
     regionId: nextRegionId,
   };
 }
