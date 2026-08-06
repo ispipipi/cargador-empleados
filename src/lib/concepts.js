@@ -21,6 +21,85 @@ const TYPE_BY_CLASSIFICATION = [
   { match: 'haberes', value: '1H' },
 ];
 
+const EXISTING_CONCEPT_OVERRIDES = new Map([
+  ['COTIZACION VOLUNTARIA AFP', 'apvi'],
+  ['AHORRO VOLUNTARIO', 'apvi'],
+  ['DESCUENTO ANTICIPO QUINCENAL', 'anticipo'],
+  ['PRESTAMO CCAF LA ARAUCANA', 'cajaCred'],
+  ['PRESTAMO CCAF LOS HEROES', 'cajaCred'],
+  ['PRESTAMO CAJA 18 DE SEPTIEMBRE', 'cajaCred'],
+  ['APV PESOS', 'apvi'],
+  ['APV INDIV. EMPLEADO SIN REB. TRIB. PESO', 'apvi'],
+  ['DEPOSITO CONVENIDO EN PESOS', 'apviConvenido'],
+  ['SOBREGIRO LIQUIDACION SUELDO', 'compensaSobre'],
+  ['IMPUESTO', 'impuesto'],
+  ['IMPUESTO RELIQUIDADO', 'reliquidaImpuesto'],
+  ['COTIZACION FONDO RETIRO', 'afp'],
+  ['COTIZACION FONDO RETIRO RELIQUIDADA', 'reliquidaAfp'],
+  ['COMISION AFP', 'comisionAfp'],
+  ['COMISION AFP RELIQUIDADA', 'reliquidaAfp'],
+  ['ADICIONAL AL 7%', 'adicionalAl7'],
+  ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
+  ['ISAPRE RELIQUIDADA', 'reliquidaIsapre'],
+  ['TRABAJO PESADO RELIQUIDADO', 'reliquidaTrabPesa'],
+  ['TRABAJO PESADO DESC. TRABAJADOR', 'trabajoPesaEmpl'],
+  ['SEGURO CESANTIA', 'cesEmpleado'],
+  ['SEGURO SOBREV. E INVALIDEZ', 'sis'],
+  ['APORTE EMPRESA MUTUAL', 'mutual'],
+  ['APORTE EMPRESA TRABAJO PESADO', 'trabajoPesa'],
+  ['SIS EMPRESA RELIQ.', 'reliquidaSis'],
+  ['FONDO SOL. RELIQ.', 'reliquidaCesSol'],
+  ['MUTUAL RELIQ.', 'reliquidaMutual'],
+  ['TRAB. PESADO RELIQ EMPLEADOR', 'reliquidaTrabPesa'],
+  ['ASIGNACION SALA CUNA', 'salaCMi'],
+  ['ASIGNACION DE MOVILIZACION', 'movilizacion'],
+  ['ASIGNACIONES FAMILIAR LEGAL', 'cargasSimp'],
+  ['ASIG. FAMILIAR RETROACTIVAS', 'cargasRetr'],
+  ['ANT. SUBSIDIO LICENCIA MEDICA', 'sil'],
+  ['ASIGNACION TELETRABAJO', 'AsigTeletrabajoMi'],
+  ['AGUINALDO', 'AguinaldoMi'],
+  ['HORAS EXTRAS 50%', 'horasEx50'],
+  ['LIQUIDO', 'totalesEmpl'],
+]);
+
+const NEW_CONCEPT_ALIASES = new Map([
+  ['ANTICIPO DE SUBSIDIO MES ANTERIOR', ['anticipoSubsidioMesAnterior', 'ANTICIPO SUBSIDIO MES ANTERIOR']],
+  ['ANTICIPO AGUINALDO', ['anticipoAguinaldo', 'ANTICIPO AGUINALDO']],
+  ['ANTICIPO BONO PRODUCTIVIDAD', ['anticipoBonoProductividad', 'ANTICIPO BONO PRODUCTIVIDAD']],
+  ['BONO PRACTICAS PRODUCTIVAS MENSUAL', ['bonoPracticasProductivas', 'BONO PRACTICAS PRODUCTIVAS']],
+  ['BONO PERMANENCIA HABER', ['bonoPermanenciaHaber', 'BONO PERMANENCIA HABER']],
+  ['EXTENSION SINDICATO 2', ['extensionSindicatoN2', 'EXTENSION SINDICATO 2']],
+  ['EXTENSION SINDICATO N?2', ['extensionSindicatoN2', 'EXTENSION SINDICATO 2']],
+  ['CUOTA SINDICATO N? 2', ['cuotaSindicatoN2', 'CUOTA SINDICATO N 2']],
+  ['CUOTA SINDICATO N 2', ['cuotaSindicatoN2', 'CUOTA SINDICATO N 2']],
+  ['CUOTA SINDICATO N? 2 RENTAL', ['cuotaSindicatoN2Rental', 'CUOTA SINDICATO N 2 RENTAL']],
+  ['BONO TRAYECTORIA SINDICAL', ['bonoTrayectoriaSindical', 'BONO TRAYECTORIA SINDICAL']],
+  ['DESCUENTO POR COMPRA ESPP', ['descuentoPorCompraEspp', 'DESCUENTO POR COMPRA ESPP']],
+]);
+
+const VIRTUAL_EXISTING_CONCEPTS = [
+  {
+    id: 'comisionAfp',
+    name: 'Comisión AFP',
+    type: '3L',
+    sequence: '6310',
+    lreCode: '3141',
+    behavior: 'F',
+    categoryIne: 'ine_noAplica',
+    categoryInternal: 'NO',
+  },
+  {
+    id: 'adicionalAl7',
+    name: 'Adicional al 7%',
+    type: '3L',
+    sequence: '6311',
+    lreCode: '3141',
+    behavior: 'F',
+    categoryIne: 'ine_noAplica',
+    categoryInternal: 'NO',
+  },
+];
+
 export async function loadConceptsResource() {
   const [listsResponse, mappingResponse, outputTemplateResponse] = await Promise.all([
     fetch(LISTS_ASSET_PATH),
@@ -54,10 +133,11 @@ export async function loadConceptsResource() {
 }
 
 export function buildConceptDecisions(resource) {
+  const conceptsCatalog = [...resource.concepts, ...VIRTUAL_EXISTING_CONCEPTS];
   const conceptByName = new Map();
   const conceptById = new Map();
 
-  resource.concepts.forEach((concept) => {
+  conceptsCatalog.forEach((concept) => {
     conceptByName.set(normalizeText(concept.name), concept);
     conceptById.set(normalizeText(concept.id), concept);
   });
@@ -67,11 +147,12 @@ export function buildConceptDecisions(resource) {
       conceptByName.get(normalizeText(mapping.sourceName)) ??
       conceptById.get(normalizeText(mapping.sourceName)) ??
       null;
-    const specialDecision = resolveSpecialDecision(mapping, conceptById);
+    const override = resolveDecisionOverride(mapping, conceptById);
     const type = inferConceptType(mapping.classification, mapping.lreField);
     const proposedId = buildConceptId(mapping.sourceName, index);
-    const isExcluded = specialDecision?.action === 'exclude';
-    const resolvedMatch = specialDecision?.targetConcept ?? exactMatch;
+    const isExcluded = override?.action === 'exclude';
+    const resolvedMatch = override?.targetConcept ?? exactMatch;
+    const isConfiguredNewConcept = override?.action === 'create';
 
     return {
       id: `${index + 1}-${proposedId}`,
@@ -81,16 +162,16 @@ export function buildConceptDecisions(resource) {
       classification: mapping.classification,
       comments: mapping.comments,
       type,
-      action: specialDecision?.action ?? (exactMatch ? 'reuse' : 'create'),
-      matchStatus: isExcluded ? 'excluded' : specialDecision?.targetConcept || exactMatch ? 'exact' : 'proposal',
-      targetId: specialDecision?.targetConcept?.id ?? resolvedMatch?.id ?? proposedId,
-      targetName: specialDecision?.targetConcept?.name ?? resolvedMatch?.name ?? mapping.sourceName,
+      action: override?.action ?? (exactMatch ? 'reuse' : 'create'),
+      matchStatus: isExcluded ? 'excluded' : (resolvedMatch || isConfiguredNewConcept ? 'exact' : 'proposal'),
+      targetId: override?.targetId ?? resolvedMatch?.id ?? proposedId,
+      targetName: override?.targetName ?? resolvedMatch?.name ?? mapping.sourceName,
       targetConcept: resolvedMatch,
-      sequence: specialDecision?.targetConcept?.sequence ?? resolvedMatch?.sequence ?? resolveNewSequence(mapping.sourceCode, index),
+      sequence: override?.sequence ?? resolvedMatch?.sequence ?? resolveNewSequence(mapping.sourceCode, index),
       proposedId,
       proposedSequence: resolveNewSequence(mapping.sourceCode, index),
       excluded: isExcluded,
-      approved: isExcluded || Boolean(specialDecision?.targetConcept || exactMatch),
+      approved: isExcluded || Boolean(override?.approved || resolvedMatch || exactMatch),
       warning: getDecisionWarning(mapping, resolvedMatch, type, isExcluded),
     };
   });
@@ -122,9 +203,8 @@ export function applyConceptDecision(decision, patch = {}) {
 
 export function buildConceptExportWorkbook({ resource, decisions }) {
   const workbook = XLSX.utils.book_new();
-  const rows = decisions
-    .filter((decision) => !decision.excluded && decision.action !== 'exclude')
-    .map((decision) => buildConceptOutputRow(resource.outputTemplate, decision));
+  const exportedDecisions = uniqueCreateDecisions(decisions);
+  const rows = exportedDecisions.map((decision) => buildConceptOutputRow(resource.outputTemplate, decision));
   const sheet = XLSX.utils.aoa_to_sheet([resource.outputTemplate.headers, ...rows]);
 
   XLSX.utils.book_append_sheet(workbook, sheet, resource.outputTemplate.sheetName);
@@ -307,8 +387,29 @@ function getDecisionWarning(mapping, exactMatch, type, isExcluded) {
   return 'No hubo coincidencia exacta en la lista REX+; la propuesta debe aprobarse antes de crearla.';
 }
 
-function resolveSpecialDecision(mapping, conceptById) {
+function resolveDecisionOverride(mapping, conceptById) {
   const sourceName = normalizeText(mapping.sourceName);
+  const sourceKey = mapping.sourceName.toUpperCase();
+  const existingOverrideId = EXISTING_CONCEPT_OVERRIDES.get(sourceKey);
+
+  if (existingOverrideId) {
+    return {
+      action: 'reuse',
+      targetConcept: conceptById.get(normalizeText(existingOverrideId)) ?? null,
+      approved: true,
+    };
+  }
+
+  const newAlias = NEW_CONCEPT_ALIASES.get(sourceKey);
+  if (newAlias) {
+    return {
+      action: 'create',
+      targetId: newAlias[0],
+      targetName: newAlias[1],
+      sequence: resolveNewSequence(mapping.sourceCode, 0),
+      approved: true,
+    };
+  }
 
   if (sourceName === 'liquido') {
     return {
@@ -322,6 +423,19 @@ function resolveSpecialDecision(mapping, conceptById) {
   }
 
   return null;
+}
+
+function uniqueCreateDecisions(decisions) {
+  const seen = new Set();
+
+  return decisions.filter((decision) => {
+    if (decision.excluded || decision.action !== 'create' || seen.has(decision.targetId)) {
+      return false;
+    }
+
+    seen.add(decision.targetId);
+    return true;
+  });
 }
 
 function buildConceptId(value, index) {

@@ -175,7 +175,7 @@ export default function ConceptsMapper({ resource, onBack }) {
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Maper · Conceptos</p>
               <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Mapeo Meta 4 → REX+</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-                Revisa los matches exactos, aprueba las propuestas y descarga el archivo de importación junto con el informe final.
+                Revisa los matches exactos, aprueba las propuestas y descarga sólo las altas nuevas junto con el informe final.
               </p>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -194,7 +194,7 @@ export default function ConceptsMapper({ resource, onBack }) {
                 <li>Los nombres que coinciden exactamente con REX+ quedan reutilizados.</li>
                 <li>Los demás conceptos reciben una propuesta de alta y pueden asignarse a otro concepto existente.</li>
                 <li>La clasificación y el campo LRE se conservan desde el mapeo de origen.</li>
-                <li>El archivo de carga se habilita al aprobar todas las propuestas.</li>
+                <li>El archivo de carga incluye sólo conceptos nuevos y se habilita al aprobar todas las propuestas.</li>
               </ul>
             </div>
 
@@ -304,8 +304,8 @@ export default function ConceptsMapper({ resource, onBack }) {
 
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           <DownloadButton
-            title="Descargar archivo de carga REX+"
-            detail={pendingCount ? `Faltan ${pendingCount} propuestas por aprobar` : 'Planilla lista para importar en REX+'}
+            title="Descargar altas nuevas REX+"
+            detail={pendingCount ? `Faltan ${pendingCount} propuestas por aprobar` : 'Sólo incluye conceptos que deben crearse en REX+'}
             onClick={() => handleDownload('output')}
             disabled={pendingCount > 0 || isPreparing}
             primary
