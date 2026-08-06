@@ -332,7 +332,7 @@ function buildConceptOutputRow(template, decision) {
     }
   };
 
-  set('concepto_id', compactConceptId(decision.targetId, decision.targetName));
+  set('concepto_id', compactConceptId(decision.targetId));
   set('Nombre', sanitizeConceptName(decision.targetName));
   set('Tipo', decision.type);
   set('Secuencia', decision.sequence);
@@ -429,7 +429,7 @@ function uniqueCreateDecisions(decisions) {
   const seen = new Set();
 
   return decisions.filter((decision) => {
-    const targetId = compactConceptId(decision.targetId, decision.targetName);
+    const targetId = compactConceptId(decision.targetId);
 
     if (decision.excluded || decision.action !== 'create' || seen.has(targetId)) {
       return false;
@@ -453,7 +453,7 @@ function buildConceptId(value, index) {
     return `concepto${index + 1}`;
   }
 
-  return compactConceptId(id, value);
+  return id;
 }
 
 function resolveNewSequence(sourceCode, index) {
@@ -475,7 +475,7 @@ function sanitizeConceptName(value) {
 
 function compactConceptId(value, seed = value) {
   const id = cleanCell(value);
-  return id.length <= 20 ? id : `${id.slice(0, 15)}${stableHash(seed)}`;
+  return id.length <= 20 ? id : `${id.slice(0, 15)}${stableHash(normalizeText(seed))}`;
 }
 
 function stableHash(value) {
