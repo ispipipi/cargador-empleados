@@ -1,6 +1,6 @@
-# Cargador Universal de Empleados
+# Maper
 
-App client-side en React + Vite + Tailwind + SheetJS para transformar archivos Excel de Talana a BUK Colaboradores y BUK Trabajos, sin backend.
+App client-side en React + Vite + Tailwind + SheetJS para mapear archivos de Meta 4 a REX+ y mantener los flujos Talana → BUK, sin backend.
 
 ## Stack
 
@@ -13,16 +13,31 @@ App client-side en React + Vite + Tailwind + SheetJS para transformar archivos E
 
 ## Flujo funcional
 
-1. Seleccionar origen `Talana` y destino `BUK`
-2. Subir archivo `.xls` o `.xlsx`
-3. Validar columnas clave Talana
-4. Responder 3 preguntas globales del wizard
+1. Seleccionar el módulo `Empleados` o `Conceptos`
+2. Elegir origen y destino
+3. Subir archivo `.xls` o `.xlsx` cuando el módulo lo requiera
+4. Responder el wizard de parámetros cuando corresponda
 5. Ejecutar transformación campo a campo
-6. Revisar advertencias de matching
+6. Revisar advertencias y no-match con corrección masiva
 7. Descargar:
    - todos los registros
    - solo filas limpias
 8. Guardar, cargar, exportar o importar configuraciones
+
+## Módulo Conceptos
+
+El módulo `Conceptos` usa tres maestros embebidos en `public/concepts/`:
+
+- `lista-conceptos.xlsx`: catálogo actual de REX+.
+- `lre-mapeo-general.xlsx`: mapeo Meta 4 → REX+ del cliente.
+- `ejemplo-importacion-conceptos.xlsx`: estructura de salida y hojas de opciones.
+
+El flujo identifica matches exactos, propone conceptos nuevos cuando no hay coincidencia, permite asignar otro concepto REX+ existente, aprobar en forma masiva y descargar:
+
+- `REX_conceptos_YYYY-MM-DD.xlsx`: planilla lista para importar.
+- `REX_informe_conceptos_YYYY-MM-DD.xlsx`: trazabilidad de matches, altas, exclusiones y advertencias.
+
+Los registros marcados como `NO APLICA` se excluyen del archivo de carga, pero se mantienen en el informe final.
 
 ## Template embebido
 

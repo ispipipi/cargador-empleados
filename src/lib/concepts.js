@@ -1,0 +1,377 @@
+import * as XLSX from 'xlsx';
+import { cleanCell, normalizeText } from './utils';
+
+const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
+const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
+const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-importacion-conceptos.xlsx`;
+
+const TYPE_BY_CLASSIFICATION = [
+  { match: 'descuentos legales', value: '3L' },
+  { match: 'descuento', value: '4D' },
+  { match: 'descuentos sindicatos', value: '4D' },
+  { match: 'haber solo imponible', value: '1I' },
+  { match: 'imponible y no tributable', value: '1I' },
+  { match: 'haber solo tributable', value: '1R' },
+  { match: 'tributables y no imponibles', value: '1R' },
+  { match: 'haberes exentos', value: '2E' },
+  { match: 'aporte empleador', value: '5A' },
+  { match: 'empresa', value: '5A' },
+  { match: 'haber afecto', value: '1H' },
+  { match: 'haberes imponibles', value: '1H' },
+  { match: 'haberes', value: '1H' },
+];
+
+export async function loadConceptsResource() {
+  const [listsResponse, mappingResponse, outputTemplateResponse] = await Promise.all([
+    fetch(LISTS_ASSET_PATH),
+    fetch(MAPPING_ASSET_PATH),
+    fetch(OUTPUT_TEMPLATE_ASSET_PATH),
+  ]);
+
+  if (!listsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok) {
+    throw new Error('No fue posible cargar los maestros embebidos de Conceptos.');
+  }
+
+  const [listsBuffer, mappingBuffer, outputTemplateBuffer] = await Promise.all([
+    listsResponse.arrayBuffer(),
+    mappingResponse.arrayBuffer(),
+    outputTemplateResponse.arrayBuffer(),
+  ]);
+
+  const listsWorkbook = XLSX.read(listsBuffer, { type: 'array' });
+  const mappingWorkbook = XLSX.read(mappingBuffer, { type: 'array' });
+  const outputTemplateWorkbook = XLSX.read(outputTemplateBuffer, { type: 'array' });
+
+  const concepts = parseConceptsList(listsWorkbook);
+  const mappingRows = parseMapping(mappingWorkbook);
+  const outputTemplate = parseOutputTemplate(outputTemplateWorkbook);
+
+  return {
+    concepts,
+    mappingRows,
+    outputTemplate,
+  };
+}
+
+export function buildConceptDecisions(resource) {
+  const conceptByName = new Map();
+  const conceptById = new Map();
+
+  resource.concepts.forEach((concept) => {
+    conceptByName.set(normalizeText(concept.name), concept);
+    conceptById.set(normalizeText(concept.id), concept);
+  });
+
+  return resource.mappingRows.map((mapping, index) => {
+    const exactMatch =
+      conceptByName.get(normalizeText(mapping.sourceName)) ??
+      conceptById.get(normalizeText(mapping.sourceName)) ??
+      null;
+    const specialDecision = resolveSpecialDecision(mapping, conceptById);
+    const type = inferConceptType(mapping.classification, mapping.lreField);
+    const proposedId = buildConceptId(mapping.sourceName, index);
+    const isExcluded = specialDecision?.action === 'exclude';
+    const resolvedMatch = specialDecision?.targetConcept ?? exactMatch;
+
+    return {
+      id: `${index + 1}-${proposedId}`,
+      sourceName: mapping.sourceName,
+      sourceCode: mapping.sourceCode,
+      lreField: mapping.lreField,
+      classification: mapping.classification,
+      comments: mapping.comments,
+      type,
+      action: specialDecision?.action ?? (exactMatch ? 'reuse' : 'create'),
+      matchStatus: isExcluded ? 'excluded' : specialDecision?.targetConcept || exactMatch ? 'exact' : 'proposal',
+      targetId: specialDecision?.targetConcept?.id ?? resolvedMatch?.id ?? proposedId,
+      targetName: specialDecision?.targetConcept?.name ?? resolvedMatch?.name ?? mapping.sourceName,
+      targetConcept: resolvedMatch,
+      sequence: specialDecision?.targetConcept?.sequence ?? resolvedMatch?.sequence ?? resolveNewSequence(mapping.sourceCode, index),
+      proposedId,
+      proposedSequence: resolveNewSequence(mapping.sourceCode, index),
+      excluded: isExcluded,
+      approved: isExcluded || Boolean(specialDecision?.targetConcept || exactMatch),
+      warning: getDecisionWarning(mapping, resolvedMatch, type, isExcluded),
+    };
+  });
+}
+
+export function applyConceptDecision(decision, patch = {}) {
+  const next = {
+    ...decision,
+    ...patch,
+  };
+
+  if (next.action === 'reuse' && next.targetConcept) {
+    return {
+      ...next,
+      targetId: next.targetConcept.id,
+      targetName: next.targetConcept.name,
+      sequence: next.targetConcept.sequence,
+      type: next.targetConcept.type,
+      lreField: next.targetConcept.lreCode || next.lreField,
+    };
+  }
+
+  return {
+    ...next,
+    action: 'create',
+    matchStatus: 'proposal',
+  };
+}
+
+export function buildConceptExportWorkbook({ resource, decisions }) {
+  const workbook = XLSX.utils.book_new();
+  const rows = decisions
+    .filter((decision) => !decision.excluded && decision.action !== 'exclude')
+    .map((decision) => buildConceptOutputRow(resource.outputTemplate, decision));
+  const sheet = XLSX.utils.aoa_to_sheet([resource.outputTemplate.headers, ...rows]);
+
+  XLSX.utils.book_append_sheet(workbook, sheet, resource.outputTemplate.sheetName);
+  resource.outputTemplate.optionSheets.forEach((optionSheet) => {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(optionSheet.rows), optionSheet.name);
+  });
+
+  return workbook;
+}
+
+export function buildConceptReportWorkbook({ decisions }) {
+  const workbook = XLSX.utils.book_new();
+  const reportRows = decisions.map((decision, index) => ({
+    Fila: index + 2,
+    'Concepto Meta4': decision.sourceName,
+    'Código Meta4': decision.sourceCode,
+    'Campo LRE': decision.lreField,
+    Clasificación: decision.classification,
+    Acción: decision.action === 'reuse' ? 'Reutilizar existente' : decision.action === 'exclude' ? 'Excluir' : 'Crear nuevo',
+    'Concepto REX+': decision.targetId,
+    Nombre: decision.targetName,
+    Tipo: decision.type,
+    Secuencia: decision.sequence,
+    Estado: decision.matchStatus === 'excluded'
+      ? 'Excluido del archivo de carga'
+      : decision.matchStatus === 'exact'
+      ? 'Match exacto'
+      : decision.approved
+        ? 'Aprobado manualmente'
+        : 'Propuesta revisable',
+    Advertencia: decision.warning || '',
+    Comentarios: decision.comments || '',
+  }));
+
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(reportRows), 'Informe final');
+  return workbook;
+}
+
+export function summarizeConceptDecisions(decisions) {
+  return {
+    total: decisions.length,
+    exactMatches: decisions.filter((decision) => decision.matchStatus === 'exact').length,
+    proposals: decisions.filter((decision) => decision.matchStatus === 'proposal').length,
+    reused: decisions.filter((decision) => decision.action === 'reuse').length,
+    created: decisions.filter((decision) => decision.action === 'create').length,
+    excluded: decisions.filter((decision) => decision.action === 'exclude').length,
+    warnings: decisions.filter((decision) => decision.warning).length,
+  };
+}
+
+function parseConceptsList(workbook) {
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Lista de conceptos'], { header: 1, defval: '' });
+  const headers = rows[1] ?? [];
+  const getIndex = (header) => headers.findIndex((value) => normalizeText(value) === normalizeText(header));
+  const indexes = {
+    id: getIndex('Concepto'),
+    name: getIndex('Nombre'),
+    type: getIndex('Tipo'),
+    sequence: getIndex('Secuencia'),
+    lreCode: getIndex('Código LRE'),
+    behavior: getIndex('Comportamiento'),
+    categoryIne: getIndex('Categoría INE'),
+    categoryInternal: getIndex('Categoría Interna'),
+    rebase: getIndex('Rebaja Días No Trabajados'),
+    baseIas: getIndex('Base para IAS'),
+    baseVpp: getIndex('Base Vacaciones Proporcionales'),
+    baseSil: getIndex('Base Cálculo SIL'),
+    warningDiscount: getIndex('Afecto para advertencia de descuentos'),
+    vacationProvision: getIndex('Suma base provisión de vacaciones'),
+    noOverdraft: getIndex('No genera sobregiro'),
+  };
+
+  return rows.slice(2).filter((row) => cleanCell(row[indexes.id])).map((row) => ({
+    id: cleanCell(row[indexes.id]),
+    name: cleanCell(row[indexes.name]),
+    type: typeIdFromLabel(row[indexes.type]),
+    sequence: cleanCell(row[indexes.sequence]),
+    lreCode: extractLreCode(row[indexes.lreCode]),
+    behavior: behaviorIdFromLabel(row[indexes.behavior]),
+    categoryIne: cleanCell(row[indexes.categoryIne]) || 'ine_noAplica',
+    categoryInternal: categoryInternalIdFromLabel(row[indexes.categoryInternal]),
+    rebase: booleanId(row[indexes.rebase]),
+    baseIas: booleanId(row[indexes.baseIas]),
+    baseVpp: booleanId(row[indexes.baseVpp]),
+    baseSil: booleanId(row[indexes.baseSil]),
+    warningDiscount: booleanId(row[indexes.warningDiscount]),
+    vacationProvision: booleanId(row[indexes.vacationProvision]),
+    noOverdraft: booleanId(row[indexes.noOverdraft]),
+  }));
+}
+
+function parseMapping(workbook) {
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets.Mapeo, { header: 1, defval: '' });
+  return rows.slice(1).filter((row) => cleanCell(row[0])).map((row) => ({
+    sourceName: cleanCell(row[0]),
+    lreField: cleanCell(row[1]),
+    sourceCode: cleanCell(row[2]),
+    classification: cleanCell(row[3]),
+    comments: cleanCell(row[4]),
+  }));
+}
+
+function parseOutputTemplate(workbook) {
+  const sheetName = workbook.SheetNames.find((name) => name === 'Sheet') ?? workbook.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+
+  return {
+    sheetName,
+    headers: rows[0] ?? [],
+    defaults: rows[1] ?? [],
+    optionSheets: workbook.SheetNames.filter((name) => name !== sheetName).map((name) => ({
+      name,
+      rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: '' }),
+    })),
+  };
+}
+
+function buildConceptOutputRow(template, decision) {
+  const values = [...template.defaults];
+  const columnIndex = new Map(template.headers.map((header, index) => [normalizeText(header), index]));
+  const set = (header, value) => {
+    const index = columnIndex.get(normalizeText(header));
+    if (index !== undefined) {
+      values[index] = value ?? '';
+    }
+  };
+
+  set('concepto_id', decision.targetId);
+  set('Nombre', decision.targetName);
+  set('Tipo', decision.type);
+  set('Secuencia', decision.sequence);
+  set('Código LRE', normalizeLreOutput(decision.lreField));
+  set('Comportamiento', decision.targetConcept?.behavior || 'F');
+  set('Categoría INE', decision.targetConcept?.categoryIne || 'ine_noAplica');
+  set('Categoría interna', decision.targetConcept?.categoryInternal || 'NO');
+  set('¿Rebaja días no trabajados?', decision.targetConcept?.rebase || 'F');
+  set('¿Es base de cálculo para IAS?', decision.targetConcept?.baseIas || 'F');
+  set('¿Es base de cálculo para Base VPP?', decision.targetConcept?.baseVpp || 'F');
+  set('¿Es base de cálculo para Base SIL?', decision.targetConcept?.baseSil || 'F');
+  set('Afecto para advertencia de descuentos', decision.targetConcept?.warningDiscount || 'F');
+  set('Afecto para Prov. Vacaciones', decision.targetConcept?.vacationProvision || 'F');
+  set('No genera sobregiro', decision.targetConcept?.noOverdraft || 'F');
+
+  return values;
+}
+
+function inferConceptType(classification, lreField) {
+  const normalizedClassification = normalizeText(classification);
+  const normalizedLre = cleanCell(lreField);
+
+  if (/^415[1254]$/.test(normalizedLre)) {
+    return '5A';
+  }
+
+  return TYPE_BY_CLASSIFICATION.find((item) => normalizedClassification.includes(item.match))?.value ?? '1H';
+}
+
+function getDecisionWarning(mapping, exactMatch, type, isExcluded) {
+  if (isExcluded) {
+    return 'Se excluye del archivo de carga porque la fuente marca este registro como NO APLICA.';
+  }
+
+  if (exactMatch) {
+    return '';
+  }
+
+  const classification = normalizeText(mapping.classification);
+  if (classification.includes('no aplica')) {
+    return 'La fuente marca este registro como NO APLICA; revisar antes de importar.';
+  }
+
+  if (classification.includes('reliquidable')) {
+    return 'Concepto reliquidable propuesto como nuevo para no mezclarlo con el concepto base.';
+  }
+
+  if (type === '1I' || type === '1R') {
+    return `Tipo ${type} inferido desde la clasificación de origen.`;
+  }
+
+  return 'No hubo coincidencia exacta en la lista REX+; la propuesta debe aprobarse antes de crearla.';
+}
+
+function resolveSpecialDecision(mapping, conceptById) {
+  const sourceName = normalizeText(mapping.sourceName);
+
+  if (sourceName === 'liquido') {
+    return {
+      action: 'reuse',
+      targetConcept: conceptById.get('totalesempl') ?? null,
+    };
+  }
+
+  if (normalizeText(mapping.classification).includes('no aplica')) {
+    return { action: 'exclude' };
+  }
+
+  return null;
+}
+
+function buildConceptId(value, index) {
+  const id = normalizeText(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((part, partIndex) => (partIndex === 0 ? part : `${part[0].toUpperCase()}${part.slice(1)}`))
+    .join('');
+
+  return id || `concepto${index + 1}`;
+}
+
+function resolveNewSequence(sourceCode, index) {
+  const numericSourceCode = Number(sourceCode);
+  return Number.isInteger(numericSourceCode) && numericSourceCode > 0 ? numericSourceCode : 10000 + index;
+}
+
+function typeIdFromLabel(value) {
+  const normalized = normalizeText(value);
+  if (normalized.startsWith('haber afecto')) return '1H';
+  if (normalized.includes('solo imponible')) return '1I';
+  if (normalized.includes('solo tributable')) return '1R';
+  if (normalized.startsWith('haber exento')) return '2E';
+  if (normalized.startsWith('descuento legal')) return '3L';
+  if (normalized.startsWith('descuento')) return '4D';
+  if (normalized.startsWith('aporte empleador')) return '5A';
+  return '';
+}
+
+function behaviorIdFromLabel(value) {
+  return normalizeText(value).includes('variable') ? 'V' : 'F';
+}
+
+function categoryInternalIdFromLabel(value) {
+  const normalized = normalizeText(value);
+  return normalized === 'sin categoria' || !normalized ? 'NO' : cleanCell(value);
+}
+
+function booleanId(value) {
+  return normalizeText(value) === 'si' || normalizeText(value) === 'verdadero' ? 'V' : 'F';
+}
+
+function extractLreCode(value) {
+  const raw = cleanCell(value);
+  return raw.match(/^\s*(\d+)/)?.[1] ?? '';
+}
+
+function normalizeLreOutput(value) {
+  const raw = cleanCell(value);
+  return raw === '-' || normalizeText(raw) === 'no aplica' ? '' : raw;
+}

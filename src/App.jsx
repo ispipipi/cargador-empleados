@@ -7,6 +7,7 @@ import ParamsWizard from './components/ParamsWizard';
 import RexCorrectionsStep from './components/RexCorrectionsStep';
 import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
+import ConceptsMapper from './components/ConceptsMapper';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -42,6 +43,7 @@ import {
   validateConfigurationShape,
 } from './lib/storage';
 import { todayStamp } from './lib/utils';
+import { loadConceptsResource } from './lib/concepts';
 
 const STEPS = {
   format: 'format',
@@ -49,12 +51,14 @@ const STEPS = {
   params: 'params',
   review: 'review',
   result: 'result',
+  concepts: 'concepts',
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
 
 export default function App() {
   const [step, setStep] = useState(STEPS.format);
+  const [selectedModule, setSelectedModule] = useState('empleados');
   const [selectedOrigin, setSelectedOrigin] = useState('talana');
   const [selectedDestination, setSelectedDestination] = useState('buk');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
@@ -64,6 +68,7 @@ export default function App() {
   const [colaboradoresTemplateResource, setColaboradoresTemplateResource] = useState(null);
   const [trabajosTemplateResource, setTrabajosTemplateResource] = useState(null);
   const [rexTemplateResource, setRexTemplateResource] = useState(null);
+  const [conceptsResource, setConceptsResource] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
@@ -77,6 +82,7 @@ export default function App() {
   const pairKey = `${selectedOrigin}:${selectedDestination}`;
   const isBukFlow = pairKey === 'talana:buk';
   const isRexFlow = pairKey === 'meta4:rex';
+  const isConceptsFlow = selectedModule === 'conceptos';
   const isSupportedPair = SUPPORTED_PAIRS.has(pairKey);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -89,10 +95,11 @@ export default function App() {
 
     async function bootstrapTemplates() {
       try {
-        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate] = await Promise.all([
+        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate, loadedConcepts] = await Promise.all([
           loadBukColaboradoresTemplateResource(),
           loadBukTrabajosTemplateResource(),
           loadRexTemplateResource(),
+          loadConceptsResource(),
         ]);
 
         if (!isMounted) {
@@ -102,6 +109,7 @@ export default function App() {
         setColaboradoresTemplateResource(loadedColaboradoresTemplate);
         setTrabajosTemplateResource(loadedTrabajosTemplate);
         setRexTemplateResource(loadedRexTemplate);
+        setConceptsResource(loadedConcepts);
         setTemplateStatus('ready');
       } catch (error) {
         if (!isMounted) {
@@ -258,6 +266,15 @@ export default function App() {
       });
     } finally {
       setIsReadingFile(false);
+    }
+  };
+
+  const handleModuleChange = (moduleId) => {
+    setSelectedModule(moduleId);
+
+    if (moduleId === 'conceptos') {
+      setSelectedOrigin('meta4');
+      setSelectedDestination('rex');
     }
   };
 
@@ -646,10 +663,10 @@ export default function App() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-300">NPR interno</p>
-                <h1 className="mt-3 text-3xl font-extrabold sm:text-4xl">Cargador Universal de Empleados</h1>
+                <h1 className="mt-3 text-3xl font-extrabold sm:text-4xl">Maper</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                  Convierte archivos {originLabel} a {destinationLabel} en un flujo client-side, sin backend y con
-                  trazabilidad para revisar no-match antes de descargar.
+                  Mapea archivos de {originLabel} a {destinationLabel} en un flujo client-side, sin backend y con
+                  trazabilidad antes de descargar.
                 </p>
               </div>
 
@@ -673,9 +690,11 @@ export default function App() {
           <FormatSelector
             selectedOrigin={selectedOrigin}
             selectedDestination={selectedDestination}
+            selectedModule={selectedModule}
             onChangeOrigin={setSelectedOrigin}
             onChangeDestination={setSelectedDestination}
-            onContinue={() => setStep(STEPS.upload)}
+            onChangeModule={handleModuleChange}
+            onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : STEPS.upload)}
             templateStatus={templateStatus}
             pairKey={pairKey}
             isSupportedPair={isSupportedPair}
@@ -709,6 +728,10 @@ export default function App() {
             onTransform={handleTransform}
             isTransforming={isTransforming}
           />
+        ) : null}
+
+        {step === STEPS.concepts && conceptsResource ? (
+          <ConceptsMapper resource={conceptsResource} onBack={() => setStep(STEPS.format)} />
         ) : null}
 
         {step === STEPS.review && result?.kind === 'rex' ? (

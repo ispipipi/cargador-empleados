@@ -11,11 +11,18 @@ const SYSTEM_OPTIONS = {
   ],
 };
 
+const MODULE_OPTIONS = [
+  { id: 'empleados', name: 'Empleados', detail: 'Meta 4 → REX+ Empleados' },
+  { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
+];
+
 export default function FormatSelector({
   selectedOrigin,
   selectedDestination,
+  selectedModule,
   onChangeOrigin,
   onChangeDestination,
+  onChangeModule,
   onContinue,
   templateStatus,
   pairKey,
@@ -35,16 +42,34 @@ export default function FormatSelector({
       <section className="panel overflow-hidden">
         <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="bg-hero-grid soft-grid px-6 py-8 sm:px-10 sm:py-10">
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-700">Paso 1</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-700">Maper · Paso 1</p>
             <h2 className="mt-3 max-w-xl text-3xl font-extrabold text-slate-950 sm:text-4xl">
-              Define el par de transformación y prepara la carga.
+              Elige qué quieres transformar.
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-              Hoy quedan operativos dos pares reales: Talana → BUK y Meta 4 → REX+. El selector sigue abierto para
-              que podamos extender el motor sin rehacer la interfaz.
+              Maper reúne los flujos de Empleados y Conceptos en un solo lugar, con revisión antes de descargar.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {MODULE_OPTIONS.map((module) => (
+                <button
+                  key={module.id}
+                  type="button"
+                  onClick={() => onChangeModule(module.id)}
+                  className={`rounded-[24px] border p-5 text-left transition ${
+                    selectedModule === module.id
+                      ? 'border-brand-500 bg-brand-50 shadow-sm'
+                      : 'border-white/70 bg-white/90 hover:border-brand-200'
+                  }`}
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Módulo</span>
+                  <p className="mt-2 text-xl font-bold text-slate-950">{module.name}</p>
+                  <p className="mt-1 text-sm text-slate-600">{module.detail}</p>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <SelectorCard
                 label="Sistema origen"
                 value={selectedOrigin}
@@ -73,8 +98,20 @@ export default function FormatSelector({
             <div className="rounded-[24px] border border-brand-100 bg-brand-50 p-5">
               <p className="text-sm font-semibold text-brand-700">Pair activo</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                <li>{pairKey === 'talana:buk' ? 'Genera 2 archivos: Colaboradores + Trabajos.' : 'Genera 1 archivo final REX+ Empleados.'}</li>
-                <li>{pairKey === 'talana:buk' ? 'Usa wizard y matching contra listas BUK.' : 'Incluye revisión manual de no-match antes de descargar.'}</li>
+                <li>
+                  {selectedModule === 'conceptos'
+                    ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
+                    : pairKey === 'talana:buk'
+                      ? 'Genera 2 archivos: Colaboradores + Trabajos.'
+                      : 'Genera 1 archivo final REX+ Empleados.'}
+                </li>
+                <li>
+                  {selectedModule === 'conceptos'
+                    ? 'Incluye informe final de matches, altas y advertencias.'
+                    : pairKey === 'talana:buk'
+                      ? 'Usa wizard y matching contra listas BUK.'
+                      : 'Incluye revisión manual de no-match antes de descargar.'}
+                </li>
                 <li>{isSupportedPair ? 'El par seleccionado está soportado por la app.' : 'Este par aún no está habilitado.'}</li>
               </ul>
             </div>
@@ -85,7 +122,7 @@ export default function FormatSelector({
               disabled={!canContinue}
               className="rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              Continuar a carga de archivo
+              {selectedModule === 'conceptos' ? 'Abrir mapeo de conceptos' : 'Continuar a carga de archivo'}
             </button>
           </div>
         </div>
