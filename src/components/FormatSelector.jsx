@@ -14,6 +14,7 @@ const SYSTEM_OPTIONS = {
 const MODULE_OPTIONS = [
   { id: 'empleados', name: 'Empleados', detail: 'Meta 4 → REX+ Empleados' },
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
+  { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
 ];
 
 export default function FormatSelector({
@@ -50,7 +51,7 @@ export default function FormatSelector({
               Maper reúne los flujos de Empleados y Conceptos en un solo lugar, con revisión antes de descargar.
             </p>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {MODULE_OPTIONS.map((module) => (
                 <button
                   key={module.id}
@@ -99,15 +100,19 @@ export default function FormatSelector({
               <p className="text-sm font-semibold text-brand-700">Pair activo</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
                 <li>
-                  {selectedModule === 'conceptos'
-                    ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
+                  {selectedModule === 'conceptos-historicos'
+                    ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
+                    : selectedModule === 'conceptos'
+                      ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
                     : pairKey === 'talana:buk'
                       ? 'Genera 2 archivos: Colaboradores + Trabajos.'
                       : 'Genera 1 archivo final REX+ Empleados.'}
                 </li>
                 <li>
-                  {selectedModule === 'conceptos'
-                    ? 'Incluye informe final de matches, altas y advertencias.'
+                  {selectedModule === 'conceptos-historicos'
+                    ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
+                    : selectedModule === 'conceptos'
+                      ? 'Incluye informe final de matches, altas y advertencias.'
                     : pairKey === 'talana:buk'
                       ? 'Usa wizard y matching contra listas BUK.'
                       : 'Incluye revisión manual de no-match antes de descargar.'}

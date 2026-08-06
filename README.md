@@ -13,7 +13,7 @@ App client-side en React + Vite + Tailwind + SheetJS para mapear archivos de Met
 
 ## Flujo funcional
 
-1. Seleccionar el módulo `Empleados` o `Conceptos`
+1. Seleccionar el módulo `Empleados`, `Conceptos` o `Conceptos históricos`
 2. Elegir origen y destino
 3. Subir archivo `.xls` o `.xlsx` cuando el módulo lo requiera
 4. Responder el wizard de parámetros cuando corresponda
@@ -38,6 +38,14 @@ El flujo identifica matches exactos, propone conceptos nuevos cuando no hay coin
 - `REX_informe_conceptos_YYYY-MM-DD.xlsx`: trazabilidad de matches, altas, exclusiones y advertencias.
 
 Los registros marcados como `NO APLICA` se excluyen del archivo de carga, pero se mantienen en el informe final.
+
+## Módulo Conceptos históricos
+
+`Conceptos históricos` recibe el libro de remuneraciones Meta 4 de formato ancho, con los encabezados en la fila 5 y una fila por colaborador. Detecta los conceptos con montos distintos de cero, conserva las columnas repetidas del origen y los compara contra el catálogo actual de REX+.
+
+El flujo permite aprobar matches exactos, asignar una propuesta o cualquier concepto del catálogo en forma individual o masiva, y excluir conceptos que no deban cargarse. Mientras exista un concepto pendiente, el CSV queda bloqueado para evitar una carga incompleta.
+
+La descarga principal es `REX_conceptos_detalle_historicos_YYYY-MM-DD.csv`, en UTF-8 con BOM, encabezados y separador `;`. Usa `M` como origen, `M` como período mensual, acción `C`, y deja fechas, institución, dato adicional, comentario y centro de costo vacíos para que no se inventen datos.
 
 ## Template embebido
 

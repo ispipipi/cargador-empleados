@@ -8,6 +8,7 @@ import RexCorrectionsStep from './components/RexCorrectionsStep';
 import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
+import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -52,6 +53,7 @@ const STEPS = {
   review: 'review',
   result: 'result',
   concepts: 'concepts',
+  historicalReview: 'historical-review',
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
@@ -75,6 +77,7 @@ export default function App() {
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
+  const [isPreparingHistoricalDownload, setIsPreparingHistoricalDownload] = useState(false);
   const [preparedRexDownload, setPreparedRexDownload] = useState(null);
   const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
@@ -83,7 +86,8 @@ export default function App() {
   const isBukFlow = pairKey === 'talana:buk';
   const isRexFlow = pairKey === 'meta4:rex';
   const isConceptsFlow = selectedModule === 'conceptos';
-  const isSupportedPair = SUPPORTED_PAIRS.has(pairKey);
+  const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
+  const isSupportedPair = isHistoricalConceptsFlow || SUPPORTED_PAIRS.has(pairKey);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
     () => (isBukFlow ? bukColaboradoresDestination.userParameters : rexDestination.userParameters),
@@ -152,9 +156,14 @@ export default function App() {
                 title: 'Preparando descarga final',
                 detail: 'Estamos dejando listo el Excel de REX+ para que el botón descargue directo apenas termine.',
               }
-          : exportState
-            ? exportState
-          : null;
+            : isPreparingHistoricalDownload
+              ? {
+                  title: 'Preparando conceptos históricos',
+                  detail: 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
+                }
+              : exportState
+                ? exportState
+                : null;
 
   useEffect(() => {
     if (step !== STEPS.result || result?.kind !== 'rex' || !rexTemplateResource) {
@@ -238,9 +247,10 @@ export default function App() {
     try {
       await waitForUiToPaint();
       const arrayBuffer = await file.arrayBuffer();
-      const parsedSource = await parseSourceWorkbook(arrayBuffer, selectedOrigin);
+      const parserOrigin = isHistoricalConceptsFlow ? 'meta4-historico' : selectedOrigin;
+      const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin);
       const validationMessage = buildValidationMessage({
-        originId: selectedOrigin,
+        originId: parserOrigin,
         parsedSource,
       });
 
@@ -272,7 +282,7 @@ export default function App() {
   const handleModuleChange = (moduleId) => {
     setSelectedModule(moduleId);
 
-    if (moduleId === 'conceptos') {
+    if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
       setSelectedOrigin('meta4');
       setSelectedDestination('rex');
     }
@@ -713,9 +723,10 @@ export default function App() {
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
+            continueLabel={isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(STEPS.format)}
-            onContinue={() => setStep(STEPS.params)}
+            onContinue={() => setStep(isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
           />
         ) : null}
 
@@ -732,6 +743,15 @@ export default function App() {
 
         {step === STEPS.concepts && conceptsResource ? (
           <ConceptsMapper resource={conceptsResource} onBack={() => setStep(STEPS.format)} />
+        ) : null}
+
+        {step === STEPS.historicalReview && sourceFile && conceptsResource ? (
+          <HistoricalConceptsMapper
+            sourceFile={sourceFile}
+            concepts={conceptsResource.concepts}
+            onBack={() => setStep(STEPS.format)}
+            onBusyChange={setIsPreparingHistoricalDownload}
+          />
         ) : null}
 
         {step === STEPS.review && result?.kind === 'rex' ? (
@@ -891,7 +911,7 @@ function waitForUiToPaint() {
 
 function buildValidationMessage({ originId, parsedSource }) {
   if (parsedSource.missingColumns.length > 0) {
-    return originId === 'meta4'
+    return originId === 'meta4' || originId === 'meta4-historico'
       ? 'El archivo no cumple con las columnas mínimas para Meta 4.'
       : 'El archivo no cumple con las columnas mínimas para Talana.';
   }

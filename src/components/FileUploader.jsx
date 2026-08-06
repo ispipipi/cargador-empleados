@@ -3,6 +3,7 @@ export default function FileUploader({
   sourceFile,
   validation,
   isReadingFile,
+  continueLabel = 'Continuar al wizard',
   onFileSelected,
   onBack,
   onContinue,
@@ -105,7 +106,7 @@ export default function FileUploader({
             disabled={!canContinue}
             className="rounded-full bg-brand-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {isReadingFile ? 'Leyendo archivo…' : 'Continuar al wizard'}
+            {isReadingFile ? 'Leyendo archivo…' : continueLabel}
           </button>
         </div>
       </section>

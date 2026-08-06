@@ -11,7 +11,11 @@ self.onmessage = (event) => {
       raw: false,
     });
     const parsedSource =
-      originId === 'meta4' ? parseMeta4Workbook(workbook) : parseTalanaWorkbook(workbook);
+      originId === 'meta4'
+        ? parseMeta4Workbook(workbook)
+        : originId === 'meta4-historico'
+          ? parseMeta4Workbook(workbook, { preserveDuplicateHeaders: true })
+          : parseTalanaWorkbook(workbook);
 
     self.postMessage({
       ok: true,
@@ -54,7 +58,7 @@ function parseTalanaWorkbook(workbook) {
   };
 }
 
-function parseMeta4Workbook(workbook) {
+function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {}) {
   const firstSheetName = workbook.SheetNames[meta4Origin.hojaDatos];
   const firstSheet = workbook.Sheets[firstSheetName];
   const rows = XLSX.utils.sheet_to_json(firstSheet, {
@@ -62,7 +66,8 @@ function parseMeta4Workbook(workbook) {
     defval: '',
     raw: true,
   });
-  const headers = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
+  const rawHeaders = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
+  const headers = preserveDuplicateHeaders ? makeUniqueHeaders(rawHeaders) : rawHeaders;
   const missingColumns = getMeta4MissingColumns(headers);
   const identityColumnIndexes = [
     'ID EMPLEADO',
@@ -104,4 +109,18 @@ function parseMeta4Workbook(workbook) {
     missingColumns,
     rows: dataRows,
   };
+}
+
+function makeUniqueHeaders(headers) {
+  const occurrences = new Map();
+
+  return headers.map((header) => {
+    if (!header) {
+      return header;
+    }
+
+    const nextOccurrence = (occurrences.get(header) ?? 0) + 1;
+    occurrences.set(header, nextOccurrence);
+    return nextOccurrence === 1 ? header : `${header} [${nextOccurrence}]`;
+  });
 }
