@@ -147,7 +147,7 @@ export function buildConceptDecisions(resource) {
       conceptByName.get(normalizeText(mapping.sourceName)) ??
       conceptById.get(normalizeText(mapping.sourceName)) ??
       null;
-    const override = resolveDecisionOverride(mapping, conceptById);
+    const override = resolveDecisionOverride(mapping, conceptById, index);
     const type = inferConceptType(mapping.classification, mapping.lreField);
     const proposedId = buildConceptId(mapping.sourceName, index);
     const isExcluded = override?.action === 'exclude';
@@ -332,8 +332,8 @@ function buildConceptOutputRow(template, decision) {
     }
   };
 
-  set('concepto_id', decision.targetId);
-  set('Nombre', decision.targetName);
+  set('concepto_id', compactConceptId(decision.targetId, decision.targetName));
+  set('Nombre', sanitizeConceptName(decision.targetName));
   set('Tipo', decision.type);
   set('Secuencia', decision.sequence);
   set('Código LRE', normalizeLreOutput(decision.lreField));
@@ -387,7 +387,7 @@ function getDecisionWarning(mapping, exactMatch, type, isExcluded) {
   return 'No hubo coincidencia exacta en la lista REX+; la propuesta debe aprobarse antes de crearla.';
 }
 
-function resolveDecisionOverride(mapping, conceptById) {
+function resolveDecisionOverride(mapping, conceptById, index) {
   const sourceName = normalizeText(mapping.sourceName);
   const sourceKey = mapping.sourceName.toUpperCase();
   const existingOverrideId = EXISTING_CONCEPT_OVERRIDES.get(sourceKey);
@@ -406,7 +406,7 @@ function resolveDecisionOverride(mapping, conceptById) {
       action: 'create',
       targetId: newAlias[0],
       targetName: newAlias[1],
-      sequence: resolveNewSequence(mapping.sourceCode, 0),
+      sequence: resolveNewSequence(mapping.sourceCode, index),
       approved: true,
     };
   }
@@ -429,11 +429,13 @@ function uniqueCreateDecisions(decisions) {
   const seen = new Set();
 
   return decisions.filter((decision) => {
-    if (decision.excluded || decision.action !== 'create' || seen.has(decision.targetId)) {
+    const targetId = compactConceptId(decision.targetId, decision.targetName);
+
+    if (decision.excluded || decision.action !== 'create' || seen.has(targetId)) {
       return false;
     }
 
-    seen.add(decision.targetId);
+    seen.add(targetId);
     return true;
   });
 }
@@ -447,12 +449,43 @@ function buildConceptId(value, index) {
     .map((part, partIndex) => (partIndex === 0 ? part : `${part[0].toUpperCase()}${part.slice(1)}`))
     .join('');
 
-  return id || `concepto${index + 1}`;
+  if (!id) {
+    return `concepto${index + 1}`;
+  }
+
+  return compactConceptId(id, value);
 }
 
 function resolveNewSequence(sourceCode, index) {
   const numericSourceCode = Number(sourceCode);
-  return Number.isInteger(numericSourceCode) && numericSourceCode > 0 ? numericSourceCode : 10000 + index;
+  return Number.isInteger(numericSourceCode) && numericSourceCode > 0 && numericSourceCode <= 9999
+    ? numericSourceCode
+    : 9000 + index;
+}
+
+function sanitizeConceptName(value) {
+  return cleanCell(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\?/g, 'N')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactConceptId(value, seed = value) {
+  const id = cleanCell(value);
+  return id.length <= 20 ? id : `${id.slice(0, 15)}${stableHash(seed)}`;
+}
+
+function stableHash(value) {
+  let hash = 0;
+
+  for (const character of cleanCell(value)) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+
+  return hash.toString(36).toUpperCase().padStart(5, '0').slice(-5);
 }
 
 function typeIdFromLabel(value) {
@@ -487,5 +520,5 @@ function extractLreCode(value) {
 
 function normalizeLreOutput(value) {
   const raw = cleanCell(value);
-  return raw === '-' || normalizeText(raw) === 'no aplica' ? '' : raw;
+  return raw === '-' || normalizeText(raw) === 'no aplica' || normalizeText(raw) === '0' ? '' : raw;
 }
