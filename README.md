@@ -1,6 +1,6 @@
 # Maper
 
-App client-side en React + Vite + Tailwind + SheetJS para mapear archivos de Meta 4 a REX+ y mantener los flujos Talana → BUK, sin backend.
+App en React + Vite + Tailwind + SheetJS para mapear archivos de Meta 4 a REX+ y mantener los flujos Talana → BUK.
 
 ## Stack
 
@@ -8,8 +8,29 @@ App client-side en React + Vite + Tailwind + SheetJS para mapear archivos de Met
 - Vite 5
 - Tailwind CSS
 - SheetJS (`xlsx`)
-- Persistencia local con `localStorage`
+- Persistencia local con `IndexedDB` y `localStorage`
+- Backend opcional con Firebase Authentication, Firestore y Storage
 - Deploy en GitHub Pages
+
+## Backend Firebase
+
+La app funciona localmente sin backend, pero permite activar memoria cloud privada por usuario.
+
+1. Crea un proyecto en Firebase.
+2. Activa `Authentication → Google`.
+3. Crea Firestore en modo producción.
+4. Activa Firebase Storage.
+5. Copia `.env.example` a `.env` y completa la configuración web del proyecto.
+6. Agrega `https://ispipipi.github.io` y `http://localhost:5173` en `Authentication → Settings → Authorized domains`.
+7. Publica las reglas desde la raíz del repo:
+
+```bash
+firebase login --reauth
+firebase use TU_PROJECT_ID
+firebase deploy --only firestore:rules,storage
+```
+
+Las reglas de `firestore.rules` y `storage.rules` restringen cada carga y mapeo al usuario autenticado que lo creó. Nunca se debe subir `.env` al repositorio.
 
 ## Flujo funcional
 

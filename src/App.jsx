@@ -9,6 +9,7 @@ import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
+import AuthStatus from './components/AuthStatus';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -46,11 +47,21 @@ import {
 import { todayStamp } from './lib/utils';
 import { loadConceptsResource } from './lib/concepts';
 import {
+  deleteCloudSession,
+  listCloudSessions,
+  loadCloudMappings,
+  loadCloudSession,
+  saveCloudMappings,
+  saveCloudSession,
+} from './lib/cloudMemory';
+import { isFirebaseConfigured, signInWithGoogle, signOutFirebase, subscribeToFirebaseAuth } from './lib/firebase';
+import {
   createSessionId,
   createSessionMetadata,
   deleteSession,
   listSessions,
   loadSession,
+  mergeStoredMappingEntries,
   saveSession,
 } from './lib/sessionPersistence';
 
@@ -65,6 +76,7 @@ const STEPS = {
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
+const cloudConfigured = isFirebaseConfigured();
 
 export default function App() {
   const [step, setStep] = useState(STEPS.format);
@@ -84,6 +96,9 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [cloudSessions, setCloudSessions] = useState([]);
+  const [authUser, setAuthUser] = useState(null);
+  const [authBusy, setAuthBusy] = useState(cloudConfigured);
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
@@ -98,6 +113,7 @@ export default function App() {
   const isConceptsFlow = selectedModule === 'conceptos';
   const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
   const isSupportedPair = isHistoricalConceptsFlow || SUPPORTED_PAIRS.has(pairKey);
+  const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
     () => (isBukFlow ? bukColaboradoresDestination.userParameters : rexDestination.userParameters),
@@ -141,6 +157,84 @@ export default function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!cloudConfigured) {
+      setAuthBusy(false);
+      return undefined;
+    }
+
+    return subscribeToFirebaseAuth(
+      (user) => {
+        setAuthUser(user);
+        setAuthBusy(false);
+      },
+      (error) => {
+        setAuthUser(null);
+        setAuthBusy(false);
+        setGlobalError(error instanceof Error ? error.message : 'No se pudo validar la sesión cloud.');
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) {
+      setCloudSessions([]);
+      return undefined;
+    }
+
+    let isMounted = true;
+    setAuthBusy(true);
+
+    Promise.all([
+      listCloudSessions(authUser),
+      loadCloudMappings(authUser, 'concepts'),
+      loadCloudMappings(authUser, 'historical-concepts'),
+    ])
+      .then(([storedCloudSessions, conceptsMappings, historicalMappings]) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setCloudSessions(storedCloudSessions);
+        mergeStoredMappingEntries('concepts', conceptsMappings);
+        mergeStoredMappingEntries('historical-concepts', historicalMappings);
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setGlobalError(error instanceof Error ? error.message : 'No se pudo cargar la memoria cloud.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setAuthBusy(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser) {
+      return undefined;
+    }
+
+    const handleMappingsChanged = (event) => {
+      const { namespace, entries } = event.detail ?? {};
+      if (!namespace || !entries) {
+        return;
+      }
+
+      saveCloudMappings(authUser, namespace, entries).catch((error) => {
+        setGlobalError(error instanceof Error ? error.message : 'No se pudo sincronizar el mapeo cloud.');
+      });
+    };
+
+    window.addEventListener('maper-mappings-changed', handleMappingsChanged);
+    return () => window.removeEventListener('maper-mappings-changed', handleMappingsChanged);
+  }, [authUser]);
 
   useEffect(() => {
     let isMounted = true;
@@ -192,6 +286,31 @@ export default function App() {
       })
         .then(() => {
           setSessions((current) => [metadata, ...current.filter((session) => session.id !== metadata.id)]);
+          if (!authUser) {
+            return null;
+          }
+
+          return saveCloudSession(authUser, {
+            metadata,
+            data: {
+              selectedModule,
+              selectedOrigin,
+              selectedDestination,
+              parameters,
+              sourceFile,
+              validation,
+              result,
+              step,
+            },
+          });
+        })
+        .then(() => {
+          if (authUser) {
+            setCloudSessions((current) => [
+              { ...metadata, storage: 'cloud' },
+              ...current.filter((session) => session.id !== metadata.id),
+            ]);
+          }
         })
         .catch(() => {
           // The transformation must continue even if browser storage is unavailable or full.
@@ -209,6 +328,7 @@ export default function App() {
     sourceFile,
     step,
     validation,
+    authUser,
   ]);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
@@ -728,7 +848,10 @@ export default function App() {
 
   const handleResumeSession = async (storedSessionId) => {
     try {
-      const storedSession = await loadSession(storedSessionId);
+      const storedMetadata = visibleSessions.find((session) => session.id === storedSessionId);
+      const storedSession = storedMetadata?.storage === 'cloud' && authUser
+        ? await loadCloudSession(authUser, storedSessionId)
+        : await loadSession(storedSessionId);
       if (!storedSession) {
         throw new Error('No se encontró la carga guardada.');
       }
@@ -761,14 +884,43 @@ export default function App() {
     }
 
     try {
-      await deleteSession(session.id);
+      if (session.storage !== 'cloud' || !authUser) {
+        await deleteSession(session.id);
+      }
+      if ((session.storage === 'cloud' || session.storage === 'both') && authUser) {
+        await deleteCloudSession(authUser, session);
+      }
       setSessions((current) => current.filter((item) => item.id !== session.id));
+      setCloudSessions((current) => current.filter((item) => item.id !== session.id));
 
       if (sessionId === session.id) {
         resetFlow();
       }
     } catch (error) {
       setGlobalError(error instanceof Error ? error.message : 'No se pudo eliminar la carga guardada.');
+    }
+  };
+
+  const handleFirebaseSignIn = async () => {
+    setAuthBusy(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      setAuthBusy(false);
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo iniciar sesión con Google.');
+    }
+  };
+
+  const handleFirebaseSignOut = async () => {
+    setAuthBusy(true);
+    try {
+      await signOutFirebase();
+      setAuthUser(null);
+      setCloudSessions([]);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo cerrar la sesión cloud.');
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -809,11 +961,20 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
-                <p className="font-semibold text-white">Pair activo</p>
-                <p className="mt-2">
-                  {selectedOrigin} → {destinationLabel}
-                </p>
+              <div className="flex flex-col items-stretch gap-3 sm:items-end">
+                <div className="rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
+                  <p className="font-semibold text-white">Pair activo</p>
+                  <p className="mt-2">
+                    {selectedOrigin} → {destinationLabel}
+                  </p>
+                </div>
+                <AuthStatus
+                  configured={cloudConfigured}
+                  user={authUser}
+                  isBusy={authBusy}
+                  onSignIn={handleFirebaseSignIn}
+                  onSignOut={handleFirebaseSignOut}
+                />
               </div>
             </div>
           </div>
@@ -843,7 +1004,7 @@ export default function App() {
             onDeleteConfiguration={handleDeleteConfiguration}
             onImportConfiguration={handleImportConfiguration}
             onExportActiveConfiguration={handleExportActiveConfiguration}
-            sessions={sessions}
+            sessions={visibleSessions}
             onResumeSession={handleResumeSession}
             onDeleteSession={handleDeleteSession}
           />
@@ -997,6 +1158,25 @@ function revokePreparedDownload(downloadResource) {
   }
 
   URL.revokeObjectURL(downloadResource.objectUrl);
+}
+
+function mergeSessionLists(localSessions, remoteSessions) {
+  const sessionsById = new Map();
+
+  localSessions.forEach((session) => {
+    sessionsById.set(session.id, { ...session, storage: 'local' });
+  });
+
+  remoteSessions.forEach((session) => {
+    const current = sessionsById.get(session.id);
+    sessionsById.set(session.id, {
+      ...current,
+      ...session,
+      storage: current ? 'both' : 'cloud',
+    });
+  });
+
+  return [...sessionsById.values()].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
 }
 
 function normalizeDestination(destinationId) {

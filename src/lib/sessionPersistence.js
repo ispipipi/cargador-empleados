@@ -108,6 +108,34 @@ export function rememberConceptMappings(namespace, decisions) {
       MAPPING_STORAGE_KEY,
       JSON.stringify({ ...memory, [namespace]: namespaceMemory }),
     );
+    window.dispatchEvent(new CustomEvent('maper-mappings-changed', {
+      detail: { namespace, entries: namespaceMemory },
+    }));
+  } catch {
+    // A blocked or full localStorage should not interrupt the mapping flow.
+  }
+
+  return namespaceMemory;
+}
+
+export function mergeStoredMappingEntries(namespace, entries) {
+  if (!entries || typeof entries !== 'object' || Object.keys(entries).length === 0) {
+    return;
+  }
+
+  const memory = loadMappingMemory();
+
+  try {
+    window.localStorage.setItem(
+      MAPPING_STORAGE_KEY,
+      JSON.stringify({
+        ...memory,
+        [namespace]: {
+          ...entries,
+          ...(memory[namespace] ?? {}),
+        },
+      }),
+    );
   } catch {
     // A blocked or full localStorage should not interrupt the mapping flow.
   }
