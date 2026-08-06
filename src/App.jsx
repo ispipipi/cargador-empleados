@@ -45,6 +45,14 @@ import {
 } from './lib/storage';
 import { todayStamp } from './lib/utils';
 import { loadConceptsResource } from './lib/concepts';
+import {
+  createSessionId,
+  createSessionMetadata,
+  deleteSession,
+  listSessions,
+  loadSession,
+  saveSession,
+} from './lib/sessionPersistence';
 
 const STEPS = {
   format: 'format',
@@ -74,6 +82,8 @@ export default function App() {
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
@@ -131,6 +141,75 @@ export default function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    listSessions()
+      .then((storedSessions) => {
+        if (isMounted) {
+          setSessions(storedSessions);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setSessions([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId || !sourceFile) {
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      const metadata = createSessionMetadata({
+        id: sessionId,
+        selectedModule,
+        selectedOrigin,
+        selectedDestination,
+        sourceFile,
+        step,
+      });
+
+      saveSession({
+        metadata,
+        data: {
+          selectedModule,
+          selectedOrigin,
+          selectedDestination,
+          parameters,
+          sourceFile,
+          validation,
+          result,
+          step,
+        },
+      })
+        .then(() => {
+          setSessions((current) => [metadata, ...current.filter((session) => session.id !== metadata.id)]);
+        })
+        .catch(() => {
+          // The transformation must continue even if browser storage is unavailable or full.
+        });
+    }, 350);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    parameters,
+    result,
+    selectedDestination,
+    selectedModule,
+    selectedOrigin,
+    sessionId,
+    sourceFile,
+    step,
+    validation,
+  ]);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
   const originLabel = selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
@@ -253,20 +332,23 @@ export default function App() {
         originId: parserOrigin,
         parsedSource,
       });
-
-      setSourceFile({
+      const nextSourceFile = {
         fileName: file.name,
         workbookName: parsedSource.workbookName,
         headers: parsedSource.headers,
         rows: parsedSource.rows,
         previewRows: parsedSource.previewRows,
-      });
-
-      setValidation({
+      };
+      const nextValidation = {
         isValid: parsedSource.missingColumns.length === 0 && parsedSource.rows.length > 0,
         missingColumns: parsedSource.missingColumns,
         message: validationMessage,
-      });
+      };
+      const nextSessionId = createSessionId();
+
+      setSessionId(nextSessionId);
+      setSourceFile(nextSourceFile);
+      setValidation(nextValidation);
     } catch (error) {
       setSourceFile(null);
       setValidation({
@@ -644,6 +726,52 @@ export default function App() {
     }
   };
 
+  const handleResumeSession = async (storedSessionId) => {
+    try {
+      const storedSession = await loadSession(storedSessionId);
+      if (!storedSession) {
+        throw new Error('No se encontró la carga guardada.');
+      }
+
+      const { metadata, data } = storedSession;
+      const restoredOrigin = normalizeOrigin(data.selectedOrigin ?? metadata.selectedOrigin);
+      const restoredDestination = normalizeDestination(data.selectedDestination ?? metadata.selectedDestination);
+
+      setSessionId(metadata.id);
+      setSelectedModule(data.selectedModule ?? metadata.selectedModule ?? 'empleados');
+      setSelectedOrigin(restoredOrigin);
+      setSelectedDestination(restoredDestination);
+      setParameters({
+        ...(restoredDestination === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
+        ...(data.parameters ?? {}),
+      });
+      setSourceFile(data.sourceFile ?? null);
+      setValidation(data.validation ?? null);
+      setResult(data.result ?? null);
+      setStep(data.step ?? metadata.step ?? STEPS.upload);
+      setGlobalError('');
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo retomar la carga guardada.');
+    }
+  };
+
+  const handleDeleteSession = async (session) => {
+    if (!window.confirm(`¿Eliminar la carga guardada "${session.fileName || 'sin nombre'}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteSession(session.id);
+      setSessions((current) => current.filter((item) => item.id !== session.id));
+
+      if (sessionId === session.id) {
+        resetFlow();
+      }
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo eliminar la carga guardada.');
+    }
+  };
+
   const handleExportActiveConfiguration = () => {
     if (!activeConfiguration) {
       return;
@@ -654,6 +782,7 @@ export default function App() {
 
   const resetFlow = () => {
     setStep(STEPS.format);
+    setSessionId(null);
     setSourceFile(null);
     setValidation(null);
     setResult(null);
@@ -714,6 +843,9 @@ export default function App() {
             onDeleteConfiguration={handleDeleteConfiguration}
             onImportConfiguration={handleImportConfiguration}
             onExportActiveConfiguration={handleExportActiveConfiguration}
+            sessions={sessions}
+            onResumeSession={handleResumeSession}
+            onDeleteSession={handleDeleteSession}
           />
         ) : null}
 

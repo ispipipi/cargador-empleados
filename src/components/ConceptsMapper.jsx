@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   applyConceptDecision,
@@ -8,6 +8,7 @@ import {
   summarizeConceptDecisions,
 } from '../lib/concepts';
 import { normalizeText, todayStamp } from '../lib/utils';
+import { applyStoredConceptMapping, rememberConceptMappings } from '../lib/sessionPersistence';
 
 const NEW_CONCEPT_VALUE = '__new__';
 const EXCLUDE_CONCEPT_VALUE = '__exclude__';
@@ -17,7 +18,7 @@ export default function ConceptsMapper({ resource, onBack }) {
     buildConceptDecisions(resource).map((decision) => ({
       ...decision,
       approved: decision.approved ?? decision.matchStatus === 'exact',
-    })),
+    })).map((decision) => applyStoredConceptMapping('concepts', decision, { concepts: resource.concepts })),
   );
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -25,6 +26,10 @@ export default function ConceptsMapper({ resource, onBack }) {
   const [isPreparing, setIsPreparing] = useState(false);
   const summary = summarizeConceptDecisions(decisions);
   const pendingCount = decisions.filter((decision) => !decision.approved).length;
+
+  useEffect(() => {
+    rememberConceptMappings('concepts', decisions);
+  }, [decisions]);
 
   const visibleDecisions = useMemo(() => {
     const normalizedSearch = normalizeText(search);

@@ -1,4 +1,5 @@
 import ConfigManager from './ConfigManager';
+import SessionMemory from './SessionMemory';
 
 const SYSTEM_OPTIONS = {
   origins: [
@@ -34,6 +35,9 @@ export default function FormatSelector({
   onDeleteConfiguration,
   onImportConfiguration,
   onExportActiveConfiguration,
+  sessions,
+  onResumeSession,
+  onDeleteSession,
 }) {
   const templateReady = templateStatus === 'ready';
   const canContinue = templateReady && isSupportedPair;
@@ -142,6 +146,7 @@ export default function FormatSelector({
         onExportActive={onExportActiveConfiguration}
         hasExportableConfig={Boolean(activeConfigurationId)}
       />
+      <SessionMemory sessions={sessions} onResume={onResumeSession} onDelete={onDeleteSession} />
     </div>
   );
 }

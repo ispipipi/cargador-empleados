@@ -8,6 +8,7 @@ import {
   summarizeHistoricalDecisions,
 } from '../lib/historicalConcepts';
 import { normalizeText } from '../lib/utils';
+import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
 
 const EXCLUDE_VALUE = '__exclude__';
 
@@ -32,13 +33,16 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
         sourceHeaders: sourceFile.headers,
         concepts,
       });
+      const storedDecisions = nextModel.decisions.map((decision) =>
+        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog }),
+      );
 
       if (!active) {
         return;
       }
 
       setModel(nextModel);
-      setDecisions(nextModel.decisions);
+      setDecisions(storedDecisions);
       setIsBuilding(false);
       onBusyChange?.(false);
     }, 60);
@@ -53,6 +57,10 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
   useEffect(() => {
     onBusyChange?.(isBuilding || isPreparing);
   }, [isBuilding, isPreparing, onBusyChange]);
+
+  useEffect(() => {
+    rememberConceptMappings('historical-concepts', decisions);
+  }, [decisions]);
 
   const summary = summarizeHistoricalDecisions(decisions);
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
