@@ -7,7 +7,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
@@ -39,16 +41,14 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
-      - name: Publish to GitHub Pages branch
-        run: |
-          git fetch origin gh-pages
-          git worktree add --detach /tmp/gh-pages origin/gh-pages
-          find /tmp/gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -R dist/. /tmp/gh-pages/
-          touch /tmp/gh-pages/.nojekyll
-          cd /tmp/gh-pages
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "deploy: $GITHUB_SHA"
-          git push origin HEAD:gh-pages --force
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
