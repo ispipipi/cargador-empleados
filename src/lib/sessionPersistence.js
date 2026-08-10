@@ -181,7 +181,7 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
   const memory = loadMappingMemory();
   const stored = memory[namespace]?.[getMappingKey(namespace, decision)];
 
-  if (!stored) {
+  if (!stored || !isConfirmedStoredMapping(stored)) {
     return decision;
   }
 
@@ -204,30 +204,45 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
     return {
       ...decision,
       action: 'create',
-      matchStatus: 'proposal',
+      matchStatus: 'exact',
+      matchOrigin: 'memory',
       targetConcept: null,
       targetId: stored.targetId,
       targetName: stored.targetName || decision.sourceName,
       sequence: stored.sequence || decision.proposedSequence,
       excluded: false,
-      approved: stored.approved,
+      approved: true,
     };
   }
 
-  const targetConcept = storedTargetConcept;
-  if (!targetConcept) {
+  if (storedTargetConcept) {
+    return {
+      ...decision,
+      action: 'reuse',
+      matchStatus: 'exact',
+      matchOrigin: 'memory',
+      targetConcept: storedTargetConcept,
+      targetId: storedTargetConcept.id,
+      targetName: storedTargetConcept.name,
+      excluded: false,
+      approved: true,
+    };
+  }
+
+  if (stored.action !== 'reuse' || !stored.targetId) {
     return decision;
   }
 
   return {
     ...decision,
     action: 'reuse',
-    matchStatus: stored.approved ? 'assigned' : decision.matchStatus,
-    targetConcept,
-    targetId: targetConcept.id,
-    targetName: targetConcept.name,
+    matchStatus: 'exact',
+    matchOrigin: 'memory',
+    targetConcept: null,
+    targetId: stored.targetId,
+    targetName: stored.targetName || decision.sourceName,
     excluded: false,
-    approved: stored.approved,
+    approved: true,
   };
 }
 
@@ -244,13 +259,15 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
       normalizeText(key.replace(/^concepts:/, '')) === sourceName,
     )?.[1];
 
-  if (!stored) {
+  if (!stored || !isConfirmedStoredMapping(stored)) {
     return decision;
   }
 
   if (stored.excluded) {
     return {
       ...decision,
+      action: 'exclude',
+      matchStatus: 'excluded',
       excluded: true,
       approved: true,
       targetConcept: null,
@@ -265,7 +282,9 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
     return {
       ...decision,
       action: 'create',
-      matchStatus: 'proposal',
+      matchStatus: 'exact',
+      exactMatch: true,
+      matchOrigin: 'memory',
       targetConcept: null,
       targetId: stored.targetId,
       targetName: stored.targetName || decision.sourceName,
@@ -273,23 +292,45 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
       type: stored.type || decision.type,
       lreField: stored.lreField || decision.lreField,
       excluded: false,
-      approved: Boolean(stored.approved),
+      approved: true,
     };
   }
 
-  const targetConcept = storedTargetConcept;
-  if (!targetConcept) {
+  if (storedTargetConcept) {
+    return {
+      ...decision,
+      action: 'reuse',
+      matchStatus: 'exact',
+      exactMatch: true,
+      matchOrigin: 'memory',
+      targetConcept: storedTargetConcept,
+      targetId: storedTargetConcept.id,
+      targetName: storedTargetConcept.name,
+      excluded: false,
+      approved: true,
+    };
+  }
+
+  if (stored.action !== 'reuse' || !stored.targetId) {
     return decision;
   }
 
   return {
     ...decision,
-    targetConcept,
-    targetId: targetConcept.id,
-    targetName: targetConcept.name,
+    action: 'reuse',
+    matchStatus: 'exact',
+    exactMatch: true,
+    matchOrigin: 'memory',
+    targetConcept: null,
+    targetId: stored.targetId,
+    targetName: stored.targetName || decision.sourceName,
     excluded: false,
-    approved: stored.approved,
+    approved: true,
   };
+}
+
+function isConfirmedStoredMapping(stored) {
+  return Boolean(stored?.approved) || stored?.action === 'reuse' || stored?.action === 'exclude';
 }
 
 function getMappingKey(namespace, decision) {

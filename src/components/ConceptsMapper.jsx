@@ -39,6 +39,7 @@ export default function ConceptsMapper({
   const [catalogError, setCatalogError] = useState('');
   const summary = summarizeConceptDecisions(decisions);
   const pendingCount = decisions.filter((decision) => !decision.approved).length;
+  const creationDecisions = decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded);
 
   useEffect(() => {
     setDecisions(buildInitialDecisions(resource));
@@ -63,6 +64,7 @@ export default function ConceptsMapper({
         activeFilter === 'all' ||
         (activeFilter === 'pending' && !decision.approved) ||
         (activeFilter === 'exact' && decision.matchStatus === 'exact') ||
+        (activeFilter === 'proposals' && decision.matchStatus === 'proposal' && !decision.approved) ||
         (activeFilter === 'created' && decision.action === 'create') ||
         (activeFilter === 'reused' && decision.action === 'reuse');
 
@@ -161,7 +163,11 @@ export default function ConceptsMapper({
   };
 
   const handleApproveAllProposals = () => {
-    setDecisions((current) => current.map((decision) => ({ ...decision, approved: true })));
+    setDecisions((current) => current.map((decision) => (
+      decision.matchStatus === 'proposal' && !decision.excluded
+        ? { ...decision, approved: true }
+        : decision
+    )));
     setSelectedIds([]);
   };
 
@@ -203,9 +209,9 @@ export default function ConceptsMapper({
 
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
                 <Metric label="Conceptos" value={summary.total} />
-                <Metric label="Pendientes" value={pendingCount} tone="warning" />
-                <Metric label="Matches exactos" value={summary.exactMatches} tone="success" />
-                <Metric label="Propuestas" value={summary.proposals} />
+                <Metric label="Propuestas a revisar" value={summary.pendingProposals} tone="warning" />
+                <Metric label="Matches perfectos" value={summary.exactMatches} tone="success" />
+                <Metric label="Se crearán" value={summary.createdApproved} />
               </div>
             </div>
           </div>
@@ -214,10 +220,10 @@ export default function ConceptsMapper({
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
               <p className="text-sm font-semibold text-slate-900">Cómo se construye la salida</p>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-                <li>Los nombres que coinciden exactamente con REX+ quedan reutilizados.</li>
-                <li>Los demás conceptos reciben una propuesta de alta y pueden asignarse a otro concepto existente.</li>
+                <li>Los mapeos guardados anteriormente se consideran matches perfectos y se reutilizan automáticamente.</li>
+                <li>Las propuestas no confirmadas quedan destacadas para que decidas si reutilizar o crear.</li>
                 <li>La clasificación y el campo LRE se conservan desde el mapeo de origen.</li>
-                <li>El archivo de carga incluye sólo conceptos nuevos y se habilita al aprobar todas las propuestas.</li>
+                <li>El bloque de altas muestra exactamente los conceptos que terminarán en el archivo de creación.</li>
               </ul>
             </div>
 
@@ -228,10 +234,10 @@ export default function ConceptsMapper({
               <button
                 type="button"
                 onClick={handleApproveAllProposals}
-                disabled={pendingCount === 0}
+                disabled={summary.pendingProposals === 0}
                 className="button-primary disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                Aprobar propuestas
+                Aprobar propuestas para crear ({summary.pendingProposals})
               </button>
             </div>
 
@@ -305,8 +311,8 @@ export default function ConceptsMapper({
         <div className="mt-6 flex flex-wrap gap-2">
           {[
             ['all', 'Todos'],
-            ['pending', 'Pendientes'],
-            ['exact', 'Match exacto'],
+            ['exact', 'Matches perfectos'],
+            ['proposals', 'Propuestas a revisar'],
             ['created', 'Crear nuevos'],
             ['reused', 'Reutilizados'],
           ].map(([key, label]) => (
@@ -374,10 +380,53 @@ export default function ConceptsMapper({
           <WorkingNotice />
         ) : null}
 
+        <section className="mt-6 rounded-[28px] border border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Altas de conceptos</p>
+              <h3 className="mt-2 text-xl font-bold text-slate-950">Conceptos que se crearán en REX+</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Sólo aparecen aquí las propuestas aprobadas. Los IDs nuevos tienen máximo 20 caracteres.
+              </p>
+            </div>
+            <span className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
+              {creationDecisions.length} altas aprobadas
+            </span>
+          </div>
+          {creationDecisions.length > 0 ? (
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
+              <table className="min-w-[680px] w-full text-left text-sm">
+                <thead className="bg-amber-100/60 text-xs uppercase tracking-[0.16em] text-amber-800">
+                  <tr>
+                    <th className="px-4 py-3">Concepto Meta4</th>
+                    <th className="px-4 py-3">ID nuevo</th>
+                    <th className="px-4 py-3">Tipo</th>
+                    <th className="px-4 py-3">LRE</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {creationDecisions.map((decision) => (
+                    <tr key={`creation-${decision.id}`}>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{decision.sourceName}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.targetId}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.type || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.lreField || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-white/70 px-4 py-4 text-sm text-slate-600">
+              Todavía no hay conceptos aprobados para crear. Las propuestas pendientes aparecen destacadas arriba.
+            </p>
+          )}
+        </section>
+
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           <DownloadButton
             title="Descargar altas nuevas REX+"
-            detail={pendingCount ? `Faltan ${pendingCount} propuestas por aprobar` : 'Sólo incluye conceptos que deben crearse en REX+'}
+            detail={pendingCount ? `Faltan ${pendingCount} decisiones por aprobar` : `${creationDecisions.length} conceptos listos para crear en REX+`}
             onClick={() => handleDownload('output')}
             disabled={pendingCount > 0 || isPreparing}
             primary
@@ -395,21 +444,23 @@ export default function ConceptsMapper({
 }
 
 function ConceptRow({ decision, concepts, isSelected, onSelect, onAssign, onApprove }) {
-  const statusLabel = decision.approved
-    ? decision.matchStatus === 'excluded'
-      ? 'Excluido'
-      : decision.matchStatus === 'exact'
-      ? 'Match exacto'
-      : 'Aprobado'
-    : 'Pendiente';
-  const statusClass = decision.approved
-    ? decision.matchStatus === 'excluded'
-      ? 'border-slate-200 bg-slate-100 text-slate-600'
-      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    : 'border-amber-200 bg-amber-50 text-amber-700';
+  const statusLabel = decision.matchStatus === 'excluded'
+    ? 'Excluido'
+    : decision.matchStatus === 'exact'
+      ? decision.action === 'create'
+        ? 'Match guardado · se creará'
+        : decision.matchOrigin === 'memory' ? 'Match perfecto guardado' : 'Match perfecto'
+      : decision.action === 'create'
+        ? decision.approved ? 'Creación aprobada' : 'Propuesta: crear nuevo'
+        : decision.approved ? 'Asignado manualmente' : 'Propuesta pendiente';
+  const statusClass = decision.matchStatus === 'excluded'
+    ? 'border-slate-200 bg-slate-100 text-slate-600'
+    : decision.matchStatus === 'exact'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : 'border-amber-300 bg-amber-100 text-amber-800';
 
   return (
-    <tr className={decision.approved ? 'bg-white' : 'bg-amber-50/20'}>
+    <tr className={decision.matchStatus === 'proposal' ? 'bg-amber-50/60' : 'bg-white'}>
       <td className="px-4 py-4 align-top">
         <input type="checkbox" checked={isSelected} onChange={onSelect} />
       </td>
@@ -417,15 +468,23 @@ function ConceptRow({ decision, concepts, isSelected, onSelect, onAssign, onAppr
         <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
           {statusLabel}
         </span>
-        {decision.warning ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-700">{decision.warning}</p> : null}
+        {decision.matchStatus === 'proposal' ? (
+          <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-800">
+            Revisa esta propuesta antes de aprobarla.
+          </p>
+        ) : null}
+        {decision.warning && decision.matchStatus !== 'proposal' ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-700">{decision.warning}</p> : null}
       </td>
       <td className="px-4 py-4 align-top">
         <p className="font-semibold text-slate-900">{decision.sourceName}</p>
         <p className="mt-1 text-xs text-slate-500">Meta4: {decision.sourceCode || 'Sin código'}</p>
       </td>
       <td className="px-4 py-4 align-top">
-        <p className="font-semibold text-slate-900">{decision.targetName}</p>
+        <p className="font-semibold text-slate-900">
+          {decision.action === 'create' ? 'Crear concepto nuevo' : decision.targetName}
+        </p>
         <p className="mt-1 font-mono text-xs text-slate-500">{decision.targetId}</p>
+        {decision.matchStatus === 'proposal' ? <p className="mt-2 text-xs font-semibold text-amber-700">Propuesta por revisar</p> : null}
       </td>
       <td className="px-4 py-4 align-top font-mono text-xs text-slate-600">{decision.type || '—'}</td>
       <td className="px-4 py-4 align-top font-mono text-xs text-slate-600">{decision.lreField || '—'}</td>
@@ -436,7 +495,7 @@ function ConceptRow({ decision, concepts, isSelected, onSelect, onAssign, onAppr
             onChange={(event) => onAssign(event.target.value)}
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
           >
-            <option value={NEW_CONCEPT_VALUE}>Crear propuesta nueva</option>
+            <option value={NEW_CONCEPT_VALUE}>Proponer alta nueva ({decision.proposedId})</option>
             <option value={EXCLUDE_CONCEPT_VALUE}>Excluir del archivo de carga</option>
             {concepts.map((concept) => (
               <option key={concept.id} value={concept.id}>

@@ -147,6 +147,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       updateDecision(decisionId, {
         approved: false,
         excluded: false,
+        action: 'pending',
         targetId: '',
         targetName: '',
         targetConcept: null,
@@ -273,12 +274,13 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Maper · Conceptos históricos</p>
               <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Meta 4 → REX+ Concepto Detalle</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-                Revisa los matches por concepto, asigna los pendientes y genera el CSV mensual con los montos de enero.
+                Los mapeos guardados son matches perfectos. Las propuestas quedan destacadas y las altas aprobadas se muestran antes de descargar.
               </p>
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
                 <Metric label="Conceptos detectados" value={summary.total} />
-                <Metric label="Matches exactos" value={summary.exact} tone="success" />
-                <Metric label="Pendientes" value={summary.pending} tone="warning" />
+                <Metric label="Matches perfectos" value={summary.exact} tone="success" />
+                <Metric label="Propuestas a revisar" value={summary.pending} tone="warning" />
+                <Metric label="Se crearán" value={summary.createdApproved} />
                 <Metric label="Filas estimadas" value={summary.detailRows.toLocaleString('es-CL')} />
               </div>
             </div>
@@ -290,7 +292,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
                 <li>La salida usa `M` como origen y `M` como período de pago mensual.</li>
-                <li>Los conceptos sin match no se inventan: quedan disponibles para asignación manual o exclusión.</li>
+                <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
+                <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
                 <li>El CSV se genera con encabezados, UTF-8 y separador punto y coma.</li>
               </ul>
             </div>
@@ -300,8 +303,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             </div>
             <div className="mt-5 flex flex-wrap gap-3">
               <button type="button" onClick={onBack} className="button-secondary">Volver a módulos</button>
-              <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches exactos</button>
-              <button type="button" onClick={handleApproveCreations} className="button-secondary">Aprobar creaciones</button>
+              <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches perfectos</button>
+              <button type="button" onClick={handleApproveCreations} className="button-secondary">Aprobar creaciones ({decisions.filter((decision) => decision.action === 'create' && !decision.approved).length})</button>
             </div>
           </div>
         </div>
@@ -325,8 +328,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         <div className="mt-6 flex flex-wrap gap-2">
           {[
             ['all', 'Todos'],
-            ['pending', 'Pendientes'],
-            ['exact', 'Matches exactos'],
+            ['pending', 'Propuestas a revisar'],
+            ['exact', 'Matches perfectos'],
             ['assigned', 'Asignados'],
             ['excluded', 'Excluidos'],
           ].map(([key, label]) => (
@@ -397,6 +400,47 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           </div>
         ) : null}
 
+        <section className="mt-6 rounded-[28px] border border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Altas de conceptos</p>
+              <h3 className="mt-2 text-xl font-bold text-slate-950">Conceptos que se crearán en REX+</h3>
+              <p className="mt-2 text-sm text-slate-600">Este listado alimenta el archivo separado de creación de conceptos.</p>
+            </div>
+            <span className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
+              {summary.createdApproved} altas aprobadas
+            </span>
+          </div>
+          {summary.createdApproved > 0 ? (
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
+              <table className="min-w-[680px] w-full text-left text-sm">
+                <thead className="bg-amber-100/60 text-xs uppercase tracking-[0.16em] text-amber-800">
+                  <tr>
+                    <th className="px-4 py-3">Concepto Meta4</th>
+                    <th className="px-4 py-3">ID nuevo</th>
+                    <th className="px-4 py-3">Tipo</th>
+                    <th className="px-4 py-3">LRE</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded).map((decision) => (
+                    <tr key={`historical-creation-${decision.id}`}>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{decision.sourceName}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.targetId}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.type || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.lreField || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-white/70 px-4 py-4 text-sm text-slate-600">
+              Todavía no hay conceptos aprobados para crear. Las propuestas pendientes aparecen destacadas en la tabla.
+            </p>
+          )}
+        </section>
+
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <DownloadButton
             title="Descargar altas de conceptos"
@@ -432,21 +476,26 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
 function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign }) {
   const statusLabel = decision.excluded
     ? 'Excluido'
-    : decision.action === 'create'
-      ? decision.approved ? 'Creación aprobada' : 'Crear nuevo'
-      : decision.approved
-        ? (decision.exactMatch ? 'Match exacto' : 'Asignado')
-        : 'Pendiente';
+    : decision.exactMatch
+      ? decision.action === 'create'
+        ? 'Match guardado · se creará'
+        : decision.matchOrigin === 'memory' ? 'Match perfecto guardado' : 'Match perfecto'
+      : decision.action === 'create'
+        ? decision.approved ? 'Creación aprobada' : 'Propuesta: crear nuevo'
+        : decision.approved ? 'Asignado manualmente' : 'Propuesta pendiente';
   const statusClass = decision.excluded
     ? 'border-slate-200 bg-slate-100 text-slate-600'
-    : decision.approved
+    : decision.exactMatch
       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-amber-200 bg-amber-50 text-amber-700';
+      : 'border-amber-300 bg-amber-100 text-amber-800';
 
   return (
-    <tr className={decision.approved ? 'bg-white' : 'bg-amber-50/20'}>
+    <tr className={decision.exactMatch || decision.approved ? 'bg-white' : 'bg-amber-50/60'}>
       <td className="px-4 py-4"><input type="checkbox" checked={selected} onChange={onSelect} /></td>
-      <td className="px-4 py-4"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>{statusLabel}</span></td>
+      <td className="px-4 py-4">
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>{statusLabel}</span>
+        {!decision.exactMatch && !decision.excluded ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-800">Revisa esta propuesta antes de aprobarla.</p> : null}
+      </td>
       <td className="max-w-[360px] px-4 py-4">
         <p className="font-semibold text-slate-900">{decision.sourceName}</p>
         {decision.sourceKey !== decision.sourceName ? <p className="mt-1 text-xs text-slate-500">Columna: {decision.sourceKey}</p> : null}
@@ -456,7 +505,7 @@ function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign 
       <td className="px-4 py-4">
         <select value={decision.targetId} onChange={(event) => onAssign(event.target.value)} className="w-[360px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
           <option value="">Selecciona concepto REX+</option>
-          <option value={CREATE_VALUE}>Crear concepto nuevo ({decision.proposedId})</option>
+          <option value={CREATE_VALUE}>Proponer alta nueva ({decision.proposedId})</option>
           {decision.suggestedMatches.length > 0 ? <optgroup label="Propuestas principales">{decision.suggestedMatches.map(({ concept, score }) => <option key={`suggested-${concept.id}`} value={concept.id}>{concept.id} · {concept.name} ({Math.round(score * 100)}%)</option>)}</optgroup> : null}
           <optgroup label="Catálogo REX+">{catalog.map((concept) => <option key={concept.id} value={concept.id}>{concept.id} · {concept.name}</option>)}</optgroup>
           <option value={EXCLUDE_VALUE}>Excluir este concepto</option>

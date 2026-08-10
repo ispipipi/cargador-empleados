@@ -172,8 +172,15 @@ export function buildHistoricalReportRows(decisions) {
     'Match exacto': decision.exactMatch ? 'Si' : 'No',
     'Concepto REX+': decision.targetId,
     'Nombre REX+': decision.targetName,
+    'Origen del match': decision.matchOrigin === 'memory'
+      ? 'Memoria de mapeos'
+      : decision.exactMatch
+        ? 'Catálogo REX+'
+        : 'Propuesta',
     Estado: decision.excluded
       ? 'Excluido'
+      : decision.action === 'create'
+        ? decision.approved ? 'Creación aprobada' : 'Propuesta de creación'
       : decision.approved
         ? decision.exactMatch
           ? 'Match exacto aprobado'

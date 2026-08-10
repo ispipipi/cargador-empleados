@@ -5,6 +5,7 @@ import { loadConceptCatalogMemory } from './sessionPersistence';
 const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
 const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
 const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-importacion-conceptos.xlsx`;
+export const MAX_CONCEPT_ID_LENGTH = 20;
 
 const TYPE_BY_CLASSIFICATION = [
   { match: 'descuentos legales', value: '3L' },
@@ -266,8 +267,11 @@ export function summarizeConceptDecisions(decisions) {
     total: decisions.length,
     exactMatches: decisions.filter((decision) => decision.matchStatus === 'exact').length,
     proposals: decisions.filter((decision) => decision.matchStatus === 'proposal').length,
+    pendingProposals: decisions.filter((decision) => decision.matchStatus === 'proposal' && !decision.approved).length,
     reused: decisions.filter((decision) => decision.action === 'reuse').length,
     created: decisions.filter((decision) => decision.action === 'create').length,
+    createdApproved: decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded).length,
+    memoryMatches: decisions.filter((decision) => decision.matchOrigin === 'memory').length,
     excluded: decisions.filter((decision) => decision.action === 'exclude').length,
     warnings: decisions.filter((decision) => decision.warning).length,
   };
@@ -471,7 +475,12 @@ export function buildConceptId(value, index) {
     return `concepto${index + 1}`;
   }
 
-  return id;
+  if (id.length <= MAX_CONCEPT_ID_LENGTH) {
+    return id;
+  }
+
+  const suffix = stableHash(value);
+  return `${id.slice(0, MAX_CONCEPT_ID_LENGTH - suffix.length)}${suffix}`;
 }
 
 export function resolveNewSequence(sourceCode, index) {
