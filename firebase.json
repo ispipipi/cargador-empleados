@@ -7,6 +7,7 @@
   },
   "auth": {
     "providers": {
+      "anonymous": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "Maper",
         "supportEmail": "espinozajc@gmail.com"

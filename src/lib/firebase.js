@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -49,6 +49,20 @@ export async function signInWithGoogle() {
 
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(services.auth, provider);
+  return result.user;
+}
+
+export async function ensureFirebaseSession() {
+  const services = getFirebaseServices();
+  if (!services) {
+    throw new Error('Firebase aún no está configurado para esta instalación.');
+  }
+
+  if (services.auth.currentUser) {
+    return services.auth.currentUser;
+  }
+
+  const result = await signInAnonymously(services.auth);
   return result.user;
 }
 

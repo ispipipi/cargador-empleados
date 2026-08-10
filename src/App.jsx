@@ -9,7 +9,6 @@ import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
-import AuthStatus from './components/AuthStatus';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -54,7 +53,7 @@ import {
   saveCloudMappings,
   saveCloudSession,
 } from './lib/cloudMemory';
-import { isFirebaseConfigured, signInWithGoogle, signOutFirebase, subscribeToFirebaseAuth } from './lib/firebase';
+import { ensureFirebaseSession, isFirebaseConfigured, subscribeToFirebaseAuth } from './lib/firebase';
 import {
   createSessionId,
   createSessionMetadata,
@@ -98,7 +97,6 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [cloudSessions, setCloudSessions] = useState([]);
   const [authUser, setAuthUser] = useState(null);
-  const [authBusy, setAuthBusy] = useState(cloudConfigured);
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
@@ -160,21 +158,24 @@ export default function App() {
 
   useEffect(() => {
     if (!cloudConfigured) {
-      setAuthBusy(false);
       return undefined;
     }
 
-    return subscribeToFirebaseAuth(
+    const unsubscribe = subscribeToFirebaseAuth(
       (user) => {
         setAuthUser(user);
-        setAuthBusy(false);
       },
       (error) => {
         setAuthUser(null);
-        setAuthBusy(false);
         setGlobalError(error instanceof Error ? error.message : 'No se pudo validar la sesión cloud.');
       },
     );
+
+    ensureFirebaseSession().catch((error) => {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo activar la memoria cloud.');
+    });
+
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -184,7 +185,6 @@ export default function App() {
     }
 
     let isMounted = true;
-    setAuthBusy(true);
 
     Promise.all([
       listCloudSessions(authUser),
@@ -203,11 +203,6 @@ export default function App() {
       .catch((error) => {
         if (isMounted) {
           setGlobalError(error instanceof Error ? error.message : 'No se pudo cargar la memoria cloud.');
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setAuthBusy(false);
         }
       });
 
@@ -901,29 +896,6 @@ export default function App() {
     }
   };
 
-  const handleFirebaseSignIn = async () => {
-    setAuthBusy(true);
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      setAuthBusy(false);
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo iniciar sesión con Google.');
-    }
-  };
-
-  const handleFirebaseSignOut = async () => {
-    setAuthBusy(true);
-    try {
-      await signOutFirebase();
-      setAuthUser(null);
-      setCloudSessions([]);
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo cerrar la sesión cloud.');
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
   const handleExportActiveConfiguration = () => {
     if (!activeConfiguration) {
       return;
@@ -968,13 +940,6 @@ export default function App() {
                     {selectedOrigin} → {destinationLabel}
                   </p>
                 </div>
-                <AuthStatus
-                  configured={cloudConfigured}
-                  user={authUser}
-                  isBusy={authBusy}
-                  onSignIn={handleFirebaseSignIn}
-                  onSignOut={handleFirebaseSignOut}
-                />
               </div>
             </div>
           </div>
