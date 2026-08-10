@@ -101,6 +101,21 @@ export async function saveCloudMappings(user, namespace, entries) {
   });
 }
 
+export async function loadCloudConceptCatalog(user) {
+  const services = requireServices();
+  const catalogSnapshot = await getDoc(doc(services.database, 'users', user.uid, 'catalogs', 'concepts'));
+  return catalogSnapshot.exists() ? catalogSnapshot.data().concepts ?? null : null;
+}
+
+export async function saveCloudConceptCatalog(user, concepts) {
+  const services = requireServices();
+  await setDoc(doc(services.database, 'users', user.uid, 'catalogs', 'concepts'), {
+    ownerUid: user.uid,
+    concepts,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function requireServices() {
   const services = getFirebaseServices();
   if (!services) {

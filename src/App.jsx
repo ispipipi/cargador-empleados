@@ -47,9 +47,11 @@ import { todayStamp } from './lib/utils';
 import { loadConceptsResource } from './lib/concepts';
 import {
   deleteCloudSession,
+  loadCloudConceptCatalog,
   listCloudSessions,
   loadCloudMappings,
   loadCloudSession,
+  saveCloudConceptCatalog,
   saveCloudMappings,
   saveCloudSession,
 } from './lib/cloudMemory';
@@ -58,9 +60,12 @@ import {
   createSessionId,
   createSessionMetadata,
   deleteSession,
+  loadConceptCatalogMemory,
+  loadMappingMemory,
   listSessions,
   loadSession,
   mergeStoredMappingEntries,
+  saveConceptCatalogMemory,
   saveSession,
 } from './lib/sessionPersistence';
 
@@ -101,6 +106,7 @@ export default function App() {
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPreparingRexDownload, setIsPreparingRexDownload] = useState(false);
   const [isPreparingHistoricalDownload, setIsPreparingHistoricalDownload] = useState(false);
+  const [isUpdatingConceptCatalog, setIsUpdatingConceptCatalog] = useState(false);
   const [preparedRexDownload, setPreparedRexDownload] = useState(null);
   const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
@@ -190,15 +196,39 @@ export default function App() {
       listCloudSessions(authUser),
       loadCloudMappings(authUser, 'concepts'),
       loadCloudMappings(authUser, 'historical-concepts'),
+      loadCloudConceptCatalog(authUser),
     ])
-      .then(([storedCloudSessions, conceptsMappings, historicalMappings]) => {
+      .then(([storedCloudSessions, conceptsMappings, historicalMappings, cloudConceptCatalog]) => {
         if (!isMounted) {
           return;
         }
 
+        const localMemory = loadMappingMemory();
+        const mergedConceptsMappings = {
+          ...conceptsMappings,
+          ...(localMemory.concepts ?? {}),
+        };
+        const mergedHistoricalMappings = {
+          ...historicalMappings,
+          ...(localMemory['historical-concepts'] ?? {}),
+        };
+        const localConceptCatalog = loadConceptCatalogMemory();
+        const conceptCatalog = cloudConceptCatalog?.length ? cloudConceptCatalog : localConceptCatalog;
+
         setCloudSessions(storedCloudSessions);
-        mergeStoredMappingEntries('concepts', conceptsMappings);
-        mergeStoredMappingEntries('historical-concepts', historicalMappings);
+        mergeStoredMappingEntries('concepts', mergedConceptsMappings);
+        mergeStoredMappingEntries('historical-concepts', mergedHistoricalMappings);
+
+        if (conceptCatalog?.length) {
+          saveConceptCatalogMemory(conceptCatalog);
+          setConceptsResource((current) => (current ? { ...current, concepts: conceptCatalog } : current));
+        }
+
+        return Promise.all([
+          saveCloudMappings(authUser, 'concepts', mergedConceptsMappings),
+          saveCloudMappings(authUser, 'historical-concepts', mergedHistoricalMappings),
+          ...(conceptCatalog?.length ? [saveCloudConceptCatalog(authUser, conceptCatalog)] : []),
+        ]);
       })
       .catch((error) => {
         if (isMounted) {
@@ -473,6 +503,73 @@ export default function App() {
       });
     } finally {
       setIsReadingFile(false);
+    }
+  };
+
+  const handleMonthlyBookSelected = async (file) => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setGlobalError('El libro mensual debe ser .xls o .xlsx.');
+      return;
+    }
+
+    setGlobalError('');
+    setSourceFile(null);
+    setValidation(null);
+    setIsReadingFile(true);
+
+    try {
+      await waitForUiToPaint();
+      const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico');
+
+      if (parsedSource.missingColumns.length > 0 || parsedSource.rows.length === 0) {
+        throw new Error(
+          parsedSource.missingColumns.length > 0
+            ? `Faltan columnas clave: ${parsedSource.missingColumns.join(', ')}`
+            : 'El libro mensual no contiene filas de remuneraciones.',
+        );
+      }
+
+      const nextSourceFile = {
+        fileName: file.name,
+        workbookName: parsedSource.workbookName,
+        headers: parsedSource.headers,
+        rows: parsedSource.rows,
+        previewRows: parsedSource.previewRows,
+      };
+
+      setSessionId(createSessionId());
+      setSourceFile(nextSourceFile);
+      setValidation({
+        isValid: true,
+        missingColumns: [],
+        message: `Libro mensual listo. Se detectaron ${parsedSource.rows.length} colaboradores.`,
+      });
+      setStep(STEPS.historicalReview);
+    } catch (error) {
+      setSourceFile(null);
+      setGlobalError(`No se pudo leer el libro mensual: ${error.message}`);
+    } finally {
+      setIsReadingFile(false);
+    }
+  };
+
+  const handleConceptCatalogUpdated = async (concepts) => {
+    setIsUpdatingConceptCatalog(true);
+    saveConceptCatalogMemory(concepts);
+    setConceptsResource((current) => (current ? { ...current, concepts } : current));
+
+    try {
+      if (authUser) {
+        await saveCloudConceptCatalog(authUser, concepts);
+      }
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo guardar el catálogo REX+ en la memoria cloud.');
+    } finally {
+      setIsUpdatingConceptCatalog(false);
     }
   };
 
@@ -1000,13 +1097,20 @@ export default function App() {
         ) : null}
 
         {step === STEPS.concepts && conceptsResource ? (
-          <ConceptsMapper resource={conceptsResource} onBack={() => setStep(STEPS.format)} />
+          <ConceptsMapper
+            resource={conceptsResource}
+            isReadingMonthlyBook={isReadingFile}
+            isUpdatingCatalog={isUpdatingConceptCatalog}
+            onBack={() => setStep(STEPS.format)}
+            onMonthlyBookSelected={handleMonthlyBookSelected}
+            onCatalogUpdated={handleConceptCatalogUpdated}
+          />
         ) : null}
 
         {step === STEPS.historicalReview && sourceFile && conceptsResource ? (
           <HistoricalConceptsMapper
             sourceFile={sourceFile}
-            concepts={conceptsResource.concepts}
+            conceptsResource={conceptsResource}
             onBack={() => setStep(STEPS.format)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />

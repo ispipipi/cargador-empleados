@@ -5,6 +5,7 @@ import {
   buildConceptDecisions,
   buildConceptExportWorkbook,
   buildConceptReportWorkbook,
+  parseConceptCatalogWorkbook,
   summarizeConceptDecisions,
 } from '../lib/concepts';
 import { normalizeText, todayStamp } from '../lib/utils';
@@ -13,19 +14,36 @@ import { applyStoredConceptMapping, rememberConceptMappings } from '../lib/sessi
 const NEW_CONCEPT_VALUE = '__new__';
 const EXCLUDE_CONCEPT_VALUE = '__exclude__';
 
-export default function ConceptsMapper({ resource, onBack }) {
-  const [decisions, setDecisions] = useState(() =>
-    buildConceptDecisions(resource).map((decision) => ({
+function buildInitialDecisions(resource) {
+  return buildConceptDecisions(resource)
+    .map((decision) => ({
       ...decision,
       approved: decision.approved ?? decision.matchStatus === 'exact',
-    })).map((decision) => applyStoredConceptMapping('concepts', decision, { concepts: resource.concepts })),
-  );
+    }))
+    .map((decision) => applyStoredConceptMapping('concepts', decision, { concepts: resource.concepts }));
+}
+
+export default function ConceptsMapper({
+  resource,
+  isReadingMonthlyBook,
+  isUpdatingCatalog,
+  onBack,
+  onMonthlyBookSelected,
+  onCatalogUpdated,
+}) {
+  const [decisions, setDecisions] = useState(() => buildInitialDecisions(resource));
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [isPreparing, setIsPreparing] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
   const summary = summarizeConceptDecisions(decisions);
   const pendingCount = decisions.filter((decision) => !decision.approved).length;
+
+  useEffect(() => {
+    setDecisions(buildInitialDecisions(resource));
+    setSelectedIds([]);
+  }, [resource]);
 
   useEffect(() => {
     rememberConceptMappings('concepts', decisions);
@@ -216,6 +234,55 @@ export default function ConceptsMapper({ resource, onBack }) {
                 Aprobar propuestas
               </button>
             </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <label className="group cursor-pointer rounded-[24px] border border-brand-200 bg-brand-50 p-4 transition hover:border-brand-400">
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  className="hidden"
+                  disabled={isUpdatingCatalog}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) {
+                      return;
+                    }
+
+                    setCatalogError('');
+                    try {
+                      const concepts = parseConceptCatalogWorkbook(await file.arrayBuffer());
+                      await onCatalogUpdated(concepts);
+                    } catch (error) {
+                      setCatalogError(error instanceof Error ? error.message : 'No se pudo actualizar el catálogo REX+.');
+                    }
+                  }}
+                />
+                <p className="text-sm font-semibold text-brand-800">Actualizar catálogo REX+</p>
+                <p className="mt-1 text-xs leading-5 text-brand-700/80">
+                  {isUpdatingCatalog ? 'Guardando en la memoria cloud…' : 'Carga el listado vigente de conceptos para reemplazar la base.'}
+                </p>
+              </label>
+
+              <label className="group cursor-pointer rounded-[24px] border border-emerald-200 bg-emerald-50 p-4 transition hover:border-emerald-400">
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  className="hidden"
+                  disabled={isReadingMonthlyBook}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    onMonthlyBookSelected?.(file);
+                  }}
+                />
+                <p className="text-sm font-semibold text-emerald-800">Cargar libro mensual</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-700/80">
+                  {isReadingMonthlyBook ? 'Leyendo el libro de remuneraciones…' : 'Busca conceptos usados este mes contra la memoria y ofrece crear los faltantes.'}
+                </p>
+              </label>
+            </div>
+            {catalogError ? <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{catalogError}</p> : null}
           </div>
         </div>
       </section>

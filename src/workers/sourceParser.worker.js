@@ -68,7 +68,9 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
   });
   const rawHeaders = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
   const headers = preserveDuplicateHeaders ? makeUniqueHeaders(rawHeaders) : rawHeaders;
-  const missingColumns = getMeta4MissingColumns(headers);
+  const missingColumns = preserveDuplicateHeaders
+    ? getHistoricalMissingColumns(headers)
+    : getMeta4MissingColumns(headers);
   const identityColumnIndexes = [
     'ID EMPLEADO',
     'CI',
@@ -123,4 +125,19 @@ function makeUniqueHeaders(headers) {
     occurrences.set(header, nextOccurrence);
     return nextOccurrence === 1 ? header : `${header} [${nextOccurrence}]`;
   });
+}
+
+function getHistoricalMissingColumns(headers) {
+  const normalizedHeaders = headers.map(cleanCell);
+  const missingColumns = [];
+
+  if (!normalizedHeaders.includes('NOMBRE')) {
+    missingColumns.push('NOMBRE');
+  }
+
+  if (!normalizedHeaders.includes('CI') && !normalizedHeaders.includes('ID EMPLEADO')) {
+    missingColumns.push('CI o ID EMPLEADO');
+  }
+
+  return missingColumns;
 }

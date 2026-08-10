@@ -5,6 +5,7 @@ const DATABASE_VERSION = 1;
 const SESSION_STORE = 'sessions';
 const SESSION_DATA_STORE = 'session-data';
 const MAPPING_STORAGE_KEY = 'maper.mapping-memory.v1';
+const CONCEPT_CATALOG_STORAGE_KEY = 'maper.concept-catalog.v1';
 
 let databasePromise;
 
@@ -78,6 +79,35 @@ export function loadMappingMemory() {
   }
 }
 
+export function loadConceptCatalogMemory() {
+  try {
+    const rawValue = window.localStorage.getItem(CONCEPT_CATALOG_STORAGE_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveConceptCatalogMemory(concepts) {
+  if (!Array.isArray(concepts) || concepts.length === 0) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CONCEPT_CATALOG_STORAGE_KEY, JSON.stringify(concepts));
+    window.dispatchEvent(new CustomEvent('maper-concept-catalog-changed', {
+      detail: { concepts },
+    }));
+  } catch {
+    // A blocked or full localStorage should not interrupt the mapping flow.
+  }
+}
+
 export function rememberConceptMappings(namespace, decisions) {
   if (!decisions?.length) {
     return;
@@ -93,12 +123,18 @@ export function rememberConceptMappings(namespace, decisions) {
     }
 
     namespaceMemory[key] = {
+      sourceName: decision.sourceName ?? '',
+      sourceCode: decision.sourceCode ?? '',
+      sourceKey: decision.sourceKey ?? '',
       targetId: decision.targetId ?? '',
       targetName: decision.targetName ?? '',
       action: decision.action ?? '',
       excluded: Boolean(decision.excluded),
       approved: Boolean(decision.approved),
       sequence: decision.sequence ?? '',
+      type: decision.type ?? '',
+      lreField: decision.lreField ?? '',
+      classification: decision.classification ?? '',
       savedAt: new Date().toISOString(),
     };
   });
@@ -162,7 +198,9 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
     };
   }
 
-  if (stored.action === 'create' && stored.targetId) {
+  const storedTargetConcept = concepts.find((concept) => concept.id === stored.targetId);
+
+  if (stored.action === 'create' && stored.targetId && !storedTargetConcept) {
     return {
       ...decision,
       action: 'create',
@@ -176,7 +214,7 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
     };
   }
 
-  const targetConcept = concepts.find((concept) => concept.id === stored.targetId);
+  const targetConcept = storedTargetConcept;
   if (!targetConcept) {
     return decision;
   }
@@ -195,7 +233,16 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
 
 export function applyStoredHistoricalMapping(namespace, decision, { concepts = [] } = {}) {
   const memory = loadMappingMemory();
-  const stored = memory[namespace]?.[getMappingKey(namespace, decision)];
+  const mappingKey = getMappingKey(namespace, decision);
+  const sourceName = normalizeText(decision.sourceName);
+  const stored =
+    memory[namespace]?.[mappingKey] ??
+    memory.concepts?.[getMappingKey('concepts', decision)] ??
+    Object.entries(memory.concepts ?? {}).find(([key, entry]) =>
+      normalizeText(entry.sourceName) === sourceName ||
+      normalizeText(entry.sourceKey) === sourceName ||
+      normalizeText(key.replace(/^concepts:/, '')) === sourceName,
+    )?.[1];
 
   if (!stored) {
     return decision;
@@ -212,7 +259,25 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
     };
   }
 
-  const targetConcept = concepts.find((concept) => concept.id === stored.targetId);
+  const storedTargetConcept = concepts.find((concept) => concept.id === stored.targetId);
+
+  if (stored.action === 'create' && stored.targetId && !storedTargetConcept) {
+    return {
+      ...decision,
+      action: 'create',
+      matchStatus: 'proposal',
+      targetConcept: null,
+      targetId: stored.targetId,
+      targetName: stored.targetName || decision.sourceName,
+      sequence: stored.sequence || decision.proposedSequence,
+      type: stored.type || decision.type,
+      lreField: stored.lreField || decision.lreField,
+      excluded: false,
+      approved: Boolean(stored.approved),
+    };
+  }
+
+  const targetConcept = storedTargetConcept;
   if (!targetConcept) {
     return decision;
   }

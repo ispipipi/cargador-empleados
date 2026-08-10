@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { buildConceptId, inferConceptType, resolveNewSequence } from './concepts';
 import { cleanCell, normalizeText } from './utils';
 
 // This order comes from the REX+ Concepto Detalle template supplied for the flow.
@@ -77,18 +78,23 @@ const HISTORICAL_ALIASES = new Map([
   ['LIQUIDO', 'totalesEmpl'],
 ]);
 
-export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts }) {
+export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [] }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
+  const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
 
   const decisions = conceptColumns.map((column, index) => {
     const sourceKey = cleanCell(column.header);
     const sourceName = stripDuplicateHeaderSuffix(sourceKey);
+    const sourceMapping = mappingByName.get(conceptKey(sourceName));
     const exactMatch = findExactMatch({ sourceName, catalogById, catalogByName });
     const suggestedMatches = findSuggestedMatches(sourceName, catalog);
     const suggestedConcept = exactMatch ?? suggestedMatches[0]?.concept ?? null;
+    const proposedId = buildConceptId(sourceName, index);
+    const lreField = sourceMapping?.lreField ?? '';
+    const classification = sourceMapping?.classification ?? '';
 
     return {
       id: `${index + 1}-${sourceKey}`,
@@ -100,10 +106,17 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       sampleValue: column.sampleValue,
       exactMatch: Boolean(exactMatch),
       matchStatus: exactMatch ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: exactMatch ? 'reuse' : 'pending',
       suggestedMatches,
       targetConcept: exactMatch,
       targetId: exactMatch?.id ?? '',
       targetName: exactMatch?.name ?? '',
+      proposedId,
+      proposedSequence: resolveNewSequence(sourceMapping?.sourceCode, index),
+      sequence: exactMatch?.sequence ?? resolveNewSequence(sourceMapping?.sourceCode, index),
+      type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
+      lreField,
+      classification,
       approved: Boolean(exactMatch),
       excluded: false,
     };
@@ -176,6 +189,7 @@ export function summarizeHistoricalDecisions(decisions) {
     exact: decisions.filter((decision) => decision.exactMatch).length,
     approved: decisions.filter((decision) => decision.approved && !decision.excluded).length,
     pending: decisions.filter((decision) => !decision.approved).length,
+    createdApproved: decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded).length,
     excluded: decisions.filter((decision) => decision.excluded).length,
     detailRows: decisions.reduce((total, decision) => total + (decision.approved && !decision.excluded ? decision.nonZeroCount : 0), 0),
   };
@@ -237,6 +251,10 @@ function findExactMatch({ sourceName, catalogById, catalogByName }) {
     catalogById.get(normalizeText(sourceName)) ||
     null
   );
+}
+
+function sourceSectionForColumn(index) {
+  return index >= 255 ? 'Descuentos' : 'Haberes';
 }
 
 function findSuggestedMatches(sourceName, catalog) {

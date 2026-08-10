@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { cleanCell, normalizeText } from './utils';
+import { loadConceptCatalogMemory } from './sessionPersistence';
 
 const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
 const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
@@ -121,7 +122,7 @@ export async function loadConceptsResource() {
   const mappingWorkbook = XLSX.read(mappingBuffer, { type: 'array' });
   const outputTemplateWorkbook = XLSX.read(outputTemplateBuffer, { type: 'array' });
 
-  const concepts = parseConceptsList(listsWorkbook);
+  const concepts = loadConceptCatalogMemory() ?? parseConceptsList(listsWorkbook);
   const mappingRows = parseMapping(mappingWorkbook);
   const outputTemplate = parseOutputTemplate(outputTemplateWorkbook);
 
@@ -130,6 +131,23 @@ export async function loadConceptsResource() {
     mappingRows,
     outputTemplate,
   };
+}
+
+export function parseConceptCatalogWorkbook(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheetName = workbook.SheetNames.find((name) => normalizeText(name) === normalizeText('Lista de conceptos')) ?? workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+
+  if (!sheet) {
+    throw new Error('El archivo no contiene una hoja de conceptos válida.');
+  }
+
+  const concepts = parseConceptsList({ Sheets: { 'Lista de conceptos': sheet } });
+  if (concepts.length === 0) {
+    throw new Error('No se encontraron conceptos en el listado de REX+.');
+  }
+
+  return concepts;
 }
 
 export function buildConceptDecisions(resource) {
@@ -351,7 +369,7 @@ function buildConceptOutputRow(template, decision) {
   return values;
 }
 
-function inferConceptType(classification, lreField) {
+export function inferConceptType(classification, lreField) {
   const normalizedClassification = normalizeText(classification);
   const normalizedLre = cleanCell(lreField);
 
@@ -440,7 +458,7 @@ function uniqueCreateDecisions(decisions) {
   });
 }
 
-function buildConceptId(value, index) {
+export function buildConceptId(value, index) {
   const id = normalizeText(value)
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
@@ -456,7 +474,7 @@ function buildConceptId(value, index) {
   return id;
 }
 
-function resolveNewSequence(sourceCode, index) {
+export function resolveNewSequence(sourceCode, index) {
   const numericSourceCode = Number(sourceCode);
   return Number.isInteger(numericSourceCode) && numericSourceCode > 0 && numericSourceCode <= 9999
     ? numericSourceCode

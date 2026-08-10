@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
+  buildConceptExportWorkbook,
+} from '../lib/concepts';
+import {
   buildHistoricalConceptModel,
   buildHistoricalDetailCsv,
   buildHistoricalReportRows,
@@ -11,8 +14,10 @@ import { normalizeText } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
 
 const EXCLUDE_VALUE = '__exclude__';
+const CREATE_VALUE = '__create__';
 
-export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack, onBusyChange }) {
+export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, onBack, onBusyChange }) {
+  const concepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [isBuilding, setIsBuilding] = useState(true);
@@ -32,6 +37,7 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
         sourceRows: sourceFile.rows,
         sourceHeaders: sourceFile.headers,
         concepts,
+        mappingRows: conceptsResource?.mappingRows ?? [],
       });
       const storedDecisions = nextModel.decisions.map((decision) =>
         applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog }),
@@ -52,7 +58,7 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
       window.clearTimeout(timerId);
       onBusyChange?.(false);
     };
-  }, [concepts, onBusyChange, sourceFile]);
+  }, [concepts, conceptsResource, onBusyChange, sourceFile]);
 
   useEffect(() => {
     onBusyChange?.(isBuilding || isPreparing);
@@ -108,10 +114,30 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
       updateDecision(decisionId, {
         approved: true,
         excluded: true,
+        action: 'exclude',
         targetId: '',
         targetName: '',
         targetConcept: null,
         matchStatus: 'excluded',
+      });
+      return;
+    }
+
+    if (targetId === CREATE_VALUE) {
+      const currentDecision = decisions.find((decision) => decision.id === decisionId);
+      if (!currentDecision) {
+        return;
+      }
+
+      updateDecision(decisionId, {
+        approved: false,
+        excluded: false,
+        action: 'create',
+        matchStatus: 'proposal',
+        targetId: currentDecision.proposedId,
+        targetName: currentDecision.sourceName,
+        targetConcept: null,
+        sequence: currentDecision.proposedSequence,
       });
       return;
     }
@@ -132,6 +158,7 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
     updateDecision(decisionId, {
       approved: true,
       excluded: false,
+      action: 'reuse',
       targetId: targetConcept.id,
       targetName: targetConcept.name,
       targetConcept,
@@ -159,6 +186,16 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
     );
   };
 
+  const handleApproveCreations = () => {
+    setDecisions((current) =>
+      current.map((decision) =>
+        decision.action === 'create' && !decision.excluded
+          ? { ...decision, approved: true, matchStatus: 'proposal' }
+          : decision,
+      ),
+    );
+  };
+
   const handleSelectAll = () => {
     setSelectedIds(allVisibleSelected ? [] : visibleIds);
   };
@@ -178,7 +215,13 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
     await waitForPaint();
 
     try {
-      if (kind === 'output') {
+      if (kind === 'create') {
+        const workbook = buildConceptExportWorkbook({
+          resource: conceptsResource,
+          decisions: decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded),
+        });
+        triggerWorkbookDownload(workbook, `REX_altas_conceptos_${todayStamp()}.xlsx`);
+      } else if (kind === 'output') {
         const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions });
         triggerTextDownload(csv, `REX_conceptos_detalle_historicos_${todayStamp()}.csv`);
       } else {
@@ -258,6 +301,7 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
             <div className="mt-5 flex flex-wrap gap-3">
               <button type="button" onClick={onBack} className="button-secondary">Volver a módulos</button>
               <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches exactos</button>
+              <button type="button" onClick={handleApproveCreations} className="button-secondary">Aprobar creaciones</button>
             </div>
           </div>
         </div>
@@ -355,6 +399,12 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <DownloadButton
+            title="Descargar altas de conceptos"
+            detail={`${summary.createdApproved} conceptos nuevos aprobados para crear en REX+`}
+            onClick={() => handleDownload('create')}
+            disabled={summary.createdApproved === 0 || isPreparing}
+          />
+          <DownloadButton
             title="Descargar Concepto Detalle"
             detail={summary.pending ? `Faltan ${summary.pending} conceptos por resolver` : 'CSV UTF-8 listo para cargar en REX+'}
             onClick={() => handleDownload('output')}
@@ -380,7 +430,13 @@ export default function HistoricalConceptsMapper({ sourceFile, concepts, onBack,
 }
 
 function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign }) {
-  const statusLabel = decision.excluded ? 'Excluido' : decision.approved ? (decision.exactMatch ? 'Match exacto' : 'Asignado') : 'Pendiente';
+  const statusLabel = decision.excluded
+    ? 'Excluido'
+    : decision.action === 'create'
+      ? decision.approved ? 'Creación aprobada' : 'Crear nuevo'
+      : decision.approved
+        ? (decision.exactMatch ? 'Match exacto' : 'Asignado')
+        : 'Pendiente';
   const statusClass = decision.excluded
     ? 'border-slate-200 bg-slate-100 text-slate-600'
     : decision.approved
@@ -400,6 +456,7 @@ function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign 
       <td className="px-4 py-4">
         <select value={decision.targetId} onChange={(event) => onAssign(event.target.value)} className="w-[360px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
           <option value="">Selecciona concepto REX+</option>
+          <option value={CREATE_VALUE}>Crear concepto nuevo ({decision.proposedId})</option>
           {decision.suggestedMatches.length > 0 ? <optgroup label="Propuestas principales">{decision.suggestedMatches.map(({ concept, score }) => <option key={`suggested-${concept.id}`} value={concept.id}>{concept.id} · {concept.name} ({Math.round(score * 100)}%)</option>)}</optgroup> : null}
           <optgroup label="Catálogo REX+">{catalog.map((concept) => <option key={concept.id} value={concept.id}>{concept.id} · {concept.name}</option>)}</optgroup>
           <option value={EXCLUDE_VALUE}>Excluir este concepto</option>
