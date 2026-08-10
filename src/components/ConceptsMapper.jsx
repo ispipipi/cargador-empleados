@@ -1,27 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
-import {
-  applyConceptDecision,
-  buildConceptDecisions,
-  buildConceptExportWorkbook,
-  buildConceptReportWorkbook,
-  parseConceptCatalogWorkbook,
-  summarizeConceptDecisions,
-} from '../lib/concepts';
-import { normalizeText, todayStamp } from '../lib/utils';
-import { applyStoredConceptMapping, rememberConceptMappings } from '../lib/sessionPersistence';
-import ConceptSearchPicker from './ConceptSearchPicker';
+import { useState } from 'react';
+import { parseConceptCatalogWorkbook } from '../lib/concepts';
 
-const NEW_CONCEPT_VALUE = '__new__';
-const EXCLUDE_CONCEPT_VALUE = '__exclude__';
+function Metric({ label, value, tone = 'light' }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${tone === 'dark' ? 'border-white/15 bg-white/10' : 'border-slate-200 bg-white/80'}`}>
+      <p className={`text-xs uppercase tracking-[0.2em] ${tone === 'dark' ? 'text-cyan-200' : 'text-slate-500'}`}>{label}</p>
+      <p className={`mt-2 text-2xl font-semibold ${tone === 'dark' ? 'text-white' : 'text-slate-950'}`}>{value}</p>
+    </div>
+  );
+}
 
-function buildInitialDecisions(resource) {
-  return buildConceptDecisions(resource)
-    .map((decision) => ({
-      ...decision,
-      approved: decision.approved ?? decision.matchStatus === 'exact',
-    }))
-    .map((decision) => applyStoredConceptMapping('concepts', decision, { concepts: resource.concepts }));
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 0 5 21.5m0-16v16m0-16H19M9 7h6M9 11h6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  );
 }
 
 export default function ConceptsMapper({
@@ -32,542 +34,124 @@ export default function ConceptsMapper({
   onMonthlyBookSelected,
   onCatalogUpdated,
 }) {
-  const [decisions, setDecisions] = useState(() => buildInitialDecisions(resource));
-  const [activeFilter, setActiveFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [isPreparing, setIsPreparing] = useState(false);
   const [catalogError, setCatalogError] = useState('');
-  const summary = summarizeConceptDecisions(decisions);
-  const pendingCount = decisions.filter((decision) => !decision.approved).length;
-  const creationDecisions = decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded);
+  const mappingCount = resource?.mappingRows?.length ?? 0;
+  const conceptCount = resource?.concepts?.length ?? 0;
 
-  useEffect(() => {
-    setDecisions(buildInitialDecisions(resource));
-    setSelectedIds([]);
-  }, [resource]);
+  const handleCatalogChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
 
-  useEffect(() => {
-    rememberConceptMappings('concepts', decisions);
-  }, [decisions]);
-
-  const visibleDecisions = useMemo(() => {
-    const normalizedSearch = normalizeText(search);
-
-    return decisions.filter((decision) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        normalizeText(decision.sourceName).includes(normalizedSearch) ||
-        normalizeText(decision.targetName).includes(normalizedSearch) ||
-        normalizeText(decision.sourceCode).includes(normalizedSearch) ||
-        normalizeText(decision.lreField).includes(normalizedSearch);
-      const matchesFilter =
-        activeFilter === 'all' ||
-        (activeFilter === 'pending' && !decision.approved) ||
-        (activeFilter === 'exact' && decision.matchStatus === 'exact') ||
-        (activeFilter === 'proposals' && decision.matchStatus === 'proposal' && !decision.approved) ||
-        (activeFilter === 'created' && decision.action === 'create') ||
-        (activeFilter === 'reused' && decision.action === 'reuse');
-
-      return matchesSearch && matchesFilter;
-    });
-  }, [activeFilter, decisions, search]);
-
-  const visibleIds = visibleDecisions.map((decision) => decision.id);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-
-  const updateDecision = (decisionId, patch) => {
-    setDecisions((current) =>
-      current.map((decision) =>
-        decision.id === decisionId ? { ...decision, ...patch } : decision,
-      ),
-    );
-  };
-
-  const handleAssign = (decisionId, targetId) => {
-    if (targetId === EXCLUDE_CONCEPT_VALUE) {
-      updateDecision(decisionId, {
-        action: 'exclude',
-        matchStatus: 'excluded',
-        excluded: true,
-        targetConcept: null,
-        targetId: '',
-        targetName: '',
-        approved: true,
-      });
-      return;
-    }
-
-    if (targetId === NEW_CONCEPT_VALUE) {
-      const currentDecision = decisions.find((decision) => decision.id === decisionId);
-
-      if (!currentDecision) {
-        return;
-      }
-
-      updateDecision(decisionId, {
-        action: 'create',
-        matchStatus: 'proposal',
-        targetConcept: null,
-        excluded: false,
-        targetId: currentDecision.proposedId,
-        targetName: currentDecision.sourceName,
-        sequence: currentDecision.proposedSequence,
-        approved: false,
-      });
-      return;
-    }
-
-    const targetConcept = resource.concepts.find((concept) => concept.id === targetId);
-    if (!targetConcept) {
-      return;
-    }
-
-    updateDecision(
-      decisionId,
-      applyConceptDecision(
-        decisions.find((decision) => decision.id === decisionId),
-        {
-          action: 'reuse',
-          matchStatus: 'assigned',
-          targetConcept,
-          approved: true,
-          excluded: false,
-        },
-      ),
-    );
-  };
-
-  const handleApprove = (decisionId) => {
-    updateDecision(decisionId, { approved: true });
-  };
-
-  const handleSelectAllVisible = () => {
-    setSelectedIds(allVisibleSelected ? [] : visibleIds);
-  };
-
-  const handleSelectRow = (decisionId) => {
-    setSelectedIds((current) =>
-      current.includes(decisionId) ? current.filter((id) => id !== decisionId) : [...current, decisionId],
-    );
-  };
-
-  const handleApproveSelected = () => {
-    if (selectedIds.length === 0) {
-      return;
-    }
-
-    setDecisions((current) =>
-      current.map((decision) => (selectedIds.includes(decision.id) ? { ...decision, approved: true } : decision)),
-    );
-    setSelectedIds([]);
-  };
-
-  const handleApproveAllProposals = () => {
-    setDecisions((current) => current.map((decision) => (
-      decision.matchStatus === 'proposal' && !decision.excluded
-        ? { ...decision, approved: true }
-        : decision
-    )));
-    setSelectedIds([]);
-  };
-
-  const handleDownload = async (kind) => {
-    if (isPreparing || (kind === 'output' && pendingCount > 0)) {
-      return;
-    }
-
-    setIsPreparing(true);
-    await waitForPaint();
-
+    setCatalogError('');
     try {
-      const workbook =
-        kind === 'output'
-          ? buildConceptExportWorkbook({ resource, decisions })
-          : buildConceptReportWorkbook({ decisions });
-      const fileName =
-        kind === 'output'
-          ? `REX_conceptos_${todayStamp()}.xlsx`
-          : `REX_informe_conceptos_${todayStamp()}.xlsx`;
-      triggerWorkbookDownload(workbook, fileName);
-    } finally {
-      setIsPreparing(false);
+      const catalog = await parseConceptCatalogWorkbook(file);
+      onCatalogUpdated(catalog);
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'No fue posible leer el listado de conceptos.');
     }
   };
 
   return (
     <div className="space-y-8">
       <section className="panel overflow-hidden">
-        <div className="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="relative overflow-hidden bg-[#07101f] px-6 py-8 text-white sm:px-8">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_30%),radial-gradient(circle_at_80%_20%,_rgba(16,185,129,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
+        <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="relative overflow-hidden bg-slate-950 p-7 text-white sm:p-10">
+            <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl" />
             <div className="relative">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Maper · Conceptos</p>
-              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Mapeo Meta 4 → REX+</h2>
-              <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-                Esta es la biblioteca de mapeos guardada. Aquí puedes mantener los pareos y el catálogo; el análisis por uso se hace al cargar el libro mensual.
+              <p className="eyebrow text-cyan-300">Maper · Biblioteca de conceptos</p>
+              <h1 className="mt-4 max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">
+                Mantenemos el mapeo listo para comparar
+              </h1>
+              <p className="mt-5 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
+                Los pareos guardados y el catálogo REX+ quedan disponibles como memoria de trabajo. La comparación no se ejecuta en esta pantalla: comienza únicamente cuando cargas el libro de remuneraciones del mes.
               </p>
 
-              <div className="mt-8 grid gap-3 sm:grid-cols-2">
-                <Metric label="Conceptos" value={summary.total} />
-                <Metric label="Propuestas a revisar" value={summary.pendingProposals} tone="warning" />
-                <Metric label="Matches perfectos" value={summary.exactMatches} tone="success" />
-                <Metric label="Se crearán" value={summary.createdApproved} />
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                <Metric label="Mapeos guardados" value={mappingCount} tone="dark" />
+                <Metric label="Conceptos REX+" value={conceptCount} tone="dark" />
+                <Metric label="Revisión mensual" value="Al cargar libro" tone="dark" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white px-6 py-8 sm:px-8">
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-              <p className="text-sm font-semibold text-slate-900">Cómo se construye la salida</p>
-              <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-                <li>Los mapeos guardados anteriormente se consideran matches perfectos y se reutilizan automáticamente.</li>
-                <li>Las propuestas no confirmadas quedan destacadas para que decidas si reutilizar o crear.</li>
-                <li>La clasificación y el campo LRE se conservan desde el mapeo de origen.</li>
-                <li>El bloque de altas muestra exactamente los conceptos que terminarán en el archivo de creación.</li>
-              </ul>
+          <div className="bg-white p-7 sm:p-10">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="eyebrow text-blue-700">Preparación</p>
+                <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Biblioteca lista</h2>
+              </div>
+              <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                Memoria activa
+              </div>
             </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={onBack} className="button-secondary">
-                Volver a módulos
-              </button>
-              <button
-                type="button"
-                onClick={handleApproveAllProposals}
-                disabled={summary.pendingProposals === 0}
-                className="button-primary disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Aprobar propuestas para crear ({summary.pendingProposals})
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <label className="group cursor-pointer rounded-[24px] border border-brand-200 bg-brand-50 p-4 transition hover:border-brand-400">
-                <input
-                  type="file"
-                  accept=".xls,.xlsx"
-                  className="hidden"
-                  disabled={isUpdatingCatalog}
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = '';
-                    if (!file) {
-                      return;
-                    }
-
-                    setCatalogError('');
-                    try {
-                      const concepts = parseConceptCatalogWorkbook(await file.arrayBuffer());
-                      await onCatalogUpdated(concepts);
-                    } catch (error) {
-                      setCatalogError(error instanceof Error ? error.message : 'No se pudo actualizar el catálogo REX+.');
-                    }
-                  }}
-                />
-                <p className="text-sm font-semibold text-brand-800">Actualizar catálogo REX+</p>
-                <p className="mt-1 text-xs leading-5 text-brand-700/80">
-                  {isUpdatingCatalog ? 'Guardando en la memoria cloud…' : 'Carga el listado vigente de conceptos para reemplazar la base.'}
-                </p>
-              </label>
-
-              <label className="group cursor-pointer rounded-[24px] border border-emerald-200 bg-emerald-50 p-4 transition hover:border-emerald-400">
-                <input
-                  type="file"
-                  accept=".xls,.xlsx"
-                  className="hidden"
-                  disabled={isReadingMonthlyBook}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = '';
-                    onMonthlyBookSelected?.(file);
-                  }}
-                />
-                <p className="text-sm font-semibold text-emerald-800">Cargar libro mensual</p>
-                <p className="mt-1 text-xs leading-5 text-emerald-700/80">
-                  {isReadingMonthlyBook ? 'Leyendo el libro de remuneraciones…' : 'Busca conceptos usados este mes contra la memoria y ofrece crear los faltantes.'}
-                </p>
-              </label>
-            </div>
-            {catalogError ? <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{catalogError}</p> : null}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel p-6 sm:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Revisión de mapeo</p>
-            <h3 className="mt-2 text-2xl font-bold text-slate-950">Todos los conceptos y su decisión</h3>
-            <p className="mt-2 text-sm text-slate-600">Puedes buscar por nombre, código Meta4 o campo LRE.</p>
-          </div>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar concepto…"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm lg:w-80"
-          />
-        </div>
-
-        <div className="mt-6 flex flex-wrap gap-2">
-          {[
-            ['all', 'Todos'],
-            ['exact', 'Matches perfectos'],
-            ['proposals', 'Propuestas a revisar'],
-            ['created', 'Crear nuevos'],
-            ['reused', 'Reutilizados'],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveFilter(key)}
-              className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
-                activeFilter === key
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-slate-200 bg-white text-slate-500 hover:border-brand-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={allVisibleSelected} onChange={handleSelectAllVisible} />
-            Seleccionar visibles
-          </label>
-          <button
-            type="button"
-            onClick={handleApproveSelected}
-            disabled={selectedIds.length === 0}
-            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            Aprobar seleccionados ({selectedIds.length})
-          </button>
-          <span className="text-xs text-slate-500">Mostrando {visibleDecisions.length} de {decisions.length}</span>
-        </div>
-
-        <div className="mt-5 overflow-x-auto rounded-[24px] border border-slate-200">
-          <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="px-4 py-4"> </th>
-                <th className="px-4 py-4">Estado</th>
-                <th className="px-4 py-4">Concepto Meta4</th>
-                <th className="px-4 py-4">Propuesta / match REX+</th>
-                <th className="px-4 py-4">Tipo</th>
-                <th className="px-4 py-4">LRE</th>
-                <th className="px-4 py-4">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {visibleDecisions.map((decision) => (
-                <ConceptRow
-                  key={decision.id}
-                  decision={decision}
-                  concepts={resource.concepts}
-                  isSelected={selectedIds.includes(decision.id)}
-                  onSelect={() => handleSelectRow(decision.id)}
-                  onAssign={(targetId) => handleAssign(decision.id, targetId)}
-                  onApprove={() => handleApprove(decision.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {isPreparing ? (
-          <WorkingNotice />
-        ) : null}
-
-        <section className="mt-6 rounded-[28px] border border-amber-200 bg-amber-50/70 p-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Altas de conceptos</p>
-              <h3 className="mt-2 text-xl font-bold text-slate-950">Conceptos que se crearán en REX+</h3>
-              <p className="mt-2 text-sm text-slate-600">
-                Sólo aparecen aquí las propuestas aprobadas. Los IDs nuevos tienen máximo 20 caracteres.
-              </p>
-            </div>
-            <span className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-              {creationDecisions.length} altas aprobadas
-            </span>
-          </div>
-          {creationDecisions.length > 0 ? (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
-              <table className="min-w-[680px] w-full text-left text-sm">
-                <thead className="bg-amber-100/60 text-xs uppercase tracking-[0.16em] text-amber-800">
-                  <tr>
-                    <th className="px-4 py-3">Concepto Meta4</th>
-                    <th className="px-4 py-3">ID nuevo</th>
-                    <th className="px-4 py-3">Tipo</th>
-                    <th className="px-4 py-3">LRE</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100">
-                  {creationDecisions.map((decision) => (
-                    <tr key={`creation-${decision.id}`}>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{decision.sourceName}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.targetId}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.type || '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.lreField || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-white/70 px-4 py-4 text-sm text-slate-600">
-              Todavía no hay conceptos aprobados para crear. Las propuestas pendientes aparecen destacadas arriba.
+            <p className="mt-4 text-sm leading-6 text-slate-600">
+              Actualiza el catálogo cuando REX+ entregue una nueva versión. Después, carga el libro mensual para iniciar el pareo y revisar sus resultados.
             </p>
-          )}
-        </section>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
-          <DownloadButton
-            title="Descargar altas nuevas REX+"
-            detail={pendingCount ? `Faltan ${pendingCount} decisiones por aprobar` : `${creationDecisions.length} conceptos listos para crear en REX+`}
-            onClick={() => handleDownload('output')}
-            disabled={pendingCount > 0 || isPreparing}
-            primary
-          />
-          <DownloadButton
-            title="Descargar informe final"
-            detail="Incluye matches, conceptos creados, exclusiones y advertencias"
-            onClick={() => handleDownload('report')}
-            disabled={isPreparing}
-          />
+            <div className="mt-7 space-y-3">
+              <label className="group flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-blue-300 hover:bg-blue-50/50">
+                <span className="flex items-center gap-3">
+                  <span className="rounded-xl bg-white p-2 text-blue-700 shadow-sm"><UploadIcon /></span>
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-950">Actualizar catálogo REX+</span>
+                    <span className="mt-1 block text-xs text-slate-500">Guarda los conceptos disponibles para futuros pareos</span>
+                  </span>
+                </span>
+                <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">Elegir archivo</span>
+                <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={handleCatalogChange} disabled={isUpdatingCatalog} />
+              </label>
+
+              <label className="group flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 transition hover:border-blue-500 hover:bg-blue-100/70">
+                <span className="flex items-center gap-3">
+                  <span className="rounded-xl bg-white p-2 text-blue-700 shadow-sm"><BookIcon /></span>
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-950">Cargar libro mensual</span>
+                    <span className="mt-1 block text-xs text-slate-600">Activa la comparación y abre la revisión de conceptos</span>
+                  </span>
+                </span>
+                <span className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">Comenzar</span>
+                <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={(event) => onMonthlyBookSelected(event.target.files?.[0])} disabled={isReadingMonthlyBook} />
+              </label>
+            </div>
+
+            {(isUpdatingCatalog || isReadingMonthlyBook) && (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800" role="status">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" />
+                {isUpdatingCatalog ? 'Actualizando el catálogo REX+…' : 'Leyendo el libro mensual…'}
+              </div>
+            )}
+            {catalogError && <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{catalogError}</p>}
+
+            <button type="button" className="button-secondary mt-7" onClick={onBack}>Volver a módulos</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel p-7 sm:p-10">
+        <div className="max-w-2xl">
+          <p className="eyebrow text-blue-700">Cómo funciona</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">La revisión aparece después de cargar el libro</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600">Así se evita revisar toda la biblioteca sin contexto. Maper compara solamente los conceptos que vienen en el período que estás procesando.</p>
+        </div>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">01 · Match</p>
+            <h3 className="mt-3 font-semibold text-slate-950">Busca primero en memoria</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Los pareos confirmados anteriormente se aplican como match perfecto.</p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">02 · Propuestas</p>
+            <h3 className="mt-3 font-semibold text-slate-950">Muestra sugerencias</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Los casos nuevos se agrupan y puedes confirmar o buscar el concepto correcto.</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">03 · Sin propuesta</p>
+            <h3 className="mt-3 font-semibold text-slate-950">Deja los casos para decisión</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Los conceptos sin sugerencia quedan visibles para hacer el pareo con buscador.</p>
+          </div>
         </div>
       </section>
     </div>
   );
-}
-
-function ConceptRow({ decision, concepts, isSelected, onSelect, onAssign, onApprove }) {
-  const statusLabel = decision.matchStatus === 'excluded'
-    ? 'Excluido'
-    : decision.matchStatus === 'exact'
-      ? decision.action === 'create'
-        ? 'Match guardado · se creará'
-        : decision.matchOrigin === 'memory' ? 'Match perfecto guardado' : 'Match perfecto'
-      : decision.action === 'create'
-        ? decision.approved ? 'Creación aprobada' : 'Propuesta: crear nuevo'
-        : decision.approved ? 'Asignado manualmente' : 'Propuesta pendiente';
-  const statusClass = decision.matchStatus === 'excluded'
-    ? 'border-slate-200 bg-slate-100 text-slate-600'
-    : decision.matchStatus === 'exact'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-amber-300 bg-amber-100 text-amber-800';
-
-  return (
-    <tr className={decision.matchStatus === 'proposal' ? 'bg-amber-50/60' : 'bg-white'}>
-      <td className="px-4 py-4 align-top">
-        <input type="checkbox" checked={isSelected} onChange={onSelect} />
-      </td>
-      <td className="px-4 py-4 align-top">
-        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>
-          {statusLabel}
-        </span>
-        {decision.matchStatus === 'proposal' ? (
-          <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-800">
-            Revisa esta propuesta antes de aprobarla.
-          </p>
-        ) : null}
-        {decision.warning && decision.matchStatus !== 'proposal' ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-700">{decision.warning}</p> : null}
-      </td>
-      <td className="px-4 py-4 align-top">
-        <p className="font-semibold text-slate-900">{decision.sourceName}</p>
-        <p className="mt-1 text-xs text-slate-500">Meta4: {decision.sourceCode || 'Sin código'}</p>
-      </td>
-      <td className="px-4 py-4 align-top">
-        <p className="font-semibold text-slate-900">
-          {decision.action === 'create' ? 'Crear concepto nuevo' : decision.targetName}
-        </p>
-        <p className="mt-1 font-mono text-xs text-slate-500">{decision.targetId}</p>
-        {decision.matchStatus === 'proposal' ? <p className="mt-2 text-xs font-semibold text-amber-700">Propuesta por revisar</p> : null}
-      </td>
-      <td className="px-4 py-4 align-top font-mono text-xs text-slate-600">{decision.type || '—'}</td>
-      <td className="px-4 py-4 align-top font-mono text-xs text-slate-600">{decision.lreField || '—'}</td>
-      <td className="px-4 py-4 align-top">
-        <div className="flex min-w-[250px] flex-col gap-2">
-          <ConceptSearchPicker
-            selectedId={decision.targetId}
-            selectedLabel={decision.action === 'create'
-              ? `Crear concepto nuevo (${decision.targetId})`
-              : decision.targetName
-                ? `Reutilizar: ${decision.targetName} (${decision.targetId})`
-                : ''}
-            concepts={concepts}
-            createId={decision.proposedId}
-            onSelect={(targetId) => onAssign(targetId)}
-            onCreate={() => onAssign(NEW_CONCEPT_VALUE)}
-            onExclude={() => onAssign(EXCLUDE_CONCEPT_VALUE)}
-          />
-          {!decision.approved ? (
-            <button type="button" onClick={onApprove} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
-              Aprobar decisión
-            </button>
-          ) : null}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function Metric({ label, value, tone = 'default' }) {
-  const toneClass = tone === 'warning' ? 'bg-amber-400/15 text-amber-100' : tone === 'success' ? 'bg-emerald-400/15 text-emerald-100' : 'bg-white/10 text-slate-100';
-
-  return (
-    <div className={`rounded-[22px] border border-white/10 px-4 py-4 ${toneClass}`}>
-      <p className="text-xs uppercase tracking-[0.14em]">{label}</p>
-      <p className="mt-2 text-3xl font-extrabold">{value}</p>
-    </div>
-  );
-}
-
-function DownloadButton({ title, detail, onClick, disabled, primary = false }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-[24px] border px-5 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-        primary ? 'border-slate-950 bg-slate-950 text-white hover:bg-slate-800' : 'border-slate-200 bg-white hover:border-brand-300'
-      }`}
-    >
-      <p className={`font-bold ${primary ? 'text-white' : 'text-slate-950'}`}>{title}</p>
-      <p className={`mt-1 text-sm ${primary ? 'text-slate-300' : 'text-slate-600'}`}>{detail}</p>
-    </button>
-  );
-}
-
-function WorkingNotice() {
-  return (
-    <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-      <div className="flex items-center gap-3">
-        <span className="h-4 w-4 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
-        <span className="font-semibold">Estamos preparando el archivo y el informe…</span>
-      </div>
-    </div>
-  );
-}
-
-function triggerWorkbookDownload(workbook, fileName) {
-  const arrayBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([arrayBuffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-}
-
-function waitForPaint() {
-  return new Promise((resolve) => window.requestAnimationFrame(() => window.setTimeout(resolve, 0)));
 }
