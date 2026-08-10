@@ -12,6 +12,7 @@ import {
 } from '../lib/historicalConcepts';
 import { normalizeText } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
+import ConceptSearchPicker from './ConceptSearchPicker';
 
 const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
@@ -92,12 +93,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       const matchesFilter =
         activeFilter === 'all' ||
         (activeFilter === 'pending' && !decision.approved) ||
-        (activeFilter === 'exact' && decision.exactMatch) ||
+        (activeFilter === 'exact' && getReviewGroup(decision) === 0) ||
+        (activeFilter === 'proposal' && getReviewGroup(decision) === 1) ||
+        (activeFilter === 'no-proposal' && getReviewGroup(decision) === 2) ||
         (activeFilter === 'assigned' && decision.approved && !decision.exactMatch && !decision.excluded) ||
         (activeFilter === 'excluded' && decision.excluded);
 
       return matchesSearch && matchesFilter;
-    });
+    }).sort((left, right) => getReviewGroup(left) - getReviewGroup(right) || left.sourceName.localeCompare(right.sourceName));
   }, [activeFilter, decisions, search]);
 
   const visibleIds = visibleDecisions.map((decision) => decision.id);
@@ -328,8 +331,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         <div className="mt-6 flex flex-wrap gap-2">
           {[
             ['all', 'Todos'],
-            ['pending', 'Propuestas a revisar'],
             ['exact', 'Matches perfectos'],
+            ['proposal', 'Propuestas'],
+            ['no-proposal', 'Sin propuesta'],
+            ['pending', 'Pendientes'],
             ['assigned', 'Asignados'],
             ['excluded', 'Excluidos'],
           ].map(([key, label]) => (
@@ -503,17 +508,32 @@ function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign 
       </td>
       <td className="px-4 py-4 text-slate-600"><p>{decision.nonZeroCount.toLocaleString('es-CL')} colaboradores</p><p className="mt-1 text-xs text-slate-400">{decision.sourceSection}</p></td>
       <td className="px-4 py-4">
-        <select value={decision.targetId} onChange={(event) => onAssign(event.target.value)} className="w-[360px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-          <option value="">Selecciona concepto REX+</option>
-          <option value={CREATE_VALUE}>Proponer alta nueva ({decision.proposedId})</option>
-          {decision.suggestedMatches.length > 0 ? <optgroup label="Propuestas principales">{decision.suggestedMatches.map(({ concept, score }) => <option key={`suggested-${concept.id}`} value={concept.id}>{concept.id} · {concept.name} ({Math.round(score * 100)}%)</option>)}</optgroup> : null}
-          <optgroup label="Catálogo REX+">{catalog.map((concept) => <option key={concept.id} value={concept.id}>{concept.id} · {concept.name}</option>)}</optgroup>
-          <option value={EXCLUDE_VALUE}>Excluir este concepto</option>
-        </select>
+        <ConceptSearchPicker
+          selectedId={decision.targetId}
+          selectedLabel={decision.action === 'create'
+            ? `Crear concepto nuevo (${decision.targetId})`
+            : decision.targetName
+              ? `${decision.targetName} (${decision.targetId})`
+              : ''}
+          concepts={catalog}
+          suggestedConcepts={decision.suggestedMatches.map(({ concept }) => concept)}
+          createId={decision.proposedId}
+          onSelect={(targetId) => onAssign(targetId)}
+          onCreate={() => onAssign(CREATE_VALUE)}
+          onExclude={() => onAssign(EXCLUDE_VALUE)}
+        />
       </td>
       <td className="px-4 py-4 text-xs text-slate-500">{decision.approved ? 'Se incluirá en la salida' : 'Requiere asignación o exclusión'}</td>
     </tr>
   );
+}
+
+function getReviewGroup(decision) {
+  if (decision.excluded || decision.exactMatch || decision.approved) {
+    return decision.excluded ? 3 : 0;
+  }
+
+  return decision.suggestedMatches.length > 0 ? 1 : 2;
 }
 
 function Metric({ label, value, tone = 'default' }) {

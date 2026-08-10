@@ -10,6 +10,7 @@ import {
 } from '../lib/concepts';
 import { normalizeText, todayStamp } from '../lib/utils';
 import { applyStoredConceptMapping, rememberConceptMappings } from '../lib/sessionPersistence';
+import ConceptSearchPicker from './ConceptSearchPicker';
 
 const NEW_CONCEPT_VALUE = '__new__';
 const EXCLUDE_CONCEPT_VALUE = '__exclude__';
@@ -204,7 +205,7 @@ export default function ConceptsMapper({
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Maper · Conceptos</p>
               <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Mapeo Meta 4 → REX+</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-                Revisa los matches exactos, aprueba las propuestas y descarga sólo las altas nuevas junto con el informe final.
+                Esta es la biblioteca de mapeos guardada. Aquí puedes mantener los pareos y el catálogo; el análisis por uso se hace al cargar el libro mensual.
               </p>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -490,19 +491,19 @@ function ConceptRow({ decision, concepts, isSelected, onSelect, onAssign, onAppr
       <td className="px-4 py-4 align-top font-mono text-xs text-slate-600">{decision.lreField || '—'}</td>
       <td className="px-4 py-4 align-top">
         <div className="flex min-w-[250px] flex-col gap-2">
-          <select
-            value={decision.action === 'create' ? NEW_CONCEPT_VALUE : decision.action === 'exclude' ? EXCLUDE_CONCEPT_VALUE : decision.targetId}
-            onChange={(event) => onAssign(event.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-          >
-            <option value={NEW_CONCEPT_VALUE}>Proponer alta nueva ({decision.proposedId})</option>
-            <option value={EXCLUDE_CONCEPT_VALUE}>Excluir del archivo de carga</option>
-            {concepts.map((concept) => (
-              <option key={concept.id} value={concept.id}>
-                Reutilizar: {concept.name} ({concept.id})
-              </option>
-            ))}
-          </select>
+          <ConceptSearchPicker
+            selectedId={decision.targetId}
+            selectedLabel={decision.action === 'create'
+              ? `Crear concepto nuevo (${decision.targetId})`
+              : decision.targetName
+                ? `Reutilizar: ${decision.targetName} (${decision.targetId})`
+                : ''}
+            concepts={concepts}
+            createId={decision.proposedId}
+            onSelect={(targetId) => onAssign(targetId)}
+            onCreate={() => onAssign(NEW_CONCEPT_VALUE)}
+            onExclude={() => onAssign(EXCLUDE_CONCEPT_VALUE)}
+          />
           {!decision.approved ? (
             <button type="button" onClick={onApprove} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
               Aprobar decisión
