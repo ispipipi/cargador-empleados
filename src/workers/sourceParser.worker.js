@@ -66,7 +66,8 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
     defval: '',
     raw: true,
   });
-  const rawHeaders = (rows[meta4Origin.headerRowIndex] ?? []).map(cleanCell);
+  const headerRowIndex = findMeta4HeaderRow(rows, preserveDuplicateHeaders);
+  const rawHeaders = (rows[headerRowIndex] ?? []).map(cleanCell);
   const headers = preserveDuplicateHeaders ? makeUniqueHeaders(rawHeaders) : rawHeaders;
   const missingColumns = preserveDuplicateHeaders
     ? getHistoricalMissingColumns(headers)
@@ -85,10 +86,14 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
     .map((header) => headers.indexOf(header))
     .filter((index) => index >= 0);
   const dataRows = rows
-    .slice(meta4Origin.dataRowStartIndex)
-    .filter((row) => row.some((value) => cleanCell(value)))
-    .filter((row) => identityColumnIndexes.some((index) => cleanCell(row[index])))
-    .map((row, rowIndex) =>
+    .slice(headerRowIndex + 1)
+    .map((row, rowIndex) => ({
+      row,
+      sourceRowNumber: headerRowIndex + rowIndex + 2,
+    }))
+    .filter(({ row }) => row.some((value) => cleanCell(value)))
+    .filter(({ row }) => identityColumnIndexes.some((index) => cleanCell(row[index])))
+    .map(({ row, sourceRowNumber }) =>
       headers.reduce(
         (entry, header, headerIndex) => {
           if (!header) {
@@ -99,7 +104,7 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
           return entry;
         },
         {
-          __sourceRowNumber: meta4Origin.dataRowStartIndex + rowIndex + 1,
+          __sourceRowNumber: sourceRowNumber,
           __sheetName: firstSheetName,
         },
       ),
@@ -111,6 +116,26 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
     missingColumns,
     rows: dataRows,
   };
+}
+
+function findMeta4HeaderRow(rows, preserveDuplicateHeaders) {
+  const requiredColumns = preserveDuplicateHeaders
+    ? ['NOMBRE', 'CI', 'ID EMPLEADO']
+    : meta4Origin.columnasClave;
+  const scanLimit = Math.min(rows.length, 20);
+  let bestMatch = { index: -1, score: 0 };
+
+  for (let index = 0; index < scanLimit; index += 1) {
+    const rowHeaders = (rows[index] ?? []).map(cleanCell);
+    const normalizedHeaders = new Set(rowHeaders);
+    const score = requiredColumns.filter((column) => normalizedHeaders.has(column)).length;
+
+    if (score > bestMatch.score) {
+      bestMatch = { index, score };
+    }
+  }
+
+  return bestMatch.index >= 0 ? bestMatch.index : meta4Origin.headerRowIndex;
 }
 
 function makeUniqueHeaders(headers) {
