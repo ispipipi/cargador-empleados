@@ -249,15 +249,7 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
 export function applyStoredHistoricalMapping(namespace, decision, { concepts = [] } = {}) {
   const memory = loadMappingMemory();
   const mappingKey = getMappingKey(namespace, decision);
-  const sourceName = normalizeText(decision.sourceName);
-  const stored =
-    memory[namespace]?.[mappingKey] ??
-    memory.concepts?.[getMappingKey('concepts', decision)] ??
-    Object.entries(memory.concepts ?? {}).find(([key, entry]) =>
-      normalizeText(entry.sourceName) === sourceName ||
-      normalizeText(entry.sourceKey) === sourceName ||
-      normalizeText(key.replace(/^concepts:/, '')) === sourceName,
-    )?.[1];
+  const stored = findStoredHistoricalMapping(memory, namespace, mappingKey, decision);
 
   if (!stored || !isConfirmedStoredMapping(stored)) {
     return decision;
@@ -351,10 +343,59 @@ function normalizeConceptLabel(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
+function findStoredHistoricalMapping(memory, namespace, mappingKey, decision) {
+  const namespaceMemory = memory[namespace] ?? {};
+  const conceptsMemory = memory.concepts ?? memory.conceptos ?? {};
+  const direct = namespaceMemory[mappingKey];
+
+  if (direct) {
+    return direct;
+  }
+
+  const conceptKey = getMappingKey('concepts', decision);
+  if (conceptKey && conceptsMemory[conceptKey]) {
+    return conceptsMemory[conceptKey];
+  }
+
+  const sourceCode = normalizeMappingValue(decision.sourceCode);
+  const sourceName = normalizeMappingSource(decision.sourceName);
+  const sourceKey = normalizeMappingSource(decision.sourceKey);
+
+  return Object.entries(conceptsMemory).find(([key, entry]) => {
+    const keyValue = normalizeMappingValue(key.replace(/^[^:]+:/, ''));
+    const entryCode = normalizeMappingValue(entry?.sourceCode);
+    const entryName = normalizeMappingSource(entry?.sourceName);
+    const entryKey = normalizeMappingSource(entry?.sourceKey);
+
+    return (
+      (sourceCode && (keyValue === sourceCode || entryCode === sourceCode)) ||
+      (sourceName && (entryName === sourceName || keyValue === sourceName)) ||
+      (sourceKey && (entryKey === sourceKey || keyValue === sourceKey))
+    );
+  })?.[1];
+}
+
+function normalizeMappingValue(value) {
+  const normalized = normalizeText(value);
+  return ['-', '—', 'n/a', 'na', 'null', 'undefined'].includes(normalized) ? '' : normalized;
+}
+
+function normalizeMappingSource(value) {
+  return normalizeConceptLabel(
+    cleanMappingSource(value)
+      .replace(/\b(?:original|orig)\b/g, ' ')
+      .replace(/\b\d+\s*\/\s*\d+\b/g, ' '),
+  );
+}
+
+function cleanMappingSource(value) {
+  return normalizeText(value).replace(/([a-z])\?([a-z])/g, '$1n$2');
+}
+
 function getMappingKey(namespace, decision) {
-  const sourceCode = normalizeText(decision.sourceCode);
-  const sourceKey = normalizeText(decision.sourceKey);
-  const sourceName = normalizeText(decision.sourceName);
+  const sourceCode = normalizeMappingValue(decision.sourceCode);
+  const sourceKey = normalizeMappingValue(decision.sourceKey);
+  const sourceName = normalizeMappingValue(decision.sourceName);
   const stableValue = sourceCode || sourceKey || sourceName;
 
   return stableValue ? `${namespace}:${stableValue}` : '';

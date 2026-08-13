@@ -89,13 +89,16 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
   const catalogByCanonicalName = buildUniqueConceptIndex(catalog, historicalConceptKey);
   const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
+  const mappingByCanonicalName = buildUniqueMappingIndex(mappingRows);
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
   const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog);
 
   const decisions = conceptColumns.map((column, index) => {
     const sourceKey = cleanCell(column.header);
     const sourceName = stripDuplicateHeaderSuffix(sourceKey);
-    const sourceMapping = mappingByName.get(conceptKey(sourceName));
+    const sourceMapping =
+      mappingByName.get(conceptKey(sourceName)) ??
+      mappingByCanonicalName.get(historicalConceptKey(sourceName));
     const exactMatch = findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName });
     const suggestedMatches = findSuggestedMatches(sourceName, catalog);
     const suggestedConcept = exactMatch ?? suggestedMatches[0]?.concept ?? null;
@@ -107,6 +110,9 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       id: `${index + 1}-${sourceKey}`,
       sourceKey,
       sourceName,
+      // The Concepts module persists many decisions using the Meta4 code.
+      // Carry it into the historical flow so the same decision can be reused.
+      sourceCode: sourceMapping?.sourceCode ?? '',
       sourceColumnIndex: column.index,
       sourceSection: column.index >= 255 ? 'Descuento' : 'Haber / remuneración',
       nonZeroCount: column.nonZeroCount,
@@ -180,6 +186,7 @@ export function buildHistoricalReportRows(decisions) {
   return decisions.map((decision, index) => ({
     Fila: index + 2,
     'Concepto Meta4': decision.sourceName,
+    'Código Meta4': decision.sourceCode,
     'Columna origen': decision.sourceKey,
     Seccion: decision.sourceSection,
     'Colaboradores con monto': decision.nonZeroCount,
@@ -316,6 +323,28 @@ function buildUniqueConceptIndex(catalog, keyFn) {
     }
 
     index.set(key, concept);
+  });
+
+  return index;
+}
+
+function buildUniqueMappingIndex(mappingRows) {
+  const index = new Map();
+  const ambiguousKeys = new Set();
+
+  mappingRows.forEach((mapping) => {
+    const key = historicalConceptKey(mapping.sourceName);
+    if (!key || ambiguousKeys.has(key)) {
+      return;
+    }
+
+    if (index.has(key)) {
+      index.delete(key);
+      ambiguousKeys.add(key);
+      return;
+    }
+
+    index.set(key, mapping);
   });
 
   return index;
