@@ -198,7 +198,7 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
     };
   }
 
-  const storedTargetConcept = concepts.find((concept) => concept.id === stored.targetId);
+  const storedTargetConcept = findStoredConceptTarget(concepts, stored);
 
   if (stored.action === 'create' && stored.targetId && !storedTargetConcept) {
     return {
@@ -276,7 +276,7 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
     };
   }
 
-  const storedTargetConcept = concepts.find((concept) => concept.id === stored.targetId);
+  const storedTargetConcept = findStoredConceptTarget(concepts, stored);
 
   if (stored.action === 'create' && stored.targetId && !storedTargetConcept) {
     return {
@@ -331,6 +331,24 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
 
 function isConfirmedStoredMapping(stored) {
   return Boolean(stored?.approved) || stored?.action === 'reuse' || stored?.action === 'exclude';
+}
+
+function findStoredConceptTarget(concepts, stored) {
+  const targetById = concepts.find((concept) => concept.id === stored.targetId);
+  if (targetById) {
+    return targetById;
+  }
+
+  const storedName = normalizeConceptLabel(stored.targetName);
+  if (!storedName) {
+    return null;
+  }
+
+  return concepts.find((concept) => normalizeConceptLabel(concept.name) === storedName) ?? null;
+}
+
+function normalizeConceptLabel(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
 function getMappingKey(namespace, decision) {
