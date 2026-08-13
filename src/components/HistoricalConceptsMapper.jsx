@@ -511,7 +511,7 @@ function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign 
     : decision.exactMatch
       ? decision.action === 'create'
         ? 'Match guardado · se creará'
-        : decision.matchOrigin === 'memory' ? 'Match perfecto guardado' : 'Match perfecto'
+        : decision.matchOrigin === 'memory' || decision.matchOrigin === 'concepts-module' ? 'Match perfecto guardado' : 'Match perfecto'
       : decision.action === 'create'
         ? decision.approved ? 'Creación aprobada' : 'Propuesta: crear nuevo'
         : decision.approved ? 'Asignado manualmente' : 'Propuesta pendiente';

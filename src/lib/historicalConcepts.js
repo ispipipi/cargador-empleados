@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { buildConceptId, inferConceptType, resolveNewSequence } from './concepts';
+import { buildConceptDecisions, buildConceptId, inferConceptType, resolveNewSequence } from './concepts';
 import { cleanCell, normalizeText } from './utils';
 
 // This order comes from the REX+ Concepto Detalle template supplied for the flow.
@@ -90,6 +90,9 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   const catalogByCanonicalName = buildUniqueConceptIndex(catalog, historicalConceptKey);
   const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
   const mappingByCanonicalName = buildUniqueMappingIndex(mappingRows);
+  const configuredDecisions = buildConceptDecisions({ concepts, mappingRows });
+  const configuredByName = new Map(configuredDecisions.map((decision) => [conceptKey(decision.sourceName), decision]));
+  const configuredByCanonicalName = buildUniqueDecisionIndex(configuredDecisions);
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
   const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog);
 
@@ -99,12 +102,20 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const sourceMapping =
       mappingByName.get(conceptKey(sourceName)) ??
       mappingByCanonicalName.get(historicalConceptKey(sourceName));
-    const exactMatch = findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName });
+    const configuredDecision =
+      configuredByName.get(conceptKey(sourceName)) ??
+      configuredByCanonicalName.get(historicalConceptKey(sourceName));
+    const exactMatch =
+      findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) ??
+      (configuredDecision?.action === 'reuse' ? configuredDecision.targetConcept : null);
+    const configuredExclusion = configuredDecision?.action === 'exclude' && configuredDecision.excluded;
+    const configuredCreation =
+      configuredDecision?.action === 'create' && configuredDecision.approved && configuredDecision.targetId;
     const suggestedMatches = findSuggestedMatches(sourceName, catalog);
     const suggestedConcept = exactMatch ?? suggestedMatches[0]?.concept ?? null;
     const proposedId = buildConceptId(sourceName, index);
-    const lreField = sourceMapping?.lreField ?? '';
-    const classification = sourceMapping?.classification ?? '';
+    const lreField = sourceMapping?.lreField ?? configuredDecision?.lreField ?? '';
+    const classification = sourceMapping?.classification ?? configuredDecision?.classification ?? '';
 
     return {
       id: `${index + 1}-${sourceKey}`,
@@ -112,26 +123,29 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       sourceName,
       // The Concepts module persists many decisions using the Meta4 code.
       // Carry it into the historical flow so the same decision can be reused.
-      sourceCode: sourceMapping?.sourceCode ?? '',
+      sourceCode: sourceMapping?.sourceCode ?? configuredDecision?.sourceCode ?? '',
       sourceColumnIndex: column.index,
       sourceSection: column.index >= 255 ? 'Descuento' : 'Haber / remuneración',
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
-      exactMatch: Boolean(exactMatch),
-      matchStatus: exactMatch ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
-      action: exactMatch ? 'reuse' : 'pending',
+      exactMatch: Boolean(exactMatch || configuredCreation),
+      matchStatus: configuredExclusion || exactMatch || configuredCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : configuredCreation ? 'create' : 'pending',
       suggestedMatches,
       targetConcept: exactMatch,
-      targetId: exactMatch?.id ?? '',
-      targetName: exactMatch?.name ?? '',
+      targetId: exactMatch?.id ?? (configuredCreation ? configuredDecision.targetId : ''),
+      targetName: exactMatch?.name ?? (configuredCreation ? configuredDecision.targetName : ''),
       proposedId,
       proposedSequence: resolveNewSequence(sourceMapping?.sourceCode, index),
       sequence: exactMatch?.sequence ?? resolveNewSequence(sourceMapping?.sourceCode, index),
       type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
       lreField,
       classification,
-      approved: Boolean(exactMatch),
-      excluded: false,
+      approved: Boolean(configuredExclusion || exactMatch || configuredCreation),
+      excluded: Boolean(configuredExclusion),
+      matchOrigin: configuredDecision && (configuredExclusion || exactMatch || configuredCreation)
+        ? 'concepts-module'
+        : undefined,
     };
   });
 
@@ -195,6 +209,8 @@ export function buildHistoricalReportRows(decisions) {
     'Nombre REX+': decision.targetName,
     'Origen del match': decision.matchOrigin === 'memory'
       ? 'Memoria de mapeos'
+      : decision.matchOrigin === 'concepts-module'
+        ? 'Mapeo del módulo Conceptos'
       : decision.exactMatch
         ? 'Catálogo REX+'
         : 'Propuesta',
@@ -345,6 +361,28 @@ function buildUniqueMappingIndex(mappingRows) {
     }
 
     index.set(key, mapping);
+  });
+
+  return index;
+}
+
+function buildUniqueDecisionIndex(decisions) {
+  const index = new Map();
+  const ambiguousKeys = new Set();
+
+  decisions.forEach((decision) => {
+    const key = historicalConceptKey(decision.sourceName);
+    if (!key || ambiguousKeys.has(key)) {
+      return;
+    }
+
+    if (index.has(key)) {
+      index.delete(key);
+      ambiguousKeys.add(key);
+      return;
+    }
+
+    index.set(key, decision);
   });
 
   return index;
