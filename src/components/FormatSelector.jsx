@@ -27,6 +27,9 @@ export default function FormatSelector({
   onChangeModule,
   onContinue,
   templateStatus,
+  conceptCatalogCount,
+  isUpdatingConceptCatalog,
+  onCatalogSelected,
   pairKey,
   isSupportedPair,
   configurations,
@@ -87,6 +90,30 @@ export default function FormatSelector({
                 options={SYSTEM_OPTIONS.destinations}
                 onChange={onChangeDestination}
               />
+            </div>
+
+            <div className="mt-4 flex flex-col gap-4 rounded-[24px] border border-slate-200 bg-white/90 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Catálogo REX+ de conceptos</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {conceptCatalogCount > 0
+                    ? `${conceptCatalogCount.toLocaleString('es-CL')} conceptos disponibles en memoria`
+                    : 'Carga el listado actualizado antes de procesar conceptos históricos.'}
+                </p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:border-brand-400 hover:bg-brand-100">
+                {isUpdatingConceptCatalog ? 'Actualizando…' : 'Cargar catálogo'}
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  className="sr-only"
+                  onChange={(event) => {
+                    onCatalogSelected(event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                  disabled={isUpdatingConceptCatalog}
+                />
+              </label>
             </div>
           </div>
 

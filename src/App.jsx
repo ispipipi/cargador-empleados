@@ -44,7 +44,7 @@ import {
   validateConfigurationShape,
 } from './lib/storage';
 import { todayStamp } from './lib/utils';
-import { loadConceptsResource } from './lib/concepts';
+import { loadConceptsResource, parseConceptCatalogWorkbook } from './lib/concepts';
 import {
   deleteCloudSession,
   loadCloudConceptCatalog,
@@ -574,6 +574,21 @@ export default function App() {
     }
   };
 
+  const handleConceptCatalogFileSelected = async (file) => {
+    if (!file) {
+      return;
+    }
+
+    setGlobalError('');
+
+    try {
+      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer());
+      await handleConceptCatalogUpdated(concepts);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No fue posible leer el catálogo REX+.');
+    }
+  };
+
   const handleModuleChange = (moduleId) => {
     setSelectedModule(moduleId);
 
@@ -1059,6 +1074,9 @@ export default function App() {
             onChangeModule={handleModuleChange}
             onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : STEPS.upload)}
             templateStatus={templateStatus}
+            conceptCatalogCount={conceptsResource?.concepts?.length ?? 0}
+            isUpdatingConceptCatalog={isUpdatingConceptCatalog}
+            onCatalogSelected={handleConceptCatalogFileSelected}
             pairKey={pairKey}
             isSupportedPair={isSupportedPair}
             configurations={configurations}
