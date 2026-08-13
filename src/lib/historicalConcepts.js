@@ -69,6 +69,11 @@ const HISTORICAL_ALIASES = new Map([
   ['AHORRO VOLUNTARIO', 'apvi'],
   ['APV PESOS', 'apvi'],
   ['APV UF', 'apvi'],
+  ['NUMERO SOBRETIEMPO', 'sobretiempo'],
+  ['ASIG. DE PROYECTO ORIG.', 'asignacionDeProyecto'],
+  ['ASIG. CASA ORIG.', 'asignacionCasa'],
+  ['EXTENSION SINDICATO 2 RENTAL', 'extensionSindicatoN2'],
+  ['EXTENSION SINDICATO N?2', 'extensionSindicatoN2'],
   ['HORAS EXTRAS 50%', 'horasEx50'],
   ['SEMANA CORRIDA', 'semanaCorr'],
   ['GRATIFICACION', 'gratificacion'],
@@ -82,6 +87,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
+  const catalogByCanonicalName = buildUniqueConceptIndex(catalog, historicalConceptKey);
   const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
   const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog);
@@ -90,7 +96,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const sourceKey = cleanCell(column.header);
     const sourceName = stripDuplicateHeaderSuffix(sourceKey);
     const sourceMapping = mappingByName.get(conceptKey(sourceName));
-    const exactMatch = findExactMatch({ sourceName, catalogById, catalogByName });
+    const exactMatch = findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName });
     const suggestedMatches = findSuggestedMatches(sourceName, catalog);
     const suggestedConcept = exactMatch ?? suggestedMatches[0]?.concept ?? null;
     const proposedId = buildConceptId(sourceName, index);
@@ -282,14 +288,37 @@ function extractConceptColumns({ sourceRows, sourceHeaders }) {
     .filter((column) => column.nonZeroCount > 0);
 }
 
-function findExactMatch({ sourceName, catalogById, catalogByName }) {
+function findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) {
   const aliasId = HISTORICAL_ALIASES.get(sourceName.toUpperCase());
   return (
     (aliasId && catalogById.get(normalizeText(aliasId))) ||
     catalogByName.get(conceptKey(sourceName)) ||
     catalogById.get(normalizeText(sourceName)) ||
+    catalogByCanonicalName.get(historicalConceptKey(sourceName)) ||
     null
   );
+}
+
+function buildUniqueConceptIndex(catalog, keyFn) {
+  const index = new Map();
+  const ambiguousKeys = new Set();
+
+  catalog.forEach((concept) => {
+    const key = keyFn(concept.name);
+    if (!key || ambiguousKeys.has(key)) {
+      return;
+    }
+
+    if (index.has(key)) {
+      index.delete(key);
+      ambiguousKeys.add(key);
+      return;
+    }
+
+    index.set(key, concept);
+  });
+
+  return index;
 }
 
 function sourceSectionForColumn(index) {
@@ -335,6 +364,15 @@ function conceptKey(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function historicalConceptKey(value) {
+  return conceptKey(
+    cleanCell(value)
+      .replace(/([A-Za-z])\?([A-Za-z])/g, '$1n$2')
+      .replace(/\b(?:original|orig)\b/gi, ' ')
+      .replace(/\b\d+\s*\/\s*\d+\b/g, ' '),
+  );
 }
 
 function stripDuplicateHeaderSuffix(value) {
