@@ -78,12 +78,13 @@ const HISTORICAL_ALIASES = new Map([
   ['LIQUIDO', 'totalesEmpl'],
 ]);
 
-export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [] }) {
+export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [] }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
   const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
+  const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog);
 
   const decisions = conceptColumns.map((column, index) => {
     const sourceKey = cleanCell(column.header);
@@ -127,31 +128,38 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     catalog,
     sourceConcepts: conceptColumns.length,
     sourceRows: sourceRows.length,
+    employeeValidation,
   };
 }
 
-export function buildHistoricalDetailRows({ sourceRows, decisions }) {
+export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [] }) {
   const outputRows = [];
+  const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
 
   decisions
     .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
     .forEach((decision) => {
       sourceRows.forEach((sourceRow) => {
+        const employee = employeeById.get(getSourceEmployeeId(sourceRow));
+        if (!employee) {
+          return;
+        }
+
         const amount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
 
         if (amount === null || amount === 0) {
           return;
         }
 
-        outputRows.push(buildDetailRow(sourceRow, decision.targetId, amount));
+        outputRows.push(buildDetailRow(sourceRow, decision.targetId, amount, employee));
       });
     });
 
   return outputRows;
 }
 
-export function buildHistoricalDetailCsv({ sourceRows, decisions }) {
-  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions });
+export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [] }) {
+  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog });
   const sheet = XLSX.utils.aoa_to_sheet([DETAIL_HEADERS, ...detailRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, {
     FS: ';',
@@ -199,6 +207,30 @@ export function summarizeHistoricalDecisions(decisions) {
     createdApproved: decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded).length,
     excluded: decisions.filter((decision) => decision.excluded).length,
     detailRows: decisions.reduce((total, decision) => total + (decision.approved && !decision.excluded ? decision.nonZeroCount : 0), 0),
+  };
+}
+
+export function validateHistoricalEmployees(sourceRows, employeeCatalog = []) {
+  const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const missing = [];
+  const seen = new Set();
+
+  sourceRows.forEach((sourceRow) => {
+    const sourceId = getSourceEmployeeId(sourceRow);
+    if (sourceId && !employeeById.has(sourceId) && !seen.has(sourceId)) {
+      seen.add(sourceId);
+      missing.push({
+        id: sourceId,
+        name: cleanCell(sourceRow.NOMBRE),
+        sourceRowNumber: sourceRow.__sourceRowNumber ?? '',
+      });
+    }
+  });
+
+  return {
+    total: sourceRows.length,
+    matched: sourceRows.length - missing.length,
+    missing,
   };
 }
 
@@ -318,14 +350,14 @@ function isExcludedSourceHeader(value) {
   );
 }
 
-function buildDetailRow(sourceRow, targetId, amount) {
+function buildDetailRow(sourceRow, targetId, amount, employee) {
   const row = Array(DETAIL_HEADERS.length).fill('');
   const get = (header) => cleanCell(sourceRow[header]);
 
-  row[0] = get('CI') || get('ID EMPLEADO');
-  row[1] = get('NOMBRE');
-  row[2] = '1';
-  row[3] = get('NOMBRE CONTRATO') || 'Contrato Indefinido';
+  row[0] = employee.id || get('CI') || get('ID EMPLEADO');
+  row[1] = employee.name || get('NOMBRE');
+  row[2] = employee.contract || '1';
+  row[3] = employee.contractName || 'Contrato Indefinido';
   row[4] = targetId;
   row[5] = String(amount);
   row[6] = 'M';
@@ -333,4 +365,12 @@ function buildDetailRow(sourceRow, targetId, amount) {
   row[16] = 'C';
 
   return row;
+}
+
+function getSourceEmployeeId(sourceRow) {
+  return normalizeEmployeeId(sourceRow.CI || sourceRow['ID EMPLEADO']);
+}
+
+function normalizeEmployeeId(value) {
+  return cleanCell(value).replace(/[.\s]/g, '').toUpperCase();
 }

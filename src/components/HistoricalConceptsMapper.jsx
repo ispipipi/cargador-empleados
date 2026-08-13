@@ -27,6 +27,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkTarget, setBulkTarget] = useState('');
+  const employeeCatalog = useMemo(() => conceptsResource?.employeeCatalog ?? [], [conceptsResource]);
 
   useEffect(() => {
     let active = true;
@@ -39,6 +40,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         sourceHeaders: sourceFile.headers,
         concepts,
         mappingRows: conceptsResource?.mappingRows ?? [],
+        employeeCatalog,
       });
       const storedDecisions = nextModel.decisions.map((decision) =>
         applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog }),
@@ -59,7 +61,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       window.clearTimeout(timerId);
       onBusyChange?.(false);
     };
-  }, [concepts, conceptsResource, onBusyChange, sourceFile]);
+  }, [concepts, conceptsResource, employeeCatalog, onBusyChange, sourceFile]);
 
   useEffect(() => {
     onBusyChange?.(isBuilding || isPreparing);
@@ -70,6 +72,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   }, [decisions]);
 
   const summary = summarizeHistoricalDecisions(decisions);
+  const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [] };
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
   const catalogOptions = useMemo(
     () =>
@@ -211,7 +214,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   };
 
   const handleDownload = async (kind) => {
-    if (isPreparing || (kind === 'output' && summary.pending > 0)) {
+    if (isPreparing || (kind === 'output' && (summary.pending > 0 || employeeValidation.missing.length > 0))) {
       return;
     }
 
@@ -226,8 +229,18 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         });
         triggerWorkbookDownload(workbook, `REX_altas_conceptos_${todayStamp()}.xlsx`);
       } else if (kind === 'output') {
-        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions });
+        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions, employeeCatalog });
         triggerTextDownload(csv, `REX_conceptos_detalle_historicos_${todayStamp()}.csv`);
+      } else if (kind === 'employee-pending') {
+        const reportRows = employeeValidation.missing.map((employee) => ({
+          Fila: employee.sourceRowNumber,
+          CI: employee.id,
+          Nombre: employee.name,
+          Estado: 'No existe en el listado de empleados REX+',
+        }));
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(reportRows), 'Colaboradores pendientes');
+        triggerWorkbookDownload(workbook, `REX_pendientes_colaboradores_historicos_${todayStamp()}.xlsx`);
       } else {
         const reportRows = buildHistoricalReportRows(
           kind === 'pending'
@@ -285,6 +298,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <Metric label="Propuestas a revisar" value={summary.pending} tone="warning" />
                 <Metric label="Se crearán" value={summary.createdApproved} />
                 <Metric label="Filas estimadas" value={summary.detailRows.toLocaleString('es-CL')} />
+                <Metric label="Colaboradores REX+" value={`${employeeValidation.matched}/${employeeValidation.total}`} />
               </div>
             </div>
           </div>
@@ -304,6 +318,15 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <p className="font-semibold">Funciones disponibles</p>
               <p className="mt-2 text-cyan-800">{HISTORICAL_FUNCTIONS.length} funciones del listado entregado. Se mantienen visibles como referencia para la revisión.</p>
             </div>
+            {employeeValidation.missing.length > 0 ? (
+              <div className="mt-5 rounded-[28px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">
+                <p className="font-semibold">Hay {employeeValidation.missing.length} colaboradores que no están creados en REX+.</p>
+                <p className="mt-2">El CSV final queda bloqueado hasta resolverlos. Puedes descargar el detalle para crearlos o revisarlos.</p>
+                <button type="button" onClick={() => handleDownload('employee-pending')} className="mt-4 rounded-full border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-800 transition hover:bg-rose-100">
+                  Descargar pendientes de colaboradores
+                </button>
+              </div>
+            ) : null}
             <div className="mt-5 flex flex-wrap gap-3">
               <button type="button" onClick={onBack} className="button-secondary">Volver a módulos</button>
               <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches perfectos</button>
@@ -455,9 +478,13 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           />
           <DownloadButton
             title="Descargar Concepto Detalle"
-            detail={summary.pending ? `Faltan ${summary.pending} conceptos por resolver` : 'CSV UTF-8 listo para cargar en REX+'}
+            detail={employeeValidation.missing.length
+              ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+`
+              : summary.pending
+                ? `Faltan ${summary.pending} conceptos por resolver`
+                : 'CSV UTF-8 listo para cargar en REX+'}
             onClick={() => handleDownload('output')}
-            disabled={summary.pending > 0 || isPreparing}
+            disabled={summary.pending > 0 || employeeValidation.missing.length > 0 || isPreparing}
             primary
           />
           <DownloadButton

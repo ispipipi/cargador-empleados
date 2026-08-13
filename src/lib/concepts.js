@@ -5,6 +5,7 @@ import { loadConceptCatalogMemory } from './sessionPersistence';
 const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
 const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
 const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-importacion-conceptos.xlsx`;
+const EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/rex-empleados-concepto-detalle.xlsx`;
 export const MAX_CONCEPT_ID_LENGTH = 20;
 
 const TYPE_BY_CLASSIFICATION = [
@@ -103,34 +104,39 @@ const VIRTUAL_EXISTING_CONCEPTS = [
 ];
 
 export async function loadConceptsResource() {
-  const [listsResponse, mappingResponse, outputTemplateResponse] = await Promise.all([
+  const [listsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse] = await Promise.all([
     fetch(LISTS_ASSET_PATH),
     fetch(MAPPING_ASSET_PATH),
     fetch(OUTPUT_TEMPLATE_ASSET_PATH),
+    fetch(EMPLOYEE_TEMPLATE_ASSET_PATH),
   ]);
 
-  if (!listsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok) {
-    throw new Error('No fue posible cargar los maestros embebidos de Conceptos.');
+  if (!listsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok || !employeeTemplateResponse.ok) {
+    throw new Error('No fue posible cargar los maestros embebidos de Conceptos y colaboradores REX+.');
   }
 
-  const [listsBuffer, mappingBuffer, outputTemplateBuffer] = await Promise.all([
+  const [listsBuffer, mappingBuffer, outputTemplateBuffer, employeeTemplateBuffer] = await Promise.all([
     listsResponse.arrayBuffer(),
     mappingResponse.arrayBuffer(),
     outputTemplateResponse.arrayBuffer(),
+    employeeTemplateResponse.arrayBuffer(),
   ]);
 
   const listsWorkbook = XLSX.read(listsBuffer, { type: 'array' });
   const mappingWorkbook = XLSX.read(mappingBuffer, { type: 'array' });
   const outputTemplateWorkbook = XLSX.read(outputTemplateBuffer, { type: 'array' });
+  const employeeTemplateWorkbook = XLSX.read(employeeTemplateBuffer, { type: 'array' });
 
   const concepts = loadConceptCatalogMemory() ?? parseConceptsList(listsWorkbook);
   const mappingRows = parseMapping(mappingWorkbook);
   const outputTemplate = parseOutputTemplate(outputTemplateWorkbook);
+  const employeeCatalog = parseEmployeeTemplate(employeeTemplateWorkbook);
 
   return {
     concepts,
     mappingRows,
     outputTemplate,
+    employeeCatalog,
   };
 }
 
@@ -342,6 +348,20 @@ function parseOutputTemplate(workbook) {
       rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: '' }),
     })),
   };
+}
+
+function parseEmployeeTemplate(workbook) {
+  const sheetName = workbook.SheetNames.find((name) => normalizeText(name) === normalizeText('Conceptos detalle')) ?? workbook.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+
+  return rows
+    .map((row) => ({
+      id: cleanCell(row.Plantilla),
+      name: cleanCell(row['Nombre colaborador']),
+      contract: cleanCell(row.Contrato) || '1',
+      contractName: cleanCell(row['Nombre de contrato']) || 'Contrato Indefinido',
+    }))
+    .filter((employee) => employee.id);
 }
 
 function buildConceptOutputRow(template, decision) {
