@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
+import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
 import { getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
 
@@ -22,6 +22,8 @@ self.onmessage = (event) => {
       workbookName: parsedSource.workbookName,
       headers: parsedSource.headers,
       missingColumns: parsedSource.missingColumns,
+      formatIssues: parsedSource.formatIssues,
+      formatName: parsedSource.formatName,
       rows: parsedSource.rows,
       previewRows: parsedSource.rows.slice(0, 3),
     });
@@ -54,6 +56,8 @@ function parseTalanaWorkbook(workbook) {
     workbookName: firstSheetName,
     headers,
     missingColumns,
+    formatIssues: [],
+    formatName: 'Talana',
     rows: filteredRows,
   };
 }
@@ -70,8 +74,9 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
   const rawHeaders = (rows[headerRowIndex] ?? []).map(cleanCell);
   const headers = preserveDuplicateHeaders ? makeUniqueHeaders(rawHeaders) : rawHeaders;
   const missingColumns = preserveDuplicateHeaders
-    ? getHistoricalMissingColumns(headers)
+    ? []
     : getMeta4MissingColumns(headers);
+  const formatIssues = preserveDuplicateHeaders ? getMeta4HistoricalFormatIssues(headers) : [];
   const identityColumnIndexes = [
     'ID EMPLEADO',
     'CI',
@@ -114,6 +119,8 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
     workbookName: firstSheetName,
     headers,
     missingColumns,
+    formatIssues,
+    formatName: preserveDuplicateHeaders ? 'Meta 4 Finning' : 'Meta 4',
     rows: dataRows,
   };
 }
@@ -150,19 +157,4 @@ function makeUniqueHeaders(headers) {
     occurrences.set(header, nextOccurrence);
     return nextOccurrence === 1 ? header : `${header} [${nextOccurrence}]`;
   });
-}
-
-function getHistoricalMissingColumns(headers) {
-  const normalizedHeaders = headers.map(cleanCell);
-  const missingColumns = [];
-
-  if (!normalizedHeaders.includes('NOMBRE')) {
-    missingColumns.push('NOMBRE');
-  }
-
-  if (!normalizedHeaders.includes('CI') && !normalizedHeaders.includes('ID EMPLEADO')) {
-    missingColumns.push('CI o ID EMPLEADO');
-  }
-
-  return missingColumns;
 }

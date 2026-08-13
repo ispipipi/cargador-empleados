@@ -485,8 +485,9 @@ export default function App() {
         previewRows: parsedSource.previewRows,
       };
       const nextValidation = {
-        isValid: parsedSource.missingColumns.length === 0 && parsedSource.rows.length > 0,
+        isValid: parsedSource.missingColumns.length === 0 && (parsedSource.formatIssues ?? []).length === 0 && parsedSource.rows.length > 0,
         missingColumns: parsedSource.missingColumns,
+        formatIssues: parsedSource.formatIssues ?? [],
         message: validationMessage,
       };
       const nextSessionId = createSessionId();
@@ -525,10 +526,10 @@ export default function App() {
       await waitForUiToPaint();
       const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico');
 
-      if (parsedSource.missingColumns.length > 0 || parsedSource.rows.length === 0) {
+      if (parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0 || parsedSource.rows.length === 0) {
         throw new Error(
-          parsedSource.missingColumns.length > 0
-            ? `Faltan columnas clave: ${parsedSource.missingColumns.join(', ')}`
+          parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0
+            ? [...parsedSource.missingColumns.map((column) => `Falta la columna ${column}.`), ...(parsedSource.formatIssues ?? [])].join(' ')
             : 'El libro mensual no contiene filas de remuneraciones.',
         );
       }
@@ -1291,6 +1292,10 @@ function waitForUiToPaint() {
 }
 
 function buildValidationMessage({ originId, parsedSource }) {
+  if (parsedSource.formatIssues?.length > 0) {
+    return `Formato no compatible. Se esperaba ${parsedSource.formatName ?? 'Meta 4 Finning'}: ${parsedSource.formatIssues.join(' ')}`;
+  }
+
   if (parsedSource.missingColumns.length > 0) {
     return originId === 'meta4' || originId === 'meta4-historico'
       ? 'El archivo no cumple con las columnas mínimas para Meta 4.'

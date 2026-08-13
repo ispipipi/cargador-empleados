@@ -92,6 +92,15 @@ export default function FileUploader({
           </div>
         ) : null}
 
+        {validation?.formatIssues?.length ? (
+          <div className="mt-4 rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+            <p className="font-semibold">El archivo no corresponde al formato histórico Meta 4 Finning.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {validation.formatIssues.map((issue) => <li key={issue}>{issue}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="mt-8 flex flex-wrap gap-3">
           <button
             type="button"
