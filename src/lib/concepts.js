@@ -8,6 +8,8 @@ const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-
 const EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/rex-empleados-concepto-detalle.xlsx`;
 export const MAX_CONCEPT_ID_LENGTH = 20;
 
+const REQUIRED_CONCEPT_HEADERS = ['Concepto', 'Nombre', 'Tipo', 'Secuencia'];
+
 const TYPE_BY_CLASSIFICATION = [
   { match: 'descuentos legales', value: '3L' },
   { match: 'descuento', value: '4D' },
@@ -284,8 +286,23 @@ export function summarizeConceptDecisions(decisions) {
 }
 
 function parseConceptsList(workbook) {
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Lista de conceptos'], { header: 1, defval: '' });
-  const headers = rows[1] ?? [];
+  const sheet = workbook.Sheets['Lista de conceptos'];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  const headerRowIndex = findConceptHeaderRow(rows);
+  const headers = rows[headerRowIndex] ?? [];
+
+  if (headerRowIndex < 0) {
+    throw new Error('El archivo no contiene una fila de encabezados válida para el catálogo REX+.');
+  }
+
+  const missingHeaders = REQUIRED_CONCEPT_HEADERS.filter(
+    (header) => !headers.some((value) => normalizeText(value) === normalizeText(header)),
+  );
+
+  if (missingHeaders.length > 0) {
+    throw new Error(`Al catálogo REX+ le faltan columnas obligatorias: ${missingHeaders.join(', ')}.`);
+  }
+
   const getIndex = (header) => headers.findIndex((value) => normalizeText(value) === normalizeText(header));
   const indexes = {
     id: getIndex('Concepto'),
@@ -305,7 +322,7 @@ function parseConceptsList(workbook) {
     noOverdraft: getIndex('No genera sobregiro'),
   };
 
-  return rows.slice(2).filter((row) => cleanCell(row[indexes.id])).map((row) => ({
+  return rows.slice(headerRowIndex + 1).filter((row) => cleanCell(row[indexes.id])).map((row) => ({
     id: cleanCell(row[indexes.id]),
     name: cleanCell(row[indexes.name]),
     type: typeIdFromLabel(row[indexes.type]),
@@ -322,6 +339,13 @@ function parseConceptsList(workbook) {
     vacationProvision: booleanId(row[indexes.vacationProvision]),
     noOverdraft: booleanId(row[indexes.noOverdraft]),
   }));
+}
+
+function findConceptHeaderRow(rows) {
+  return rows.findIndex((row) => {
+    const normalizedHeaders = new Set(row.map((value) => normalizeText(value)));
+    return REQUIRED_CONCEPT_HEADERS.every((header) => normalizedHeaders.has(normalizeText(header)));
+  });
 }
 
 function parseMapping(workbook) {
