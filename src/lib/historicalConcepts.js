@@ -83,14 +83,16 @@ const HISTORICAL_ALIASES = new Map([
   ['LIQUIDO', 'totalesEmpl'],
 ]);
 
-export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [] }) {
+export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
   const catalogByCanonicalName = buildUniqueConceptIndex(catalog, historicalConceptKey);
   const mappingByName = new Map(mappingRows.map((mapping) => [conceptKey(mapping.sourceName), mapping]));
   const mappingByCanonicalName = buildUniqueMappingIndex(mappingRows);
-  const configuredDecisions = buildConceptDecisions({ concepts, mappingRows });
+  const configuredDecisions = isFinningMappingScope(mappingScope)
+    ? buildConceptDecisions({ concepts, mappingRows })
+    : [];
   const configuredByName = new Map(configuredDecisions.map((decision) => [conceptKey(decision.sourceName), decision]));
   const configuredByCanonicalName = buildUniqueDecisionIndex(configuredDecisions);
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
@@ -129,7 +131,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
       exactMatch: Boolean(exactMatch || configuredCreation),
-      matchStatus: configuredExclusion || exactMatch || configuredCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      matchStatus: configuredExclusion ? 'excluded' : exactMatch || configuredCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
       action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : configuredCreation ? 'create' : 'pending',
       suggestedMatches,
       targetConcept: exactMatch,
@@ -386,6 +388,10 @@ function buildUniqueDecisionIndex(decisions) {
   });
 
   return index;
+}
+
+function isFinningMappingScope(mappingScope) {
+  return !mappingScope || mappingScope.key === 'meta4:rex:finning';
 }
 
 function sourceSectionForColumn(index) {

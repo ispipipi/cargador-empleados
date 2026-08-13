@@ -6,6 +6,7 @@ const SESSION_STORE = 'sessions';
 const SESSION_DATA_STORE = 'session-data';
 const MAPPING_STORAGE_KEY = 'maper.mapping-memory.v1';
 const CONCEPT_CATALOG_STORAGE_KEY = 'maper.concept-catalog.v1';
+const LEGACY_MAPPING_SCOPE_KEY = 'meta4:rex:finning';
 
 let databasePromise;
 
@@ -13,12 +14,13 @@ export function createSessionId() {
   return crypto.randomUUID();
 }
 
-export function createSessionMetadata({ id, selectedModule, selectedOrigin, selectedDestination, sourceFile, step }) {
+export function createSessionMetadata({ id, selectedModule, selectedOrigin, selectedDestination, mappingCompany, sourceFile, step }) {
   return {
     id,
     selectedModule,
     selectedOrigin,
     selectedDestination,
+    mappingCompany: mappingCompany ?? 'FINNING',
     fileName: sourceFile?.fileName ?? '',
     workbookName: sourceFile?.workbookName ?? '',
     rowCount: sourceFile?.rows?.length ?? 0,
@@ -108,16 +110,17 @@ export function saveConceptCatalogMemory(concepts) {
   }
 }
 
-export function rememberConceptMappings(namespace, decisions) {
+export function rememberConceptMappings(namespace, decisions, scope) {
   if (!decisions?.length) {
     return;
   }
 
   const memory = loadMappingMemory();
   const namespaceMemory = { ...(memory[namespace] ?? {}) };
+  const mappingScope = normalizeMappingScope(scope);
 
   decisions.forEach((decision) => {
-    const key = getMappingKey(namespace, decision);
+    const key = getMappingKey(namespace, decision, mappingScope.key);
     if (!key) {
       return;
     }
@@ -135,6 +138,10 @@ export function rememberConceptMappings(namespace, decisions) {
       type: decision.type ?? '',
       lreField: decision.lreField ?? '',
       classification: decision.classification ?? '',
+      scopeKey: mappingScope.key,
+      scopeOrigin: mappingScope.origin,
+      scopeDestination: mappingScope.destination,
+      scopeCompany: mappingScope.company,
       savedAt: new Date().toISOString(),
     };
   });
@@ -177,9 +184,10 @@ export function mergeStoredMappingEntries(namespace, entries) {
   }
 }
 
-export function applyStoredConceptMapping(namespace, decision, { concepts = [] } = {}) {
+export function applyStoredConceptMapping(namespace, decision, { concepts = [], scope } = {}) {
   const memory = loadMappingMemory();
-  const stored = memory[namespace]?.[getMappingKey(namespace, decision)];
+  const mappingScope = normalizeMappingScope(scope);
+  const stored = findStoredMapping(memory, namespace, decision, mappingScope);
 
   if (!stored || !isConfirmedStoredMapping(stored)) {
     return decision;
@@ -246,10 +254,10 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [] }
   };
 }
 
-export function applyStoredHistoricalMapping(namespace, decision, { concepts = [] } = {}) {
+export function applyStoredHistoricalMapping(namespace, decision, { concepts = [], scope } = {}) {
   const memory = loadMappingMemory();
-  const mappingKey = getMappingKey(namespace, decision);
-  const stored = findStoredHistoricalMapping(memory, namespace, mappingKey, decision);
+  const mappingScope = normalizeMappingScope(scope);
+  const stored = findStoredHistoricalMapping(memory, namespace, decision, mappingScope);
 
   if (!stored || !isConfirmedStoredMapping(stored)) {
     return decision;
@@ -343,16 +351,17 @@ function normalizeConceptLabel(value) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, '');
 }
 
-function findStoredHistoricalMapping(memory, namespace, mappingKey, decision) {
+function findStoredHistoricalMapping(memory, namespace, decision, mappingScope) {
   const namespaceMemory = memory[namespace] ?? {};
   const conceptsMemory = memory.concepts ?? memory.conceptos ?? {};
-  const direct = namespaceMemory[mappingKey];
+  const mappingKey = getMappingKey(namespace, decision, mappingScope.key);
+  const direct = namespaceMemory[mappingKey] ?? findLegacyScopedMapping(namespaceMemory, decision, mappingScope);
 
   if (direct) {
     return direct;
   }
 
-  const conceptKey = getMappingKey('concepts', decision);
+  const conceptKey = getMappingKey('concepts', decision, mappingScope.key);
   if (conceptKey && conceptsMemory[conceptKey]) {
     return conceptsMemory[conceptKey];
   }
@@ -362,6 +371,10 @@ function findStoredHistoricalMapping(memory, namespace, mappingKey, decision) {
   const sourceKey = normalizeMappingSource(decision.sourceKey);
 
   return Object.entries(conceptsMemory).find(([key, entry]) => {
+    if (!isMappingEntryInScope(entry, mappingScope)) {
+      return false;
+    }
+
     const keyValue = normalizeMappingValue(key.replace(/^[^:]+:/, ''));
     const entryCode = normalizeMappingValue(entry?.sourceCode);
     const entryName = normalizeMappingSource(entry?.sourceName);
@@ -373,6 +386,64 @@ function findStoredHistoricalMapping(memory, namespace, mappingKey, decision) {
       (sourceKey && (entryKey === sourceKey || keyValue === sourceKey))
     );
   })?.[1];
+}
+
+function findStoredMapping(memory, namespace, decision, mappingScope) {
+  const namespaceMemory = memory[namespace] ?? {};
+  return namespaceMemory[getMappingKey(namespace, decision, mappingScope.key)]
+    ?? findLegacyScopedMapping(namespaceMemory, decision, mappingScope);
+}
+
+function findLegacyScopedMapping(namespaceMemory, decision, mappingScope) {
+  if (mappingScope.key !== LEGACY_MAPPING_SCOPE_KEY) {
+    return null;
+  }
+
+  const sourceCode = normalizeMappingValue(decision.sourceCode);
+  const sourceName = normalizeMappingSource(decision.sourceName);
+  const sourceKey = normalizeMappingSource(decision.sourceKey);
+
+  return Object.entries(namespaceMemory).find(([key, entry]) => {
+    if (entry?.scopeKey || !isMappingEntryInScope(entry, mappingScope)) {
+      return false;
+    }
+
+    return mappingEntryMatches([key, entry], sourceCode, sourceName, sourceKey);
+  })?.[1] ?? null;
+}
+
+function mappingEntryMatches([key, entry], sourceCode, sourceName, sourceKey) {
+  const keyValue = normalizeMappingValue(key.replace(/^[^:]+:/, ''));
+  const entryCode = normalizeMappingValue(entry?.sourceCode);
+  const entryName = normalizeMappingSource(entry?.sourceName);
+  const entryKey = normalizeMappingSource(entry?.sourceKey);
+
+  return (
+    (sourceCode && (keyValue === sourceCode || entryCode === sourceCode)) ||
+    (sourceName && (entryName === sourceName || keyValue === sourceName)) ||
+    (sourceKey && (entryKey === sourceKey || keyValue === sourceKey))
+  );
+}
+
+function isMappingEntryInScope(entry, mappingScope) {
+  return entry?.scopeKey ? entry.scopeKey === mappingScope.key : mappingScope.key === LEGACY_MAPPING_SCOPE_KEY;
+}
+
+export function normalizeMappingScope({ origin = 'meta4', destination = 'rex', company = 'FINNING' } = {}) {
+  const normalizedOrigin = normalizeScopePart(origin).replace(/-historico$/, '') || 'meta4';
+  const normalizedDestination = normalizeScopePart(destination) || 'rex';
+  const normalizedCompany = normalizeScopePart(company) || 'finning';
+
+  return {
+    origin: normalizedOrigin,
+    destination: normalizedDestination,
+    company: normalizedCompany,
+    key: `${normalizedOrigin}:${normalizedDestination}:${normalizedCompany}`,
+  };
+}
+
+function normalizeScopePart(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function normalizeMappingValue(value) {
@@ -392,13 +463,13 @@ function cleanMappingSource(value) {
   return normalizeText(value).replace(/([a-z])\?([a-z])/g, '$1n$2');
 }
 
-function getMappingKey(namespace, decision) {
+function getMappingKey(namespace, decision, scopeKey = '') {
   const sourceCode = normalizeMappingValue(decision.sourceCode);
   const sourceKey = normalizeMappingValue(decision.sourceKey);
   const sourceName = normalizeMappingValue(decision.sourceName);
   const stableValue = sourceCode || sourceKey || sourceName;
 
-  return stableValue ? `${namespace}:${stableValue}` : '';
+  return stableValue ? `${namespace}:${scopeKey ? `${scopeKey}:` : ''}${stableValue}` : '';
 }
 
 function openDatabase() {

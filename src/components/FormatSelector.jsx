@@ -21,9 +21,11 @@ const MODULE_OPTIONS = [
 export default function FormatSelector({
   selectedOrigin,
   selectedDestination,
+  mappingCompany,
   selectedModule,
   onChangeOrigin,
   onChangeDestination,
+  onChangeMappingCompany,
   onChangeModule,
   onContinue,
   templateStatus,
@@ -91,6 +93,21 @@ export default function FormatSelector({
                 onChange={onChangeDestination}
               />
             </div>
+
+            {['conceptos', 'conceptos-historicos'].includes(selectedModule) ? (
+              <label className="mt-4 block rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
+                <span className="text-sm font-semibold text-slate-900">Empresa de la memoria de mapeos</span>
+                <input
+                  value={mappingCompany}
+                  onChange={(event) => onChangeMappingCompany(event.target.value.toUpperCase())}
+                  placeholder="FINNING"
+                  className="mt-3 w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                />
+                <span className="mt-2 block text-xs leading-5 text-slate-600">
+                  Los pareos se reutilizan únicamente para {selectedOrigin} → {selectedDestination} → {mappingCompany || 'esta empresa'}.
+                </span>
+              </label>
+            ) : null}
 
             <div className="mt-4 flex flex-col gap-4 rounded-[24px] border border-slate-200 bg-white/90 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div>

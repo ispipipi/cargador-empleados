@@ -65,6 +65,7 @@ import {
   listSessions,
   loadSession,
   mergeStoredMappingEntries,
+  normalizeMappingScope,
   saveConceptCatalogMemory,
   saveSession,
 } from './lib/sessionPersistence';
@@ -87,6 +88,7 @@ export default function App() {
   const [selectedModule, setSelectedModule] = useState('empleados');
   const [selectedOrigin, setSelectedOrigin] = useState('talana');
   const [selectedDestination, setSelectedDestination] = useState('buk');
+  const [mappingCompany, setMappingCompany] = useState('FINNING');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
   const [configurations, setConfigurations] = useState(() => loadConfigurations());
   const [activeConfiguration, setActiveConfiguration] = useState(null);
@@ -112,6 +114,10 @@ export default function App() {
   const [globalError, setGlobalError] = useState('');
 
   const pairKey = `${selectedOrigin}:${selectedDestination}`;
+  const mappingScope = useMemo(
+    () => normalizeMappingScope({ origin: selectedOrigin, destination: selectedDestination, company: mappingCompany }),
+    [mappingCompany, selectedDestination, selectedOrigin],
+  );
   const isBukFlow = pairKey === 'talana:buk';
   const isRexFlow = pairKey === 'meta4:rex';
   const isConceptsFlow = selectedModule === 'conceptos';
@@ -292,6 +298,7 @@ export default function App() {
         selectedModule,
         selectedOrigin,
         selectedDestination,
+        mappingCompany,
         sourceFile,
         step,
       });
@@ -302,6 +309,7 @@ export default function App() {
           selectedModule,
           selectedOrigin,
           selectedDestination,
+          mappingCompany,
           parameters,
           sourceFile,
           validation,
@@ -321,6 +329,7 @@ export default function App() {
               selectedModule,
               selectedOrigin,
               selectedDestination,
+              mappingCompany,
               parameters,
               sourceFile,
               validation,
@@ -347,6 +356,7 @@ export default function App() {
     parameters,
     result,
     selectedDestination,
+    mappingCompany,
     selectedModule,
     selectedOrigin,
     sessionId,
@@ -972,6 +982,7 @@ export default function App() {
       setSelectedModule(data.selectedModule ?? metadata.selectedModule ?? 'empleados');
       setSelectedOrigin(restoredOrigin);
       setSelectedDestination(restoredDestination);
+      setMappingCompany(data.mappingCompany ?? metadata.mappingCompany ?? 'FINNING');
       setParameters({
         ...(restoredDestination === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
         ...(data.parameters ?? {}),
@@ -1051,6 +1062,7 @@ export default function App() {
                   <p className="font-semibold text-white">Pair activo</p>
                   <p className="mt-2">
                     {selectedOrigin} → {destinationLabel}
+                    {isConceptsFlow || isHistoricalConceptsFlow ? ` · ${mappingScope.company.toUpperCase()}` : ''}
                   </p>
                 </div>
               </div>
@@ -1068,9 +1080,11 @@ export default function App() {
           <FormatSelector
             selectedOrigin={selectedOrigin}
             selectedDestination={selectedDestination}
+            mappingCompany={mappingCompany}
             selectedModule={selectedModule}
             onChangeOrigin={setSelectedOrigin}
             onChangeDestination={setSelectedDestination}
+            onChangeMappingCompany={setMappingCompany}
             onChangeModule={handleModuleChange}
             onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : STEPS.upload)}
             templateStatus={templateStatus}
@@ -1130,6 +1144,7 @@ export default function App() {
           <HistoricalConceptsMapper
             sourceFile={sourceFile}
             conceptsResource={conceptsResource}
+            mappingScope={mappingScope}
             onBack={() => setStep(STEPS.format)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />

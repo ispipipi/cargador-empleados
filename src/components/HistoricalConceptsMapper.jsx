@@ -17,7 +17,7 @@ import ConceptSearchPicker from './ConceptSearchPicker';
 const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 
-export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, onBack, onBusyChange }) {
+export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, onBack, onBusyChange }) {
   const concepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
@@ -41,9 +41,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         concepts,
         mappingRows: conceptsResource?.mappingRows ?? [],
         employeeCatalog,
+        mappingScope,
       });
       const storedDecisions = nextModel.decisions.map((decision) =>
-        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog }),
+        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog, scope: mappingScope }),
       );
 
       if (!active) {
@@ -61,15 +62,15 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       window.clearTimeout(timerId);
       onBusyChange?.(false);
     };
-  }, [concepts, conceptsResource, employeeCatalog, onBusyChange, sourceFile]);
+  }, [concepts, conceptsResource, employeeCatalog, mappingScope, onBusyChange, sourceFile]);
 
   useEffect(() => {
     onBusyChange?.(isBuilding || isPreparing);
   }, [isBuilding, isPreparing, onBusyChange]);
 
   useEffect(() => {
-    rememberConceptMappings('historical-concepts', decisions);
-  }, [decisions]);
+    rememberConceptMappings('historical-concepts', decisions, mappingScope);
+  }, [decisions, mappingScope]);
 
   const summary = summarizeHistoricalDecisions(decisions);
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [] };
