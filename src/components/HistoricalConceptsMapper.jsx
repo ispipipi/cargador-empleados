@@ -73,7 +73,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   }, [decisions, mappingScope]);
 
   const summary = summarizeHistoricalDecisions(decisions);
-  const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [] };
+  const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
   const catalogOptions = useMemo(
     () =>
@@ -230,7 +230,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         });
         triggerWorkbookDownload(workbook, `REX_altas_conceptos_${todayStamp()}.xlsx`);
       } else if (kind === 'output') {
-        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions, employeeCatalog });
+        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions, employeeCatalog, mappingScope });
         triggerTextDownload(csv, `REX_conceptos_detalle_historicos_${todayStamp()}.csv`);
       } else if (kind === 'employee-pending') {
         const reportRows = employeeValidation.missing.map((employee) => ({
@@ -326,6 +326,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <button type="button" onClick={() => handleDownload('employee-pending')} className="mt-4 rounded-full border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-800 transition hover:bg-rose-100">
                   Descargar pendientes de colaboradores
                 </button>
+              </div>
+            ) : null}
+            {employeeValidation.excludedCount > 0 ? (
+              <div className="mt-5 rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800">
+                <p className="font-semibold">Se excluyeron {employeeValidation.excludedCount} registros de colaboradores desvinculados.</p>
+                <p className="mt-2">No se incluirán en el archivo histórico y no bloquean la descarga.</p>
               </div>
             ) : null}
             <div className="mt-5 grid gap-3 sm:grid-cols-2">

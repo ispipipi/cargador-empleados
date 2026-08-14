@@ -110,6 +110,33 @@ const FINNING_APPROVED_CREATIONS = new Map([
   ],
 ]);
 
+// These collaborators are present in the January payroll but are terminated
+// and therefore must not block or enter the historical concept load for FINNING.
+const FINNING_TERMINATED_EMPLOYEE_IDS = new Set([
+  '17133647-3',
+  '10734545-0',
+  '19467522-4',
+  '15025660-7',
+  '16249223-3',
+  '18941561-3',
+  '17861299-9',
+  '8552006-7',
+  '17366676-4',
+  '18456229-4',
+  '17074351-2',
+  '21009521-7',
+  '16468383-4',
+  '20739762-8',
+  '10142183-K',
+  '11719893-6',
+  '10883669-5',
+  '14271970-3',
+  '10632033-0',
+  '18482923-1',
+  '21133098-8',
+  '14058765-6',
+]);
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -123,7 +150,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   const configuredByName = new Map(configuredDecisions.map((decision) => [conceptKey(decision.sourceName), decision]));
   const configuredByCanonicalName = buildUniqueDecisionIndex(configuredDecisions);
   const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
-  const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog);
+  const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog, mappingScope);
 
   const decisions = conceptColumns.map((column, index) => {
     const sourceKey = cleanCell(column.header);
@@ -197,15 +224,21 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   };
 }
 
-export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [] }) {
+export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
   const outputRows = [];
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
 
   decisions
     .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
     .forEach((decision) => {
       sourceRows.forEach((sourceRow) => {
-        const employee = employeeById.get(getSourceEmployeeId(sourceRow));
+        const sourceEmployeeId = getSourceEmployeeId(sourceRow);
+        if (excludedEmployeeIds.has(sourceEmployeeId)) {
+          return;
+        }
+
+        const employee = employeeById.get(sourceEmployeeId);
         if (!employee) {
           return;
         }
@@ -223,8 +256,8 @@ export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatal
   return outputRows;
 }
 
-export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [] }) {
-  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog });
+export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
+  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog, mappingScope });
   const sheet = XLSX.utils.aoa_to_sheet([DETAIL_HEADERS, ...detailRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, {
     FS: ';',
@@ -278,13 +311,20 @@ export function summarizeHistoricalDecisions(decisions) {
   };
 }
 
-export function validateHistoricalEmployees(sourceRows, employeeCatalog = []) {
+export function validateHistoricalEmployees(sourceRows, employeeCatalog = [], mappingScope) {
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
   const missing = [];
   const seen = new Set();
+  let excludedCount = 0;
 
   sourceRows.forEach((sourceRow) => {
     const sourceId = getSourceEmployeeId(sourceRow);
+    if (excludedEmployeeIds.has(sourceId)) {
+      excludedCount += 1;
+      return;
+    }
+
     if (sourceId && !employeeById.has(sourceId) && !seen.has(sourceId)) {
       seen.add(sourceId);
       missing.push({
@@ -296,9 +336,10 @@ export function validateHistoricalEmployees(sourceRows, employeeCatalog = []) {
   });
 
   return {
-    total: sourceRows.length,
-    matched: sourceRows.length - missing.length,
+    total: sourceRows.length - excludedCount,
+    matched: sourceRows.length - excludedCount - missing.length,
     missing,
+    excludedCount,
   };
 }
 
@@ -429,6 +470,10 @@ function buildUniqueDecisionIndex(decisions) {
 
 function isFinningMappingScope(mappingScope) {
   return !mappingScope || mappingScope.key === 'meta4:rex:finning';
+}
+
+function getExcludedHistoricalEmployeeIds(mappingScope) {
+  return isFinningMappingScope(mappingScope) ? FINNING_TERMINATED_EMPLOYEE_IDS : new Set();
 }
 
 function sourceSectionForColumn(index) {
