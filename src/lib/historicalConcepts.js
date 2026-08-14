@@ -110,9 +110,10 @@ const FINNING_APPROVED_CREATIONS = new Map([
   ],
 ]);
 
-// These collaborators are present in the January payroll but are terminated
-// and therefore must not block or enter the historical concept load for FINNING.
+// These collaborators are present in the January payroll but were explicitly
+// excluded by the client and must not block or enter the historical load.
 const FINNING_TERMINATED_EMPLOYEE_IDS = new Set([
+  '11599484-0',
   '17133647-3',
   '10734545-0',
   '19467522-4',
