@@ -328,6 +328,25 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 </button>
               </div>
             ) : null}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <DownloadButton
+                title="Descargar archivo de carga histórica"
+                detail={employeeValidation.missing.length
+                  ? `Bloqueado: faltan ${employeeValidation.missing.length} colaboradores REX+`
+                  : summary.pending
+                    ? `Faltan ${summary.pending} conceptos por resolver`
+                    : 'CSV UTF-8 listo para cargar en REX+'}
+                onClick={() => handleDownload('output')}
+                disabled={summary.pending > 0 || employeeValidation.missing.length > 0 || isPreparing}
+                primary
+              />
+              <DownloadButton
+                title="Descargar altas de conceptos"
+                detail={`${summary.createdApproved} conceptos nuevos aprobados para crear en REX+`}
+                onClick={() => handleDownload('create')}
+                disabled={summary.createdApproved === 0 || isPreparing}
+              />
+            </div>
             <div className="mt-5 flex flex-wrap gap-3">
               <button type="button" onClick={onBack} className="button-secondary">Volver a módulos</button>
               <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches perfectos</button>
