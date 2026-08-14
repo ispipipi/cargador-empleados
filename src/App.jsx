@@ -100,6 +100,7 @@ export default function App() {
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
+  const [historicalBatchState, setHistoricalBatchState] = useState({ completedEmployeeIds: [] });
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [cloudSessions, setCloudSessions] = useState([]);
@@ -314,6 +315,7 @@ export default function App() {
           sourceFile,
           validation,
           result,
+          historicalBatchState,
           step,
         },
       })
@@ -334,6 +336,7 @@ export default function App() {
               sourceFile,
               validation,
               result,
+              historicalBatchState,
               step,
             },
           });
@@ -363,6 +366,7 @@ export default function App() {
     sourceFile,
     step,
     validation,
+    historicalBatchState,
     authUser,
   ]);
 
@@ -530,6 +534,7 @@ export default function App() {
     setGlobalError('');
     setSourceFile(null);
     setValidation(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
     setIsReadingFile(true);
 
     try {
@@ -554,6 +559,7 @@ export default function App() {
 
       setSessionId(createSessionId());
       setSourceFile(nextSourceFile);
+      setHistoricalBatchState({ completedEmployeeIds: [] });
       setValidation({
         isValid: true,
         missingColumns: [],
@@ -990,6 +996,7 @@ export default function App() {
       setSourceFile(data.sourceFile ?? null);
       setValidation(data.validation ?? null);
       setResult(data.result ?? null);
+      setHistoricalBatchState(data.historicalBatchState ?? { completedEmployeeIds: [] });
       setStep(data.step ?? metadata.step ?? STEPS.upload);
       setGlobalError('');
     } catch (error) {
@@ -1034,6 +1041,7 @@ export default function App() {
     setSourceFile(null);
     setValidation(null);
     setResult(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
     setGlobalError('');
   };
 
@@ -1145,6 +1153,8 @@ export default function App() {
             sourceFile={sourceFile}
             conceptsResource={conceptsResource}
             mappingScope={mappingScope}
+            batchState={historicalBatchState}
+            onBatchStateChange={setHistoricalBatchState}
             onBack={() => setStep(STEPS.format)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />

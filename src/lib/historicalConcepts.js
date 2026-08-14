@@ -248,17 +248,18 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   };
 }
 
-export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
+export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
   const outputRows = [];
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
 
   decisions
     .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
     .forEach((decision) => {
       sourceRows.forEach((sourceRow) => {
         const sourceEmployeeId = getSourceEmployeeId(sourceRow);
-        if (excludedEmployeeIds.has(sourceEmployeeId)) {
+        if (excludedEmployeeIds.has(sourceEmployeeId) || (selectedEmployeeIds && !selectedEmployeeIds.has(sourceEmployeeId))) {
           return;
         }
 
@@ -273,15 +274,24 @@ export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatal
           return;
         }
 
-        outputRows.push(buildDetailRow(sourceRow, decision.targetId, amount, employee));
+        outputRows.push({
+          key: `${sourceEmployeeId}::${decision.sourceKey}::${decision.targetId}`,
+          employeeId: sourceEmployeeId,
+          conceptId: decision.targetId,
+          row: buildDetailRow(sourceRow, decision.targetId, amount, employee),
+        });
       });
     });
 
   return outputRows;
 }
 
-export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
-  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog, mappingScope });
+export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
+  return buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds }).map(({ row }) => row);
+}
+
+export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
+  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds });
   const sheet = XLSX.utils.aoa_to_sheet([DETAIL_HEADERS, ...detailRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, {
     FS: ';',
@@ -290,6 +300,31 @@ export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalo
   });
 
   return `\uFEFF${csv}`;
+}
+
+export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
+  const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const eligibleIds = new Set();
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+
+  sourceRows.forEach((sourceRow) => {
+    const sourceEmployeeId = getSourceEmployeeId(sourceRow);
+    if (!sourceEmployeeId || excludedEmployeeIds.has(sourceEmployeeId) || !employeeById.has(sourceEmployeeId)) {
+      return;
+    }
+
+    const hasLoadableAmount = approvedDecisions.some((decision) => {
+      const amount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
+      return amount !== null && amount !== 0;
+    });
+
+    if (hasLoadableAmount) {
+      eligibleIds.add(sourceEmployeeId);
+    }
+  });
+
+  return [...eligibleIds];
 }
 
 export function buildHistoricalReportRows(decisions) {

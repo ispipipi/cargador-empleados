@@ -7,6 +7,7 @@ import {
   buildHistoricalConceptModel,
   buildHistoricalDetailCsv,
   buildHistoricalReportRows,
+  getHistoricalEmployeeIds,
   HISTORICAL_FUNCTIONS,
   summarizeHistoricalDecisions,
 } from '../lib/historicalConcepts';
@@ -17,7 +18,7 @@ import ConceptSearchPicker from './ConceptSearchPicker';
 const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 
-export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, onBack, onBusyChange }) {
+export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
   const concepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
@@ -27,6 +28,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkTarget, setBulkTarget] = useState('');
+  const [batchSize, setBatchSize] = useState(10);
+  const [preparedBatch, setPreparedBatch] = useState(null);
   const employeeCatalog = useMemo(() => conceptsResource?.employeeCatalog ?? [], [conceptsResource]);
 
   useEffect(() => {
@@ -72,9 +75,35 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     rememberConceptMappings('historical-concepts', decisions, mappingScope);
   }, [decisions, mappingScope]);
 
+  useEffect(() => {
+    setPreparedBatch(null);
+  }, [mappingScope, sourceFile]);
+
   const summary = summarizeHistoricalDecisions(decisions);
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
   const excludedConcepts = model?.excludedConcepts ?? [];
+  const completedEmployeeIds = useMemo(
+    () => new Set((batchState?.completedEmployeeIds ?? []).map((employeeId) => normalizeText(employeeId).replace(/[.\s]/g, '').toUpperCase())),
+    [batchState],
+  );
+  const eligibleEmployeeIds = useMemo(
+    () => (summary.pending === 0 && employeeValidation.missing.length === 0
+      ? getHistoricalEmployeeIds({
+          sourceRows: sourceFile.rows,
+          decisions,
+          employeeCatalog,
+          mappingScope,
+        })
+      : []),
+    [decisions, employeeCatalog, employeeValidation.missing.length, mappingScope, sourceFile.rows, summary.pending],
+  );
+  const remainingEmployeeIds = useMemo(
+    () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(employeeId)),
+    [completedEmployeeIds, eligibleEmployeeIds],
+  );
+  const normalizedBatchSize = Math.max(1, Math.min(10000, Number(batchSize) || 1));
+  const nextBatchEmployeeIds = remainingEmployeeIds.slice(0, normalizedBatchSize);
+  const hasHistoricalBlockers = summary.pending > 0 || employeeValidation.missing.length > 0;
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
   const catalogOptions = useMemo(
     () =>
@@ -215,8 +244,33 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     );
   };
 
+  const handleMarkBatchCompleted = () => {
+    if (!preparedBatch?.employeeIds?.length) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `¿Confirmas que el lote de ${preparedBatch.employeeIds.length} colaboradores fue cargado correctamente en REX+?\n\nAl confirmar, no volverá a incluirse en los siguientes lotes.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const nextCompletedEmployeeIds = [...new Set([
+      ...completedEmployeeIds,
+      ...preparedBatch.employeeIds,
+    ])];
+
+    onBatchStateChange?.({ completedEmployeeIds: nextCompletedEmployeeIds });
+    setPreparedBatch(null);
+  };
+
   const handleDownload = async (kind) => {
-    if (isPreparing || (kind === 'output' && (summary.pending > 0 || employeeValidation.missing.length > 0))) {
+    if (
+      isPreparing ||
+      (kind === 'output' && hasHistoricalBlockers) ||
+      (kind === 'batch' && (hasHistoricalBlockers || (!preparedBatch && !nextBatchEmployeeIds.length)))
+    ) {
       return;
     }
 
@@ -233,6 +287,20 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       } else if (kind === 'output') {
         const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions, employeeCatalog, mappingScope });
         triggerTextDownload(csv, `REX_conceptos_detalle_historicos_${todayStamp()}.csv`);
+      } else if (kind === 'batch') {
+        const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
+        const csv = buildHistoricalDetailCsv({
+          sourceRows: sourceFile.rows,
+          decisions,
+          employeeCatalog,
+          mappingScope,
+          employeeIds,
+        });
+        triggerTextDownload(csv, `REX_conceptos_detalle_lote_${todayStamp()}.csv`);
+        setPreparedBatch({
+          employeeIds,
+          downloadedAt: new Date().toISOString(),
+        });
       } else if (kind === 'employee-pending') {
         const reportRows = employeeValidation.missing.map((employee) => ({
           Fila: employee.sourceRowNumber,
@@ -343,6 +411,78 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <p className="mt-2 leading-6">Ejemplos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
+            <section className="mt-5 rounded-[28px] border border-brand-200 bg-brand-50 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Carga controlada</p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar siguiente lote para REX+</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Se incluyen todos los conceptos de cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
+                  {remainingEmployeeIds.length.toLocaleString('es-CL')} restantes
+                </span>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  Colaboradores por lote
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={batchSize}
+                    disabled={Boolean(preparedBatch)}
+                    onChange={(event) => setBatchSize(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))}
+                    className="mt-2 block w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal tracking-normal text-slate-900 disabled:bg-slate-100"
+                  />
+                </label>
+                {[10, 50, 100, 500].map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    disabled={Boolean(preparedBatch)}
+                    onClick={() => setBatchSize(size)}
+                    className="rounded-full border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+
+              {hasHistoricalBlockers ? (
+                <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Resuelve primero los {summary.pending} conceptos pendientes y los colaboradores faltantes para habilitar la descarga por lotes.
+                </p>
+              ) : preparedBatch ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} colaboradores.</p>
+                  <p className="mt-1">Si la carga falló en REX+, puedes descargar nuevamente el mismo lote. Si fue correcta, márcalo como realizado.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => handleDownload('batch')} className="button-secondary border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100">
+                      Descargar este lote nuevamente
+                    </button>
+                    <button type="button" onClick={handleMarkBatchCompleted} className="button-primary bg-emerald-700 hover:bg-emerald-800">
+                      Marcar lote como realizado
+                    </button>
+                  </div>
+                </div>
+              ) : remainingEmployeeIds.length > 0 ? (
+                <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-brand-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-slate-600">
+                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. La descarga generará un CSV UTF-8 para Concepto Detalle.
+                  </p>
+                  <button type="button" onClick={() => handleDownload('batch')} className="button-primary shrink-0" disabled={isPreparing}>
+                    Descargar siguiente lote
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  Todos los colaboradores elegibles ya fueron marcados como realizados. No quedan registros para volver a descargar.
+                </p>
+              )}
+            </section>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <DownloadButton
                 title="Descargar archivo de carga histórica"
