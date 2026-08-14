@@ -88,20 +88,6 @@ const HISTORICAL_ALIASES = new Map([
 // until the refreshed REX+ catalog contains the created IDs.
 const FINNING_APPROVED_CREATIONS = new Map([
   [
-    'seguro empresa aporte empleador',
-    {
-      targetId: 'seguroEmpresaAp13V8K',
-      targetName: 'SEGURO EMPRESA APORTE EMPLEADOR',
-    },
-  ],
-  [
-    'capitalizacion individual reliq',
-    {
-      targetId: 'capitalizacionIUVQ1P',
-      targetName: 'CAPITALIZACION INDIVIDUAL RELIQ',
-    },
-  ],
-  [
     'subsidios por reembolsar',
     {
       targetId: 'subsidiosPorReePPZYM',
@@ -138,6 +124,42 @@ const FINNING_TERMINATED_EMPLOYEE_IDS = new Set([
   '14058765-6',
 ]);
 
+const NON_LOADABLE_HISTORICAL_PATTERNS = [
+  /^IMPUESTO\b/,
+  /^COSTO EMPRESA\b/,
+  /^PROVIS/,
+  /^PROV CONTABLE\b/,
+  /\b(APORTE|COSTO)\b.*\bEMPRESA\b/,
+  /\bEMPRESA\b.*\b(APORTE|COSTO)\b/,
+  /^APORTE EMPLEADOR\b/,
+  /^CAJA DE COMPENSACI/,
+  /^SEGURO SOBREV/,
+  /^SEGURO CESANT/,
+  /^SEG\. DE CESANT/,
+  /^SEGURO DE CESANT/,
+  /^SEGURO INVALIDEZ/,
+  /^SEGURO DE INVALIDEZ/,
+  /^COTIZACI(?:O|Ó)N FONDO RETIRO\b/,
+  /^COTIZACI(?:O|Ó)N ISAPRE\b/,
+  /^COTIZACI(?:O|Ó)N SALUD\b/,
+  /^COTIZACI(?:O|Ó)N SEGURO\b/,
+  /^COTIZACI(?:O|Ó)NES FONDO SOL/,
+  /^APORTE SEGURO DE CESANT/,
+  /^DIF LEY SANA\b/,
+  /^COMISI(?:O|Ó)N AFP\b/,
+  /^ADICIONAL AL 7%\b/,
+  /^ISAPRE RELIQ/,
+  /^TRABAJO PESADO\b/,
+  /^TRAB\. PESADO\b/,
+  /^SIS\b/,
+  /^FONDO SOL/,
+  /^MUTUAL\b/,
+  /^LEY SANNA\b/,
+  /^RENTA IMPONIBLE RIMA\b/,
+  /^CAPITALIZACI(?:O|Ó)N INDIVIDUAL\b/,
+  /^EXPECTATIVA DE VIDA\b/,
+];
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -150,7 +172,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     : [];
   const configuredByName = new Map(configuredDecisions.map((decision) => [conceptKey(decision.sourceName), decision]));
   const configuredByCanonicalName = buildUniqueDecisionIndex(configuredDecisions);
-  const conceptColumns = extractConceptColumns({ sourceRows, sourceHeaders });
+  const { columns: conceptColumns, excludedColumns } = extractConceptColumns({ sourceRows, sourceHeaders });
   const employeeValidation = validateHistoricalEmployees(sourceRows, employeeCatalog, mappingScope);
 
   const decisions = conceptColumns.map((column, index) => {
@@ -221,6 +243,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     catalog,
     sourceConcepts: conceptColumns.length,
     sourceRows: sourceRows.length,
+    excludedConcepts: excludedColumns,
     employeeValidation,
   };
 }
@@ -369,8 +392,9 @@ function extractConceptColumns({ sourceRows, sourceHeaders }) {
     sourceHeaders.findIndex((header) => stripDuplicateHeaderSuffix(header) === CONCEPT_START_HEADER),
     0,
   );
+  const excludedColumns = [];
 
-  return sourceHeaders
+  const columns = sourceHeaders
     .map((header, index) => ({ header, index }))
     .filter(({ header, index }) => {
       const baseHeader = stripDuplicateHeaderSuffix(header);
@@ -384,12 +408,23 @@ function extractConceptColumns({ sourceRows, sourceHeaders }) {
 
       return {
         header,
+        baseHeader: stripDuplicateHeaderSuffix(header),
         index,
         nonZeroCount: values.length,
         sampleValue: values[0] ?? '',
       };
     })
-    .filter((column) => column.nonZeroCount > 0);
+    .filter((column) => column.nonZeroCount > 0)
+    .filter((column) => {
+      if (!isNonLoadableHistoricalConcept(column.baseHeader)) {
+        return true;
+      }
+
+      excludedColumns.push(column);
+      return false;
+    });
+
+  return { columns, excludedColumns };
 }
 
 function findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) {
@@ -542,6 +577,11 @@ function isExcludedSourceHeader(value) {
     EXCLUDED_SOURCE_HEADERS.has(normalizedHeader) ||
     normalizedHeader.startsWith('SUELDO BASE ORIGINAL')
   );
+}
+
+function isNonLoadableHistoricalConcept(value) {
+  const normalizedHeader = cleanCell(value).toUpperCase();
+  return NON_LOADABLE_HISTORICAL_PATTERNS.some((pattern) => pattern.test(normalizedHeader));
 }
 
 function buildDetailRow(sourceRow, targetId, amount, employee) {

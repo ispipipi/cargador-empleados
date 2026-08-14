@@ -74,6 +74,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
 
   const summary = summarizeHistoricalDecisions(decisions);
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
+  const excludedConcepts = model?.excludedConcepts ?? [];
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
   const catalogOptions = useMemo(
     () =>
@@ -298,6 +299,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <Metric label="Matches perfectos" value={summary.exact} tone="success" />
                 <Metric label="Propuestas a revisar" value={summary.pending} tone="warning" />
                 <Metric label="Se crearán" value={summary.createdApproved} />
+                <Metric label="Excluidos por regla" value={excludedConcepts.length} />
                 <Metric label="Filas estimadas" value={summary.detailRows.toLocaleString('es-CL')} />
                 <Metric label="Colaboradores REX+" value={`${employeeValidation.matched}/${employeeValidation.total}`} />
               </div>
@@ -312,6 +314,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <li>La salida usa `M` como origen y `M` como período de pago mensual.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
                 <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
+                <li>Se excluyen leyes sociales, aportes patronales, provisiones, bases de cálculo e impuestos.</li>
                 <li>El CSV se genera con encabezados, UTF-8 y separador punto y coma.</li>
               </ul>
             </div>
@@ -332,6 +335,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <div className="mt-5 rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800">
                 <p className="font-semibold">Se excluyeron {employeeValidation.excludedCount} registros de colaboradores desvinculados.</p>
                 <p className="mt-2">No se incluirán en el archivo histórico y no bloquean la descarga.</p>
+              </div>
+            ) : null}
+            {excludedConcepts.length > 0 ? (
+              <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">Se excluyeron {excludedConcepts.length} conceptos que no corresponden al archivo de haberes y descuentos.</p>
+                <p className="mt-2 leading-6">Ejemplos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
