@@ -83,6 +83,33 @@ const HISTORICAL_ALIASES = new Map([
   ['LIQUIDO', 'totalesEmpl'],
 ]);
 
+// These concepts were explicitly approved as new REX+ concepts for FINNING.
+// They are not in the general LRE mapping workbook, so keep them scoped here
+// until the refreshed REX+ catalog contains the created IDs.
+const FINNING_APPROVED_CREATIONS = new Map([
+  [
+    'seguro empresa aporte empleador',
+    {
+      targetId: 'seguroEmpresaAp13V8K',
+      targetName: 'SEGURO EMPRESA APORTE EMPLEADOR',
+    },
+  ],
+  [
+    'capitalizacion individual reliq',
+    {
+      targetId: 'capitalizacionIUVQ1P',
+      targetName: 'CAPITALIZACION INDIVIDUAL RELIQ',
+    },
+  ],
+  [
+    'subsidios por reembolsar',
+    {
+      targetId: 'subsidiosPorReePPZYM',
+      targetName: 'SUBSIDIOS POR REEMBOLSAR',
+    },
+  ],
+]);
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -107,12 +134,22 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const configuredDecision =
       configuredByName.get(conceptKey(sourceName)) ??
       configuredByCanonicalName.get(historicalConceptKey(sourceName));
+    const configuredCreation = isFinningMappingScope(mappingScope)
+      ? FINNING_APPROVED_CREATIONS.get(historicalConceptKey(sourceName))
+      : null;
     const exactMatch =
       findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) ??
       (configuredDecision?.action === 'reuse' ? configuredDecision.targetConcept : null);
     const configuredExclusion = configuredDecision?.action === 'exclude' && configuredDecision.excluded;
-    const configuredCreation =
-      configuredDecision?.action === 'create' && configuredDecision.approved && configuredDecision.targetId;
+    const storedCreation =
+      configuredDecision?.action === 'create' && configuredDecision.approved && configuredDecision.targetId
+        ? {
+          targetId: configuredDecision.targetId,
+          targetName: configuredDecision.targetName,
+          sequence: configuredDecision.sequence,
+        }
+        : null;
+    const approvedCreation = storedCreation ?? configuredCreation;
     const suggestedMatches = findSuggestedMatches(sourceName, catalog);
     const suggestedConcept = exactMatch ?? suggestedMatches[0]?.concept ?? null;
     const proposedId = buildConceptId(sourceName, index);
@@ -130,22 +167,22 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       sourceSection: column.index >= 255 ? 'Descuento' : 'Haber / remuneración',
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
-      exactMatch: Boolean(exactMatch || configuredCreation),
-      matchStatus: configuredExclusion ? 'excluded' : exactMatch || configuredCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
-      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : configuredCreation ? 'create' : 'pending',
+      exactMatch: Boolean(exactMatch || approvedCreation),
+      matchStatus: configuredExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
       suggestedMatches,
       targetConcept: exactMatch,
-      targetId: exactMatch?.id ?? (configuredCreation ? configuredDecision.targetId : ''),
-      targetName: exactMatch?.name ?? (configuredCreation ? configuredDecision.targetName : ''),
+      targetId: exactMatch?.id ?? approvedCreation?.targetId ?? '',
+      targetName: exactMatch?.name ?? approvedCreation?.targetName ?? '',
       proposedId,
       proposedSequence: resolveNewSequence(sourceMapping?.sourceCode, index),
-      sequence: exactMatch?.sequence ?? resolveNewSequence(sourceMapping?.sourceCode, index),
+      sequence: exactMatch?.sequence ?? approvedCreation?.sequence ?? resolveNewSequence(sourceMapping?.sourceCode, index),
       type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
       lreField,
       classification,
-      approved: Boolean(configuredExclusion || exactMatch || configuredCreation),
+      approved: Boolean(configuredExclusion || exactMatch || approvedCreation),
       excluded: Boolean(configuredExclusion),
-      matchOrigin: configuredDecision && (configuredExclusion || exactMatch || configuredCreation)
+      matchOrigin: (configuredDecision || configuredCreation) && (configuredExclusion || exactMatch || approvedCreation)
         ? 'concepts-module'
         : undefined,
     };
