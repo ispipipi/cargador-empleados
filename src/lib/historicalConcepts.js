@@ -60,7 +60,6 @@ const HISTORICAL_ALIASES = new Map([
   ['ASIGNACION TELETRABAJO', 'AsigTeletrabajoMi'],
   ['COTIZACION FONDO RETIRO', 'afp'],
   ['COMISION AFP', 'comisionAfp'],
-  ['ADICIONAL AL 7%', 'adicionalAl7'],
   ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
   ['SEGURO CESANTIA', 'cesEmpleado'],
   ['APORTE EMPRESA MUTUAL', 'mutual'],

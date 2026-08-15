@@ -43,7 +43,6 @@ const EXISTING_CONCEPT_OVERRIDES = new Map([
   ['COTIZACION FONDO RETIRO RELIQUIDADA', 'reliquidaAfp'],
   ['COMISION AFP', 'comisionAfp'],
   ['COMISION AFP RELIQUIDADA', 'reliquidaAfp'],
-  ['ADICIONAL AL 7%', 'adicionalAl7'],
   ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
   ['ISAPRE RELIQUIDADA', 'reliquidaIsapre'],
   ['TRABAJO PESADO RELIQUIDADO', 'reliquidaTrabPesa'],
@@ -93,17 +92,9 @@ const VIRTUAL_EXISTING_CONCEPTS = [
     categoryIne: 'ine_noAplica',
     categoryInternal: 'NO',
   },
-  {
-    id: 'adicionalAl7',
-    name: 'Adicional al 7%',
-    type: '3L',
-    sequence: '6311',
-    lreCode: '3141',
-    behavior: 'F',
-    categoryIne: 'ine_noAplica',
-    categoryInternal: 'NO',
-  },
 ];
+
+const AUTO_EXCLUDED_CONCEPTS = new Set(['ADICIONAL AL 7%']);
 
 export async function loadConceptsResource() {
   const [listsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse] = await Promise.all([
@@ -457,6 +448,10 @@ function resolveDecisionOverride(mapping, conceptById, index) {
   const sourceName = normalizeText(mapping.sourceName);
   const sourceKey = mapping.sourceName.toUpperCase();
   const existingOverrideId = EXISTING_CONCEPT_OVERRIDES.get(sourceKey);
+
+  if (AUTO_EXCLUDED_CONCEPTS.has(sourceKey)) {
+    return { action: 'exclude' };
+  }
 
   if (existingOverrideId) {
     return {
