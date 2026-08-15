@@ -248,12 +248,11 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
   };
 }
 
-export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null, recordKeys = null }) {
+export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
   const outputRows = [];
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
   const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
-  const selectedRecordKeys = recordKeys ? new Set(recordKeys) : null;
 
   decisions
     .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
@@ -269,11 +268,6 @@ export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCa
           return;
         }
 
-        const recordKey = `${sourceEmployeeId}::${decision.sourceKey}::${decision.targetId}`;
-        if (selectedRecordKeys && !selectedRecordKeys.has(recordKey)) {
-          return;
-        }
-
         const amount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
 
         if (amount === null || amount === 0) {
@@ -281,7 +275,7 @@ export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCa
         }
 
         outputRows.push({
-          key: recordKey,
+          key: `${sourceEmployeeId}::${decision.sourceKey}::${decision.targetId}`,
           employeeId: sourceEmployeeId,
           conceptId: decision.targetId,
           row: buildDetailRow(sourceRow, decision.targetId, amount, employee),
@@ -292,12 +286,12 @@ export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCa
   return outputRows;
 }
 
-export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null, recordKeys = null }) {
-  return buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds, recordKeys }).map(({ row }) => row);
+export function buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
+  return buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds }).map(({ row }) => row);
 }
 
-export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null, recordKeys = null }) {
-  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds, recordKeys });
+export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
+  const detailRows = buildHistoricalDetailRows({ sourceRows, decisions, employeeCatalog, mappingScope, employeeIds });
   const sheet = XLSX.utils.aoa_to_sheet([DETAIL_HEADERS, ...detailRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, {
     FS: ';',
