@@ -53,6 +53,10 @@ const EXCLUDED_SOURCE_HEADERS = new Set([
 ]);
 
 const HISTORICAL_ALIASES = new Map([
+  ['ASIGNACION DE ALIMENTACION ORIG.', 'asignacionAlimeXOWDI'],
+  ['BONO PROD/SEG LOS BRONCES', 'bonoProduccion'],
+  ['BONO PERMANENCIA', 'bonoPermanenciaHaber'],
+  ['BONO PERMANENCIA 5/36', 'bonoPermanenciaHaber'],
   ['ASIGNACION DE MOVILIZACION', 'movilizacion'],
   ['ASIGNACIONES FAMILIAR LEGAL', 'cargasSimp'],
   ['ASIG. FAMILIAR RETROACTIVAS', 'cargasRetr'],
@@ -127,6 +131,7 @@ const NON_LOADABLE_HISTORICAL_PATTERNS = [
   /^IMPUESTO\b/,
   /^COSTO EMPRESA\b/,
   /^PROVIS/,
+  /^PROV\b/,
   /^PROV CONTABLE\b/,
   /\b(APORTE|COSTO)\b.*\bEMPRESA\b/,
   /\bEMPRESA\b.*\b(APORTE|COSTO)\b/,
