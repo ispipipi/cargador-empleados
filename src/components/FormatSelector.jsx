@@ -5,6 +5,7 @@ const SYSTEM_OPTIONS = {
   origins: [
     { id: 'talana', name: 'Talana' },
     { id: 'meta4', name: 'Meta 4' },
+    { id: 'geovictoria', name: 'GeoVictoria' },
   ],
   destinations: [
     { id: 'buk', name: 'BUK' },
@@ -16,6 +17,7 @@ const MODULE_OPTIONS = [
   { id: 'empleados', name: 'Empleados', detail: 'Meta 4 → REX+ Empleados' },
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
   { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
+  { id: 'geovictoria', name: 'GeoVictoria', detail: 'GeoVictoria → REX+ Concepto Detalle' },
 ];
 
 export default function FormatSelector({
@@ -152,6 +154,8 @@ export default function FormatSelector({
                     ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
                     : selectedModule === 'conceptos'
                       ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
+                    : selectedModule === 'geovictoria'
+                      ? 'Consulta asistencia por API y genera la carga Rex+ con horas extra, atrasos e inasistencias.'
                     : pairKey === 'talana:buk'
                       ? 'Genera 2 archivos: Colaboradores + Trabajos.'
                       : 'Genera 1 archivo final REX+ Empleados.'}
@@ -161,6 +165,8 @@ export default function FormatSelector({
                     ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
                     : selectedModule === 'conceptos'
                       ? 'Incluye informe final de matches, altas y advertencias.'
+                    : selectedModule === 'geovictoria'
+                      ? 'Destaca extras mayores a 10 horas semanales y los mayores atrasos e inasistencias.'
                     : pairKey === 'talana:buk'
                       ? 'Usa wizard y matching contra listas BUK.'
                       : 'Incluye revisión manual de no-match antes de descargar.'}
@@ -175,7 +181,11 @@ export default function FormatSelector({
               disabled={!canContinue}
               className="rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {selectedModule === 'conceptos' ? 'Abrir mapeo de conceptos' : 'Continuar a carga de archivo'}
+              {selectedModule === 'conceptos'
+                ? 'Abrir mapeo de conceptos'
+                : selectedModule === 'geovictoria'
+                  ? 'Conectar GeoVictoria'
+                  : 'Continuar a carga de archivo'}
             </button>
           </div>
         </div>

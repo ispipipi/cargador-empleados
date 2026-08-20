@@ -9,6 +9,7 @@ import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
+import GeovictoriaReview from './components/GeovictoriaReview';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -78,6 +79,7 @@ const STEPS = {
   result: 'result',
   concepts: 'concepts',
   historicalReview: 'historical-review',
+  geovictoriaReview: 'geovictoria-review',
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
@@ -123,7 +125,8 @@ export default function App() {
   const isRexFlow = pairKey === 'meta4:rex';
   const isConceptsFlow = selectedModule === 'conceptos';
   const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
-  const isSupportedPair = isHistoricalConceptsFlow || SUPPORTED_PAIRS.has(pairKey);
+  const isGeovictoriaFlow = selectedModule === 'geovictoria';
+  const isSupportedPair = isHistoricalConceptsFlow || isGeovictoriaFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -371,7 +374,7 @@ export default function App() {
   ]);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
-  const originLabel = selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
+  const originLabel = selectedOrigin === 'geovictoria' ? 'GeoVictoria' : selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
   const destinationLabel = selectedDestination === 'rex' ? 'REX+' : 'BUK';
   const busyState =
     templateStatus === 'loading'
@@ -610,6 +613,12 @@ export default function App() {
 
     if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
       setSelectedOrigin('meta4');
+      setSelectedDestination('rex');
+      return;
+    }
+
+    if (moduleId === 'geovictoria') {
+      setSelectedOrigin('geovictoria');
       setSelectedDestination('rex');
     }
   };
@@ -1060,8 +1069,9 @@ export default function App() {
                 <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-300">NPR interno</p>
                 <h1 className="mt-3 text-3xl font-extrabold sm:text-4xl">Maper</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                  Mapea archivos de {originLabel} a {destinationLabel} en un flujo client-side, sin backend y con
-                  trazabilidad antes de descargar.
+                  {isGeovictoriaFlow
+                    ? 'Conecta GeoVictoria por proxy backend, revisa excepciones de asistencia y descarga la carga Rex+.'
+                    : `Mapea archivos de ${originLabel} a ${destinationLabel} en un flujo client-side, con trazabilidad antes de descargar.`}
                 </p>
               </div>
 
@@ -1094,7 +1104,7 @@ export default function App() {
             onChangeDestination={setSelectedDestination}
             onChangeMappingCompany={setMappingCompany}
             onChangeModule={handleModuleChange}
-            onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : STEPS.upload)}
+            onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : isGeovictoriaFlow ? STEPS.geovictoriaReview : STEPS.upload)}
             templateStatus={templateStatus}
             conceptCatalogCount={conceptsResource?.concepts?.length ?? 0}
             isUpdatingConceptCatalog={isUpdatingConceptCatalog}
@@ -1110,6 +1120,20 @@ export default function App() {
             sessions={visibleSessions}
             onResumeSession={handleResumeSession}
             onDeleteSession={handleDeleteSession}
+          />
+        ) : null}
+
+        {step === STEPS.geovictoriaReview ? (
+          <GeovictoriaReview
+            onBack={() => setStep(STEPS.format)}
+            onBusyChange={(isBusy) => {
+              setExportState(isBusy
+                ? {
+                    title: 'Consultando GeoVictoria',
+                    detail: 'El proxy esta obteniendo usuarios, asistencia, horas extra, atrasos e inasistencias.',
+                  }
+                : null);
+            }}
           />
         ) : null}
 
@@ -1297,6 +1321,10 @@ function normalizeDestination(destinationId) {
 }
 
 function normalizeOrigin(originId) {
+  if (originId === 'geovictoria') {
+    return 'geovictoria';
+  }
+
   return originId === 'meta4' ? 'meta4' : 'talana';
 }
 
