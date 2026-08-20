@@ -45,7 +45,7 @@ const server = http.createServer(async (request, response) => {
     const activeUsers = Array.isArray(users) ? users : [];
     const identifiers = activeUsers.map((user) => user.Identifier).filter(Boolean);
     const attendanceBook = await fetchAttendanceBook({ token, identifiers, startDate, endDate });
-    const overtime = await fetchOvertime({ token, identifiers, startDate, endDate });
+    const overtime = await fetchOvertimeSafely({ token, identifiers, startDate, endDate });
 
     sendJson(response, 200, {
       ok: true,
@@ -55,7 +55,7 @@ const server = http.createServer(async (request, response) => {
       fetchedAt: new Date().toISOString(),
     });
   } catch (error) {
-    sendJson(response, 502, {
+    sendJson(response, error.status || 502, {
       ok: false,
       message: error instanceof Error ? error.message : 'No se pudo consultar GeoVictoria.',
     });
@@ -107,6 +107,18 @@ async function fetchOvertime({ token, identifiers, startDate, endDate }) {
   };
 }
 
+async function fetchOvertimeSafely({ token, identifiers, startDate, endDate }) {
+  try {
+    return await fetchOvertime({ token, identifiers, startDate, endDate });
+  } catch (error) {
+    return {
+      Success: false,
+      Message: error instanceof Error ? error.message : 'No se pudo consultar OverTime/GetOvertime.',
+      Response: [],
+    };
+  }
+}
+
 async function postToGeovictoria(path, payload, token) {
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
@@ -117,13 +129,40 @@ async function postToGeovictoria(path, payload, token) {
     body: JSON.stringify(payload),
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const data = parseJsonSafe(text);
 
   if (!response.ok) {
-    throw new Error(data?.Message || data?.message || `GeoVictoria respondio HTTP ${response.status}.`);
+    const error = new Error(buildGeovictoriaErrorMessage(path, response.status, data, text));
+    error.status = response.status;
+    throw error;
   }
 
   return data;
+}
+
+function parseJsonSafe(text) {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function buildGeovictoriaErrorMessage(path, status, data, text) {
+  const message =
+    data?.Message ||
+    data?.message ||
+    data?.error ||
+    (typeof data === 'string' ? data : '') ||
+    String(text || '').slice(0, 240);
+
+  return message
+    ? `${path}: GeoVictoria respondio HTTP ${status}. ${message}`
+    : `${path}: GeoVictoria respondio HTTP ${status}.`;
 }
 
 function readJsonBody(request) {
