@@ -67,7 +67,9 @@ server.listen(PORT, '127.0.0.1', () => {
 });
 
 async function fetchAttendanceBook({ token, identifiers, startDate, endDate }) {
-  const chunks = chunkArray(identifiers, 120);
+  const days = inclusiveDays(startDate, endDate);
+  const chunkSize = Math.max(1, Math.floor(MAX_OVERTIME_RECORDS / Math.max(1, days)));
+  const chunks = chunkArray(identifiers, chunkSize);
   const responses = [];
 
   for (const chunk of chunks) {
