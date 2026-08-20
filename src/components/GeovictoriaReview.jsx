@@ -18,6 +18,15 @@ const FILTERS = [
   { id: 'rejected', label: 'No aprobados' },
 ];
 
+const GROUP_FIELDS = [
+  { id: 'company', label: 'Empresa', emptyLabel: 'Sin empresa' },
+  { id: 'group', label: 'Grupo', emptyLabel: 'Sin grupo' },
+  { id: 'area', label: 'Area', emptyLabel: 'Sin area' },
+  { id: 'department', label: 'Departamento', emptyLabel: 'Sin departamento' },
+  { id: 'costCenter', label: 'Centro de costo', emptyLabel: 'Sin centro de costo' },
+  { id: 'location', label: 'Ubicacion', emptyLabel: 'Sin ubicacion' },
+];
+
 const PROXY_ENDPOINT = '/api/geovictoria/payroll-preview';
 
 export default function GeovictoriaReview({ onBack, onBusyChange }) {
@@ -30,6 +39,8 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const [model, setModel] = useState(null);
   const [cases, setCases] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [primaryGroup, setPrimaryGroup] = useState('company');
+  const [secondaryGroup, setSecondaryGroup] = useState('group');
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,12 +60,18 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
         !normalizedSearch ||
         item.employeeName.toLowerCase().includes(normalizedSearch) ||
         item.identifier.toLowerCase().includes(normalizedSearch) ||
-        item.concept.toLowerCase().includes(normalizedSearch);
+        item.concept.toLowerCase().includes(normalizedSearch) ||
+        Object.values(item.metadata ?? {}).some((value) => String(value ?? '').toLowerCase().includes(normalizedSearch));
 
       return matchesFilter && matchesSearch;
     });
   }, [activeFilter, cases, search]);
 
+  const availableGroupFields = useMemo(() => buildAvailableGroupFields(cases), [cases]);
+  const groupedSections = useMemo(
+    () => buildGroupedSections(visibleCases, primaryGroup, secondaryGroup),
+    [primaryGroup, secondaryGroup, visibleCases],
+  );
   const summary = useMemo(() => summarizeCurrentCases(cases, model?.summary), [cases, model]);
   const canQuery = form.apiKey.trim() && form.apiSecret.trim() && form.startDate && form.endDate && !isLoading;
   const canExport = cases.some((item) => item.approved) && !isExporting;
@@ -116,6 +133,11 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
 
   const setVisibleApproval = (approved) => {
     const ids = new Set(visibleCases.map((item) => item.id));
+    setCases((current) => current.map((item) => (ids.has(item.id) ? { ...item, approved } : item)));
+  };
+
+  const setGroupApproval = (groupCases, approved) => {
+    const ids = new Set(groupCases.map((item) => item.id));
     setCases((current) => current.map((item) => (ids.has(item.id) ? { ...item, approved } : item)));
   };
 
@@ -311,6 +333,52 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
             ))}
           </div>
 
+          <div className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[1fr_1fr_1.4fr]">
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Agrupar por</span>
+              <select
+                value={primaryGroup}
+                onChange={(event) => setPrimaryGroup(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
+              >
+                {availableGroupFields.map((field) => (
+                  <option key={field.id} value={field.id}>{field.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Subagrupar por</span>
+              <select
+                value={secondaryGroup}
+                onChange={(event) => setSecondaryGroup(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
+              >
+                {availableGroupFields.map((field) => (
+                  <option key={field.id} value={field.id}>{field.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="rounded-2xl border border-white bg-white px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Vista actual</p>
+              <p className="mt-2 text-sm text-slate-600">
+                {groupedSections.length.toLocaleString('es-CL')} grupos visibles · {visibleCases.length.toLocaleString('es-CL')} casos filtrados.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {groupedSections.slice(0, 9).map((section) => (
+              <GroupSummaryCard
+                key={section.key}
+                section={section}
+                primaryLabel={getGroupField(primaryGroup).label}
+                secondaryLabel={getGroupField(secondaryGroup).label}
+                onApprove={() => setGroupApproval(section.cases, true)}
+                onReject={() => setGroupApproval(section.cases, false)}
+              />
+            ))}
+          </div>
+
           <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50">
@@ -324,33 +392,14 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {visibleCases.map((item) => (
-                  <tr key={item.id} className={item.severity === 'high' ? 'bg-amber-50/70' : ''}>
-                    <td className="px-4 py-3">
-                      <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={item.approved}
-                          onChange={() => toggleCase(item.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-brand-600"
-                        />
-                        {item.approved ? 'Aprobado' : 'No aprobado'}
-                      </label>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-slate-900">{item.employeeName}</p>
-                      <p className="mt-1 text-xs text-slate-500">{item.identifier} · CC {item.costCenter || '-'}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${toneClass(item.severity)}`}>
-                        {caseTypeLabel(item.type)}
-                      </span>
-                      <p className="mt-2 font-mono text-xs text-slate-500">{item.concept}</p>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-slate-800">{formatCaseValue(item)}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.periodLabel}</td>
-                    <td className="max-w-sm px-4 py-3 text-slate-600">{item.notes}</td>
-                  </tr>
+                {groupedSections.map((section) => (
+                  <GroupedRows
+                    key={section.key}
+                    section={section}
+                    primaryLabel={getGroupField(primaryGroup).label}
+                    secondaryLabel={getGroupField(secondaryGroup).label}
+                    onToggleCase={toggleCase}
+                  />
                 ))}
               </tbody>
             </table>
@@ -379,8 +428,203 @@ function summarizeCurrentCases(cases, baseSummary) {
   };
 }
 
+function buildAvailableGroupFields(cases) {
+  if (cases.length === 0) {
+    return GROUP_FIELDS;
+  }
+
+  const fieldsWithValues = GROUP_FIELDS.filter((field) =>
+    cases.some((item) => cleanGroupValue(item, field.id, '') !== ''),
+  );
+
+  return fieldsWithValues.length > 0 ? fieldsWithValues : GROUP_FIELDS;
+}
+
+function buildGroupedSections(cases, primaryFieldId, secondaryFieldId) {
+  const primaryField = getGroupField(primaryFieldId);
+  const secondaryField = getGroupField(secondaryFieldId);
+  const sectionMap = new Map();
+
+  cases.forEach((item) => {
+    const primaryValue = cleanGroupValue(item, primaryField.id, primaryField.emptyLabel);
+    const sectionKey = `${primaryField.id}:${primaryValue}`;
+    const section = sectionMap.get(sectionKey) ?? {
+      key: sectionKey,
+      label: primaryValue,
+      cases: [],
+      subgroups: new Map(),
+    };
+    const secondaryValue = cleanGroupValue(item, secondaryField.id, secondaryField.emptyLabel);
+    const subgroup = section.subgroups.get(secondaryValue) ?? {
+      key: `${sectionKey}:${secondaryValue}`,
+      label: secondaryValue,
+      cases: [],
+    };
+
+    section.cases.push(item);
+    subgroup.cases.push(item);
+    section.subgroups.set(secondaryValue, subgroup);
+    sectionMap.set(sectionKey, section);
+  });
+
+  return [...sectionMap.values()]
+    .map((section) => ({
+      ...section,
+      summary: summarizeGroup(section.cases),
+      subgroups: [...section.subgroups.values()]
+        .map((subgroup) => ({ ...subgroup, summary: summarizeGroup(subgroup.cases) }))
+        .sort(sortGroupSections),
+    }))
+    .sort(sortGroupSections);
+}
+
+function summarizeGroup(cases) {
+  return {
+    total: cases.length,
+    approved: cases.filter((item) => item.approved).length,
+    alerts: cases.filter((item) => item.severity === 'high').length,
+    overtime: sumType(cases, 'overtime'),
+    delays: sumType(cases, 'delay'),
+    absences: sumType(cases, 'absence'),
+  };
+}
+
+function sortGroupSections(left, right) {
+  return right.summary.alerts - left.summary.alerts ||
+    right.summary.total - left.summary.total ||
+    left.label.localeCompare(right.label);
+}
+
+function cleanGroupValue(item, fieldId, fallback) {
+  const value = String(item.metadata?.[fieldId] ?? item[fieldId] ?? '').trim();
+  return value || fallback;
+}
+
+function getGroupField(fieldId) {
+  return GROUP_FIELDS.find((field) => field.id === fieldId) ?? GROUP_FIELDS[0];
+}
+
 function sumType(cases, type) {
   return cases.filter((item) => item.type === type).reduce((total, item) => total + (Number(item.value) || 0), 0);
+}
+
+function GroupSummaryCard({ section, primaryLabel, secondaryLabel, onApprove, onReject }) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{primaryLabel}</p>
+          <h4 className="mt-1 text-base font-bold text-slate-950">{section.label}</h4>
+        </div>
+        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+          {section.summary.alerts} alertas
+        </span>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-slate-600">
+        <GroupMetric label="Casos" value={section.summary.total} />
+        <GroupMetric label="Aprob." value={section.summary.approved} />
+        <GroupMetric label="Faltas" value={Math.trunc(section.summary.absences)} />
+      </div>
+      <div className="mt-4 space-y-2">
+        {section.subgroups.slice(0, 3).map((subgroup) => (
+          <div key={subgroup.key} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs">
+            <span className="truncate text-slate-700">{secondaryLabel}: {subgroup.label}</span>
+            <span className="font-semibold text-slate-950">{subgroup.summary.total}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <button type="button" onClick={onApprove} className="rounded-full bg-brand-600 px-3 py-2 text-xs font-semibold text-white">
+          Aprobar grupo
+        </button>
+        <button type="button" onClick={onReject} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
+          No aprobar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GroupMetric({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 px-3 py-2">
+      <p className="font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-1 font-mono text-sm font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function GroupedRows({ section, primaryLabel, secondaryLabel, onToggleCase }) {
+  return (
+    <>
+      <tr className="bg-slate-100">
+        <td colSpan={6} className="px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-bold text-slate-900">{primaryLabel}: {section.label}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {section.summary.total} casos · {section.summary.approved} aprobados · {section.summary.alerts} alertas
+            </p>
+          </div>
+        </td>
+      </tr>
+      {section.subgroups.map((subgroup) => (
+        <SubgroupRows
+          key={subgroup.key}
+          subgroup={subgroup}
+          secondaryLabel={secondaryLabel}
+          onToggleCase={onToggleCase}
+        />
+      ))}
+    </>
+  );
+}
+
+function SubgroupRows({ subgroup, secondaryLabel, onToggleCase }) {
+  return (
+    <>
+      <tr className="bg-slate-50">
+        <td colSpan={6} className="px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          {secondaryLabel}: {subgroup.label} · {subgroup.summary.total} casos
+        </td>
+      </tr>
+      {subgroup.cases.map((item) => (
+        <CaseRow key={item.id} item={item} onToggleCase={onToggleCase} />
+      ))}
+    </>
+  );
+}
+
+function CaseRow({ item, onToggleCase }) {
+  return (
+    <tr className={item.severity === 'high' ? 'bg-amber-50/70' : ''}>
+      <td className="px-4 py-3">
+        <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={item.approved}
+            onChange={() => onToggleCase(item.id)}
+            className="h-4 w-4 rounded border-slate-300 text-brand-600"
+          />
+          {item.approved ? 'Aprobado' : 'No aprobado'}
+        </label>
+      </td>
+      <td className="px-4 py-3">
+        <p className="font-semibold text-slate-900">{item.employeeName}</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {item.identifier} · {item.metadata?.company || 'Sin empresa'} · CC {item.costCenter || '-'}
+        </p>
+      </td>
+      <td className="px-4 py-3">
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${toneClass(item.severity)}`}>
+          {caseTypeLabel(item.type)}
+        </span>
+        <p className="mt-2 font-mono text-xs text-slate-500">{item.concept}</p>
+      </td>
+      <td className="px-4 py-3 font-mono text-slate-800">{formatCaseValue(item)}</td>
+      <td className="px-4 py-3 text-slate-600">{item.periodLabel}</td>
+      <td className="max-w-sm px-4 py-3 text-slate-600">{item.notes}</td>
+    </tr>
+  );
 }
 
 function MetricCard({ label, value, detail, tone = 'default' }) {

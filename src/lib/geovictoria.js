@@ -119,6 +119,7 @@ function buildAttendanceCases(attendanceUsers, usersByIdentifier, { startDate, e
         identifier: user.identifier,
         employeeName: user.fullName,
         costCenter: user.costCenter,
+        metadata: buildCaseMetadata(user),
         periodLabel: `${startDate} al ${endDate}`,
         value: roundHours(delayHours),
         approved: false,
@@ -138,6 +139,7 @@ function buildAttendanceCases(attendanceUsers, usersByIdentifier, { startDate, e
         identifier: user.identifier,
         employeeName: user.fullName,
         costCenter: user.costCenter,
+        metadata: buildCaseMetadata(user),
         periodLabel: `${startDate} al ${endDate}`,
         value: normalizedAbsences,
         approved: false,
@@ -204,6 +206,7 @@ function buildOvertimeCases(overtimeRows, attendanceUsers, usersByIdentifier, { 
       identifier: user.identifier,
       employeeName: user.fullName,
       costCenter: user.costCenter,
+      metadata: buildCaseMetadata(user),
       periodLabel: `${entry.week.start} al ${entry.week.end}`,
       value,
       approved: false,
@@ -323,9 +326,60 @@ function normalizeUser(user, current = {}) {
     name,
     lastName,
     fullName,
-    costCenter: cleanCell(user.CostCenterCode ?? current.costCenter),
-    group: cleanCell(user.GroupDescription ?? current.group),
+    company: firstCleanValue(user, current, ['CompanyName', 'Company', 'EnterpriseName', 'Enterprise', 'EmployerName', 'BusinessName']),
+    group: firstCleanValue(user, current, ['GroupDescription', 'GroupName', 'Group']),
+    area: firstCleanValue(user, current, ['AreaDescription', 'AreaName', 'Area']),
+    department: firstCleanValue(user, current, ['DepartmentDescription', 'DepartmentName', 'Department']),
+    costCenter: firstCleanValue(user, current, ['CostCenterDescription', 'CostCenterName', 'CostCenterCode', 'CostCenter']),
+    location: firstCleanValue(user, current, ['LocationDescription', 'LocationName', 'Location', 'BranchName', 'Branch']),
   };
+}
+
+function buildCaseMetadata(user) {
+  return {
+    company: user.company,
+    group: user.group,
+    area: user.area,
+    department: user.department,
+    costCenter: user.costCenter,
+    location: user.location,
+  };
+}
+
+function firstCleanValue(source, current, keys) {
+  const sourceValue = keys.map((key) => cleanCell(source[key])).find(Boolean);
+  if (sourceValue) {
+    return sourceValue;
+  }
+
+  const currentKey = keys.find((key) => Object.prototype.hasOwnProperty.call(current, normalizeMetadataKey(key)));
+  if (currentKey) {
+    return cleanCell(current[normalizeMetadataKey(currentKey)]);
+  }
+
+  return '';
+}
+
+function normalizeMetadataKey(key) {
+  if (/company|enterprise|employer|business/i.test(key)) {
+    return 'company';
+  }
+  if (/group/i.test(key)) {
+    return 'group';
+  }
+  if (/area/i.test(key)) {
+    return 'area';
+  }
+  if (/department/i.test(key)) {
+    return 'department';
+  }
+  if (/costcenter/i.test(key)) {
+    return 'costCenter';
+  }
+  if (/location|branch/i.test(key)) {
+    return 'location';
+  }
+  return key;
 }
 
 function resolveUser(identifier, usersByIdentifier, fallback) {
