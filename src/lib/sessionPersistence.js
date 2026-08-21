@@ -254,7 +254,7 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [], 
   };
 }
 
-export function applyStoredHistoricalMapping(namespace, decision, { concepts = [], scope } = {}) {
+export function applyStoredHistoricalMapping(namespace, decision, { concepts = [], scope, strictCatalog = false } = {}) {
   const memory = loadMappingMemory();
   const mappingScope = normalizeMappingScope(scope);
   const stored = findStoredHistoricalMapping(memory, namespace, decision, mappingScope);
@@ -312,6 +312,10 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
   }
 
   if (stored.action !== 'reuse' || !stored.targetId) {
+    return decision;
+  }
+
+  if (strictCatalog) {
     return decision;
   }
 

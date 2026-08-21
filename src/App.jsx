@@ -9,6 +9,7 @@ import RexTransformResult from './components/RexTransformResult';
 import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
+import VismaHistoricalMapper from './components/VismaHistoricalMapper';
 import GeovictoriaReview from './components/GeovictoriaReview';
 import {
   bukColaboradoresDestination,
@@ -46,6 +47,7 @@ import {
 } from './lib/storage';
 import { todayStamp } from './lib/utils';
 import { loadConceptsResource, parseConceptCatalogWorkbook } from './lib/concepts';
+import { loadVismaHistoricalResource } from './lib/vismaHistorical';
 import {
   deleteCloudSession,
   loadCloudConceptCatalog,
@@ -79,6 +81,7 @@ const STEPS = {
   result: 'result',
   concepts: 'concepts',
   historicalReview: 'historical-review',
+  vismaHistoricalReview: 'visma-historical-review',
   geovictoriaReview: 'geovictoria-review',
 };
 
@@ -99,6 +102,7 @@ export default function App() {
   const [trabajosTemplateResource, setTrabajosTemplateResource] = useState(null);
   const [rexTemplateResource, setRexTemplateResource] = useState(null);
   const [conceptsResource, setConceptsResource] = useState(null);
+  const [vismaHistoricalResource, setVismaHistoricalResource] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
@@ -125,8 +129,9 @@ export default function App() {
   const isRexFlow = pairKey === 'meta4:rex';
   const isConceptsFlow = selectedModule === 'conceptos';
   const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
+  const isVismaHistoricalFlow = selectedModule === 'libros-historicos';
   const isGeovictoriaFlow = selectedModule === 'geovictoria';
-  const isSupportedPair = isHistoricalConceptsFlow || isGeovictoriaFlow || SUPPORTED_PAIRS.has(pairKey);
+  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isGeovictoriaFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -139,11 +144,12 @@ export default function App() {
 
     async function bootstrapTemplates() {
       try {
-        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate, loadedConcepts] = await Promise.all([
+        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate, loadedConcepts, loadedVismaHistoricalResource] = await Promise.all([
           loadBukColaboradoresTemplateResource(),
           loadBukTrabajosTemplateResource(),
           loadRexTemplateResource(),
           loadConceptsResource(),
+          loadVismaHistoricalResource(),
         ]);
 
         if (!isMounted) {
@@ -154,6 +160,7 @@ export default function App() {
         setTrabajosTemplateResource(loadedTrabajosTemplate);
         setRexTemplateResource(loadedRexTemplate);
         setConceptsResource(loadedConcepts);
+        setVismaHistoricalResource(loadedVismaHistoricalResource);
         setTemplateStatus('ready');
       } catch (error) {
         if (!isMounted) {
@@ -374,7 +381,7 @@ export default function App() {
   ]);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
-  const originLabel = selectedOrigin === 'geovictoria' ? 'GeoVictoria' : selectedOrigin === 'meta4' ? 'Meta 4' : 'Talana';
+  const originLabel = selectedOrigin === 'geovictoria' ? 'GeoVictoria' : selectedOrigin === 'meta4' ? 'Meta 4' : selectedOrigin === 'visma' ? 'Visma' : 'Talana';
   const destinationLabel = selectedDestination === 'rex' ? 'REX+' : 'BUK';
   const busyState =
     templateStatus === 'loading'
@@ -399,8 +406,10 @@ export default function App() {
               }
             : isPreparingHistoricalDownload
               ? {
-                  title: 'Preparando conceptos históricos',
-                  detail: 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
+                  title: isVismaHistoricalFlow ? 'Preparando libro histórico' : 'Preparando conceptos históricos',
+                  detail: isVismaHistoricalFlow
+                    ? 'Estamos armando el CSV de Liquidaciones Detalle y validando sus filas antes de descargar.'
+                    : 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
                 }
               : exportState
                 ? exportState
@@ -488,7 +497,7 @@ export default function App() {
     try {
       await waitForUiToPaint();
       const arrayBuffer = await file.arrayBuffer();
-      const parserOrigin = isHistoricalConceptsFlow ? 'meta4-historico' : selectedOrigin;
+      const parserOrigin = isVismaHistoricalFlow ? 'visma-historico' : isHistoricalConceptsFlow ? 'meta4-historico' : selectedOrigin;
       const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin);
       const validationMessage = buildValidationMessage({
         originId: parserOrigin,
@@ -500,11 +509,13 @@ export default function App() {
         headers: parsedSource.headers,
         rows: parsedSource.rows,
         previewRows: parsedSource.previewRows,
+        period: parsedSource.period,
       };
       const nextValidation = {
         isValid: parsedSource.missingColumns.length === 0 && (parsedSource.formatIssues ?? []).length === 0 && parsedSource.rows.length > 0,
         missingColumns: parsedSource.missingColumns,
         formatIssues: parsedSource.formatIssues ?? [],
+        formatName: parsedSource.formatName,
         message: validationMessage,
       };
       const nextSessionId = createSessionId();
@@ -614,6 +625,13 @@ export default function App() {
     if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
       setSelectedOrigin('meta4');
       setSelectedDestination('rex');
+      return;
+    }
+
+    if (moduleId === 'libros-historicos') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setMappingCompany('FRUTICOLA');
       return;
     }
 
@@ -1143,10 +1161,10 @@ export default function App() {
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
-            continueLabel={isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
+            continueLabel={isVismaHistoricalFlow ? 'Analizar libro histórico' : isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(STEPS.format)}
-            onContinue={() => setStep(isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
+            onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
           />
         ) : null}
 
@@ -1180,6 +1198,16 @@ export default function App() {
             batchState={historicalBatchState}
             onBatchStateChange={setHistoricalBatchState}
             onBack={() => setStep(STEPS.format)}
+            onBusyChange={setIsPreparingHistoricalDownload}
+          />
+        ) : null}
+
+        {step === STEPS.vismaHistoricalReview && sourceFile && vismaHistoricalResource ? (
+          <VismaHistoricalMapper
+            sourceFile={sourceFile}
+            resource={vismaHistoricalResource}
+            mappingScope={mappingScope}
+            onBack={() => setStep(STEPS.upload)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />
         ) : null}
@@ -1370,7 +1398,9 @@ function buildValidationMessage({ originId, parsedSource }) {
   if (parsedSource.missingColumns.length > 0) {
     return originId === 'meta4' || originId === 'meta4-historico'
       ? 'El archivo no cumple con las columnas mínimas para Meta 4.'
-      : 'El archivo no cumple con las columnas mínimas para Talana.';
+      : originId === 'visma-historico'
+        ? 'El archivo no cumple con las columnas mínimas para Visma.'
+        : 'El archivo no cumple con las columnas mínimas para Talana.';
   }
 
   return `Archivo listo. Se detectaron ${parsedSource.rows.length} filas en la hoja ${parsedSource.workbookName}.`;

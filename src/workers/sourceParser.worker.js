@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
+import { extractVismaPeriod, getVismaHeaderRow, getVismaHistoricalFormatIssues } from '../connectors/origins/visma';
 import { getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
 
@@ -15,6 +16,8 @@ self.onmessage = (event) => {
         ? parseMeta4Workbook(workbook)
         : originId === 'meta4-historico'
           ? parseMeta4Workbook(workbook, { preserveDuplicateHeaders: true })
+          : originId === 'visma-historico'
+            ? parseVismaWorkbook(workbook)
           : parseTalanaWorkbook(workbook);
 
     self.postMessage({
@@ -24,6 +27,7 @@ self.onmessage = (event) => {
       missingColumns: parsedSource.missingColumns,
       formatIssues: parsedSource.formatIssues,
       formatName: parsedSource.formatName,
+      period: parsedSource.period ?? '',
       rows: parsedSource.rows,
       previewRows: parsedSource.rows.slice(0, 3),
     });
@@ -59,6 +63,51 @@ function parseTalanaWorkbook(workbook) {
     formatIssues: [],
     formatName: 'Talana',
     rows: filteredRows,
+  };
+}
+
+function parseVismaWorkbook(workbook) {
+  const firstSheetName = workbook.SheetNames[0];
+  const firstSheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, {
+    header: 1,
+    defval: '',
+    raw: true,
+  });
+  const headerRowIndex = getVismaHeaderRow(rows);
+  const rawHeaders = (rows[headerRowIndex] ?? []).map(cleanCell);
+  const headers = makeUniqueHeaders(rawHeaders);
+  const missingColumns = getVismaHistoricalFormatIssues(rawHeaders);
+  const identityColumnIndexes = ['RUT', 'EMPLEADO', 'APELLIDO Y NOMBRE']
+    .map((header) => rawHeaders.indexOf(header))
+    .filter((index) => index >= 0);
+  const dataRows = rows
+    .slice(headerRowIndex + 1)
+    .map((row, rowIndex) => ({ row, sourceRowNumber: headerRowIndex + rowIndex + 2 }))
+    .filter(({ row }) => identityColumnIndexes.some((index) => cleanCell(row[index])))
+    .map(({ row, sourceRowNumber }) => headers.reduce(
+      (entry, header, headerIndex) => {
+        if (!header) {
+          return entry;
+        }
+
+        entry[header] = row[headerIndex] ?? '';
+        return entry;
+      },
+      {
+        __sourceRowNumber: sourceRowNumber,
+        __sheetName: firstSheetName,
+      },
+    ));
+
+  return {
+    workbookName: firstSheetName,
+    headers,
+    missingColumns,
+    formatIssues: [],
+    formatName: 'Visma',
+    period: extractVismaPeriod(rows, headerRowIndex),
+    rows: dataRows,
   };
 }
 

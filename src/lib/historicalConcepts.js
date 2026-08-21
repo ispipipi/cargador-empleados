@@ -164,8 +164,8 @@ const NON_LOADABLE_HISTORICAL_PATTERNS = [
   /^EXPECTATIVA DE VIDA\b/,
 ];
 
-export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
-  const catalog = concepts.filter((concept) => normalizeText(concept.type) !== 'dato');
+export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, historicalConcepts = concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
+  const catalog = historicalConcepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
   const catalogByName = new Map(catalog.map((concept) => [conceptKey(concept.name), concept]));
   const catalogByCanonicalName = buildUniqueConceptIndex(catalog, historicalConceptKey);
@@ -191,9 +191,12 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const configuredCreation = isFinningMappingScope(mappingScope)
       ? FINNING_APPROVED_CREATIONS.get(historicalConceptKey(sourceName))
       : null;
+    const configuredTargetConcept = configuredDecision?.action === 'reuse'
+      ? catalogById.get(normalizeText(configuredDecision.targetConcept?.id)) ?? null
+      : null;
     const exactMatch =
       findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) ??
-      (configuredDecision?.action === 'reuse' ? configuredDecision.targetConcept : null);
+      configuredTargetConcept;
     const configuredExclusion = configuredDecision?.action === 'exclude' && configuredDecision.excluded;
     const storedCreation =
       configuredDecision?.action === 'create' && configuredDecision.approved && configuredDecision.targetId

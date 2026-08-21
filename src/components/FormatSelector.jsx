@@ -5,6 +5,7 @@ const SYSTEM_OPTIONS = {
   origins: [
     { id: 'talana', name: 'Talana' },
     { id: 'meta4', name: 'Meta 4' },
+    { id: 'visma', name: 'Visma' },
     { id: 'geovictoria', name: 'GeoVictoria' },
   ],
   destinations: [
@@ -17,6 +18,7 @@ const MODULE_OPTIONS = [
   { id: 'empleados', name: 'Empleados', detail: 'Meta 4 → REX+ Empleados' },
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
   { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
+  { id: 'libros-historicos', name: 'Carga de libros históricos', detail: 'Visma → REX+ Liquidaciones Detalle' },
   { id: 'geovictoria', name: 'GeoVictoria', detail: 'GeoVictoria → REX+ Concepto Detalle' },
 ];
 
@@ -96,7 +98,7 @@ export default function FormatSelector({
               />
             </div>
 
-            {['conceptos', 'conceptos-historicos'].includes(selectedModule) ? (
+            {['conceptos', 'conceptos-historicos', 'libros-historicos'].includes(selectedModule) ? (
               <label className="mt-4 block rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
                 <span className="text-sm font-semibold text-slate-900">Empresa de la memoria de mapeos</span>
                 <input
@@ -138,10 +140,10 @@ export default function FormatSelector({
 
           <div className="flex flex-col justify-between gap-6 px-6 py-8 sm:px-10 sm:py-10">
             <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-              <p className="text-sm font-semibold text-slate-900">Estado de los templates BUK</p>
+              <p className="text-sm font-semibold text-slate-900">Estado de los recursos</p>
               <p className="mt-2 text-sm text-slate-600">
                 {templateStatus === 'loading' && 'Cargando los templates embebidos y las listas controladas…'}
-                {templateStatus === 'ready' && 'Templates listos. Se usarán para listas, catálogos y exportación final.'}
+                {templateStatus === 'ready' && 'Templates y catálogos listos para la transformación seleccionada.'}
                 {templateStatus === 'error' && 'No se pudieron cargar los templates. Revisa los assets embebidos.'}
               </p>
             </div>
@@ -150,7 +152,9 @@ export default function FormatSelector({
               <p className="text-sm font-semibold text-brand-700">Pair activo</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
                 <li>
-                  {selectedModule === 'conceptos-historicos'
+                  {selectedModule === 'libros-historicos'
+                    ? 'Lee un libro mensual de Visma y genera Liquidaciones Detalle para REX+.'
+                    : selectedModule === 'conceptos-historicos'
                     ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
                     : selectedModule === 'conceptos'
                       ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
@@ -161,7 +165,9 @@ export default function FormatSelector({
                       : 'Genera 1 archivo final REX+ Empleados.'}
                 </li>
                 <li>
-                  {selectedModule === 'conceptos-historicos'
+                  {selectedModule === 'libros-historicos'
+                    ? 'Pareará haberes y descuentos contra el catálogo del template REX+.'
+                    : selectedModule === 'conceptos-historicos'
                     ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
                     : selectedModule === 'conceptos'
                       ? 'Incluye informe final de matches, altas y advertencias.'

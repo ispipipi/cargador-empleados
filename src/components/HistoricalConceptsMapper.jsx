@@ -19,7 +19,12 @@ const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 
 export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
-  const concepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
+  const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
+  const concepts = useMemo(
+    () => (isFinningCatalog ? conceptsResource?.historicalConcepts ?? conceptsResource?.concepts ?? [] : conceptsResource?.concepts ?? []),
+    [conceptsResource, isFinningCatalog],
+  );
+  const fullConcepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [isBuilding, setIsBuilding] = useState(true);
@@ -41,13 +46,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       const nextModel = buildHistoricalConceptModel({
         sourceRows: sourceFile.rows,
         sourceHeaders: sourceFile.headers,
-        concepts,
+        concepts: fullConcepts,
+        historicalConcepts: concepts,
         mappingRows: conceptsResource?.mappingRows ?? [],
         employeeCatalog,
         mappingScope,
       });
       const storedDecisions = nextModel.decisions.map((decision) =>
-        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog, scope: mappingScope }),
+        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true }),
       );
 
       if (!active) {
@@ -65,7 +71,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       window.clearTimeout(timerId);
       onBusyChange?.(false);
     };
-  }, [concepts, conceptsResource, employeeCatalog, mappingScope, onBusyChange, sourceFile]);
+  }, [concepts, conceptsResource, employeeCatalog, fullConcepts, mappingScope, onBusyChange, sourceFile]);
 
   useEffect(() => {
     onBusyChange?.(isBuilding || isPreparing);
@@ -378,6 +384,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
               <p className="text-sm font-semibold text-slate-900">Reglas aplicadas</p>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+                <li>{isFinningCatalog
+                  ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos del listado FINNING V2, todos haberes o descuentos.`
+                  : `Catálogo REX+ activo: ${concepts.length.toLocaleString('es-CL')} conceptos disponibles.`}</li>
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
                 <li>La salida usa `M` como origen y `M` como período de pago mensual.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>

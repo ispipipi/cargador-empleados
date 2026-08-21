@@ -3,6 +3,7 @@ import { cleanCell, normalizeText } from './utils';
 import { loadConceptCatalogMemory } from './sessionPersistence';
 
 const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
+const FINNING_LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos-finning.xlsx`;
 const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
 const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-importacion-conceptos.xlsx`;
 const EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/rex-empleados-concepto-detalle.xlsx`;
@@ -97,36 +98,46 @@ const VIRTUAL_EXISTING_CONCEPTS = [
 const AUTO_EXCLUDED_CONCEPTS = new Set(['ADICIONAL AL 7%']);
 
 export async function loadConceptsResource() {
-  const [listsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse] = await Promise.all([
+  const [listsResponse, finningListsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse] = await Promise.all([
     fetch(LISTS_ASSET_PATH),
+    fetch(FINNING_LISTS_ASSET_PATH),
     fetch(MAPPING_ASSET_PATH),
     fetch(OUTPUT_TEMPLATE_ASSET_PATH),
     fetch(EMPLOYEE_TEMPLATE_ASSET_PATH),
   ]);
 
-  if (!listsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok || !employeeTemplateResponse.ok) {
+  if (!listsResponse.ok || !finningListsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok || !employeeTemplateResponse.ok) {
     throw new Error('No fue posible cargar los maestros embebidos de Conceptos y colaboradores REX+.');
   }
 
-  const [listsBuffer, mappingBuffer, outputTemplateBuffer, employeeTemplateBuffer] = await Promise.all([
+  const [listsBuffer, finningListsBuffer, mappingBuffer, outputTemplateBuffer, employeeTemplateBuffer] = await Promise.all([
     listsResponse.arrayBuffer(),
+    finningListsResponse.arrayBuffer(),
     mappingResponse.arrayBuffer(),
     outputTemplateResponse.arrayBuffer(),
     employeeTemplateResponse.arrayBuffer(),
   ]);
 
   const listsWorkbook = XLSX.read(listsBuffer, { type: 'array' });
+  const finningListsWorkbook = XLSX.read(finningListsBuffer, { type: 'array' });
   const mappingWorkbook = XLSX.read(mappingBuffer, { type: 'array' });
   const outputTemplateWorkbook = XLSX.read(outputTemplateBuffer, { type: 'array' });
   const employeeTemplateWorkbook = XLSX.read(employeeTemplateBuffer, { type: 'array' });
 
   const concepts = loadConceptCatalogMemory() ?? parseConceptsList(listsWorkbook);
+  const finningCatalog = parseConceptsList(finningListsWorkbook);
+  const conceptsById = new Map(concepts.map((concept) => [normalizeText(concept.id), concept]));
+  const historicalConcepts = finningCatalog.map((concept) =>
+    conceptsById.get(normalizeText(concept.id)) ?? concept,
+  );
   const mappingRows = parseMapping(mappingWorkbook);
   const outputTemplate = parseOutputTemplate(outputTemplateWorkbook);
   const employeeCatalog = parseEmployeeTemplate(employeeTemplateWorkbook);
 
   return {
     concepts,
+    historicalConcepts,
+    historicalCatalogLabel: 'Lista de conceptos FINNING V2',
     mappingRows,
     outputTemplate,
     employeeCatalog,
