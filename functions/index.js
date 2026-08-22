@@ -1,7 +1,11 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 
+const geovictoriaApiKey = defineSecret('GEOVICTORIA_API_KEY');
+const geovictoriaApiSecret = defineSecret('GEOVICTORIA_API_SECRET');
 const BASE_URL = globalThis.process?.env?.GEOVICTORIA_BASE_URL || 'https://customerapi.geovictoria.com/api/v1';
 const MAX_REQUESTED_RECORDS = 1500;
+const MAX_USERS_PER_REQUEST = 200;
 const ALLOWED_ORIGINS = new Set([
   'https://ispipipi.github.io',
   'http://localhost:5173',
@@ -15,6 +19,7 @@ export const geovictoriaProxy = onRequest(
     cors: false,
     timeoutSeconds: 540,
     memory: '512MiB',
+    secrets: [geovictoriaApiKey, geovictoriaApiSecret],
   },
   async (request, response) => {
     setCorsHeaders(request, response);
@@ -31,8 +36,8 @@ export const geovictoriaProxy = onRequest(
 
     try {
       const body = typeof request.body === 'object' && request.body ? request.body : {};
-      const apiKey = String(body.apiKey || '').trim();
-      const apiSecret = String(body.apiSecret || '');
+      const apiKey = String(body.apiKey || getSecretValue(geovictoriaApiKey) || '').trim();
+      const apiSecret = String(body.apiSecret || getSecretValue(geovictoriaApiSecret) || '').trim();
       const startDate = String(body.startDate || '').trim();
       const endDate = String(body.endDate || '').trim();
 
@@ -76,7 +81,7 @@ export const geovictoriaProxy = onRequest(
 
 async function fetchAttendanceBook({ token, identifiers, startDate, endDate }) {
   const days = inclusiveDays(startDate, endDate);
-  const chunkSize = Math.max(1, Math.floor(MAX_REQUESTED_RECORDS / Math.max(1, days)));
+  const chunkSize = Math.max(1, Math.min(MAX_USERS_PER_REQUEST, Math.floor(MAX_REQUESTED_RECORDS / Math.max(1, days))));
   const chunks = chunkArray(identifiers, chunkSize);
   const responses = [];
 
@@ -97,7 +102,7 @@ async function fetchAttendanceBook({ token, identifiers, startDate, endDate }) {
 
 async function fetchOvertime({ token, identifiers, startDate, endDate }) {
   const days = inclusiveDays(startDate, endDate);
-  const chunkSize = Math.max(1, Math.floor(MAX_REQUESTED_RECORDS / Math.max(1, days)));
+  const chunkSize = Math.max(1, Math.min(MAX_USERS_PER_REQUEST, Math.floor(MAX_REQUESTED_RECORDS / Math.max(1, days))));
   const chunks = chunkArray(identifiers, chunkSize);
   const responses = [];
 
@@ -206,4 +211,12 @@ function inclusiveDays(startDate, endDate) {
   const end = new Date(`${endDate}T00:00:00`);
   const diff = Math.max(0, end.getTime() - start.getTime());
   return Math.floor(diff / 86400000) + 1;
+}
+
+function getSecretValue(secret) {
+  try {
+    return secret.value();
+  } catch {
+    return '';
+  }
 }

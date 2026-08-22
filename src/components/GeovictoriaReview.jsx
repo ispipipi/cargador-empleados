@@ -85,7 +85,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
     [primaryGroup, secondaryGroup, visibleCases],
   );
   const summary = useMemo(() => summarizeCurrentCases(cases, model?.summary), [cases, model]);
-  const canQuery = form.apiKey.trim() && form.apiSecret.trim() && form.startDate && form.endDate && !isLoading;
+  const canQuery = form.startDate && form.endDate && !isLoading;
   const canExport = cases.some((item) => item.approved) && !isExporting;
 
   useEffect(() => {
@@ -271,28 +271,30 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-700">GeoVictoria · Rex+</p>
             <h2 className="mt-3 text-3xl font-extrabold text-slate-950">Consulta asistencia y arma la carga.</h2>
             <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600">
-              Las credenciales se envian al proxy backend. La pantalla recibe solo la respuesta normalizada para revisar
-              horas extra, atrasos e inasistencias antes de exportar.
+              El proxy backend usa las credenciales guardadas de GeoVictoria. La pantalla recibe solo la respuesta
+              normalizada para revisar horas extra, atrasos e inasistencias antes de exportar.
             </p>
 
             <div className="mt-6 grid gap-4">
               <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Clave API</span>
+                <span className="text-sm font-semibold text-slate-700">Clave API opcional</span>
                 <input
                   value={form.apiKey}
                   onChange={(event) => updateForm('apiKey', event.target.value)}
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   autoComplete="off"
+                  placeholder="Usa la credencial del backend si queda vacio"
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Secreto</span>
+                <span className="text-sm font-semibold text-slate-700">Secreto opcional</span>
                 <input
                   value={form.apiSecret}
                   onChange={(event) => updateForm('apiSecret', event.target.value)}
                   type="password"
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   autoComplete="off"
+                  placeholder="Usa el secreto del backend si queda vacio"
                 />
               </label>
               <div className="rounded-[24px] border border-slate-200 bg-white/80 px-4 py-4">
@@ -308,7 +310,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                       Recordar credenciales en este navegador
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-slate-500">
-                      Se guardan solo en este navegador. No se suben a GitHub ni se guardan en el servidor.
+                      Solo para sobrescribir temporalmente las credenciales del backend desde este navegador.
                     </span>
                   </span>
                 </label>
