@@ -166,16 +166,24 @@ function buildOvertimeCases(overtimeRows, attendanceUsers, usersByIdentifier, { 
 
     const date = parseGeovictoriaDate(row.Date) || parseIsoDate(startDate);
     const week = getIsoWeekRange(date);
-    const detectedHours =
-      parseDecimal(row.ExtraTimeBefore) +
-      parseDecimal(row.ExtraTimeAfter) +
-      parseHours(row.TotalAuthorizedOvertime) +
-      parseObjectHours(row.AccomplishedExtraTime);
-    const approvedHours =
-      parseDecimal(row.ApprovedOvertimeBefore) +
-      parseDecimal(row.ApprovedOvertimeAfter) +
-      parseHours(row.TotalAuthorizedOvertime);
-    const hours = detectedHours || approvedHours;
+    const detectedHours = sumHours(
+      row.ExtraTimeBefore,
+      row.ExtraTimeAfter,
+      row.ExtraTimeBeforeShift,
+      row.ExtraTimeAfterShift,
+    );
+    const accomplishedHours =
+      parseObjectHours(row.AccomplishedExtraTime) +
+      sumHours(row.AccomplishedExtraTimeBefore, row.AccomplishedExtraTimeAfter);
+    const approvedHours = sumHours(
+      row.ApprovedOvertimeBefore,
+      row.ApprovedOvertimeAfter,
+      row.AuthorizedOvertimeBefore,
+      row.AuthorizedOvertimeAfter,
+      row.TotalAuthorizedOvertime,
+    );
+    const assignedHours = sumHours(row.AssignedExtraTime, row.AssignedExtraTimeBefore, row.AssignedExtraTimeAfter);
+    const hours = detectedHours || accomplishedHours || approvedHours || assignedHours;
 
     if (!hours) {
       return;
@@ -457,6 +465,10 @@ function parseHours(value) {
 function parseDecimal(value) {
   const numericValue = Number(cleanCell(value).replace(',', '.'));
   return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function sumHours(...values) {
+  return values.reduce((total, value) => total + parseHours(value), 0);
 }
 
 function roundHours(value) {
