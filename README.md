@@ -103,6 +103,12 @@ En GitHub Pages no puede correr ese proxy porque el sitio es estático. Para usa
 3. Agrega el secret `VITE_GEOVICTORIA_API_BASE_URL` en GitHub con la URL base de la Function.
 4. Ejecuta nuevamente el workflow de Pages o haz push a `main`.
 
+El proxy filtra GeoVictoria para considerar solo estas razones sociales:
+
+- `COMERCIAL PROGRESO SPA`
+- `KAIPOKI SPA`
+- `SANTIAGO FBO SPA`
+
 ## Validaciones
 
 ```bash

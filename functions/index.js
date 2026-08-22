@@ -6,6 +6,20 @@ const geovictoriaApiSecret = defineSecret('GEOVICTORIA_API_SECRET');
 const BASE_URL = globalThis.process?.env?.GEOVICTORIA_BASE_URL || 'https://customerapi.geovictoria.com/api/v1';
 const MAX_REQUESTED_RECORDS = 1500;
 const MAX_USERS_PER_REQUEST = 200;
+const MAX_USER_DETAILS_PER_REQUEST = 500;
+const ALLOWED_TRADE_NAMES = new Map([
+  ['22893', 'COMERCIAL PROGRESO SPA'],
+  ['22924', 'SANTIAGO FBO SPA'],
+  ['22925', 'KAIPOKI SPA'],
+]);
+const ALLOWED_COMPANY_IDENTIFIERS = new Map([
+  ['772789416', 'COMERCIAL PROGRESO SPA'],
+  ['761048929', 'SANTIAGO FBO SPA'],
+  ['773243921', 'KAIPOKI SPA'],
+]);
+const ALLOWED_COMPANY_NAMES = new Map(
+  [...ALLOWED_TRADE_NAMES.values()].map((name) => [normalizeLookupText(name), name]),
+);
 const ALLOWED_ORIGINS = new Set([
   'https://ispipipi.github.io',
   'http://localhost:5173',
@@ -59,13 +73,24 @@ export const geovictoriaProxy = onRequest(
 
       const users = await postToGeovictoria('/User/ActiveUsers', {}, token);
       const activeUsers = Array.isArray(users) ? users : [];
-      const identifiers = activeUsers.map((user) => user.Identifier).filter(Boolean);
-      const attendanceBook = await fetchAttendanceBook({ token, identifiers, startDate, endDate });
-      const overtime = await fetchOvertimeSafely({ token, identifiers, startDate, endDate });
+      const activeIdentifiers = activeUsers.map((user) => user.Identifier).filter(Boolean);
+      const detailedUsers = await fetchUserDetails({ token, identifiers: activeIdentifiers });
+      const scopedUsers = buildAllowedCompanyUsers(activeUsers, detailedUsers);
+      const identifiers = scopedUsers.map((user) => user.Identifier).filter(Boolean);
+      const identifiersSet = new Set(identifiers);
+      const attendanceBook = filterAttendanceBookByIdentifiers(
+        await fetchAttendanceBook({ token, identifiers, startDate, endDate }),
+        identifiersSet,
+        detailedUsers,
+      );
+      const overtime = filterOvertimeByIdentifiers(
+        await fetchOvertimeSafely({ token, identifiers, startDate, endDate }),
+        identifiersSet,
+      );
 
       response.status(200).json({
         ok: true,
-        users: activeUsers,
+        users: scopedUsers,
         attendanceBook,
         overtime,
         fetchedAt: new Date().toISOString(),
@@ -78,6 +103,21 @@ export const geovictoriaProxy = onRequest(
     }
   },
 );
+
+async function fetchUserDetails({ token, identifiers }) {
+  const chunks = chunkArray(identifiers, MAX_USER_DETAILS_PER_REQUEST);
+  const responses = [];
+
+  for (const chunk of chunks) {
+    const payload = await postToGeovictoria('/User/Get', {
+      Identifiers: chunk.join(','),
+    }, token);
+
+    responses.push(...(Array.isArray(payload?.Response) ? payload.Response : []));
+  }
+
+  return responses;
+}
 
 async function fetchAttendanceBook({ token, identifiers, startDate, endDate }) {
   const days = inclusiveDays(startDate, endDate);
@@ -132,6 +172,81 @@ async function fetchOvertimeSafely({ token, identifiers, startDate, endDate }) {
       Response: [],
     };
   }
+}
+
+function buildAllowedCompanyUsers(activeUsers, detailedUsers) {
+  const detailsByIdentifier = buildDetailsByIdentifier(detailedUsers);
+
+  return activeUsers
+    .map((user) => ({ ...user, ...detailsByIdentifier.get(user.Identifier) }))
+    .map(decorateAllowedCompanyFields)
+    .filter(Boolean);
+}
+
+function filterAttendanceBookByIdentifiers(attendanceBook, identifiersSet, detailedUsers) {
+  const detailsByIdentifier = buildDetailsByIdentifier(detailedUsers);
+
+  return {
+    Users: (Array.isArray(attendanceBook?.Users) ? attendanceBook.Users : [])
+      .filter((user) => identifiersSet.has(user.Identifier))
+      .map((user) => decorateAllowedCompanyFields({ ...detailsByIdentifier.get(user.Identifier), ...user }))
+      .filter(Boolean),
+    ExtraTimeValues: (Array.isArray(attendanceBook?.ExtraTimeValues) ? attendanceBook.ExtraTimeValues : [])
+      .filter((row) => identifiersSet.has(row.UserIdentifier ?? row.Identifier)),
+  };
+}
+
+function filterOvertimeByIdentifiers(overtime, identifiersSet) {
+  if (!Array.isArray(overtime?.Response)) {
+    return overtime;
+  }
+
+  return {
+    ...overtime,
+    Response: overtime.Response.filter((row) => identifiersSet.has(row.UserIdentifier ?? row.Identifier)),
+  };
+}
+
+function buildDetailsByIdentifier(detailedUsers) {
+  return new Map(
+    detailedUsers
+      .filter((user) => cleanValue(user.Identifier))
+      .map((user) => [cleanValue(user.Identifier), user]),
+  );
+}
+
+function decorateAllowedCompanyFields(user) {
+  const companyName = getAllowedCompanyName(user);
+
+  if (!companyName) {
+    return null;
+  }
+
+  return {
+    ...user,
+    CompanyName: companyName,
+    Company: companyName,
+    EnterpriseName: companyName,
+    BusinessName: companyName,
+    TradeNameDescription: companyName,
+  };
+}
+
+function getAllowedCompanyName(user) {
+  const tradeName = cleanValue(user?.TradeName);
+  const companyIdentifier = cleanValue(user?.UserCompanyIdentifier ?? user?.ExternalIdentifier);
+  const companyName = cleanValue(
+    user?.TradeNameDescription ??
+    user?.CompanyName ??
+    user?.Company ??
+    user?.EnterpriseName ??
+    user?.BusinessName,
+  );
+
+  return ALLOWED_TRADE_NAMES.get(tradeName) ||
+    ALLOWED_COMPANY_IDENTIFIERS.get(companyIdentifier) ||
+    ALLOWED_COMPANY_NAMES.get(normalizeLookupText(companyName)) ||
+    '';
 }
 
 async function postToGeovictoria(path, payload, token) {
@@ -200,6 +315,18 @@ function chunkArray(items, size) {
 
 function compactDate(value) {
   return String(value).replace(/-/g, '');
+}
+
+function cleanValue(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeLookupText(value) {
+  return cleanValue(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
 
 function isIsoDate(value) {

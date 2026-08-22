@@ -27,6 +27,12 @@ const GROUP_FIELDS = [
   { id: 'location', label: 'Ubicacion', emptyLabel: 'Sin ubicacion' },
 ];
 
+const GEOVICTORIA_ALLOWED_COMPANIES = [
+  'Comercial Progreso SPA',
+  'Kaipoki SPA',
+  'Santiago FBO SPA',
+];
+
 const PROXY_ENDPOINT = '/api/geovictoria/payroll-preview';
 const GEOVICTORIA_API_BASE_URL = String(import.meta.env.VITE_GEOVICTORIA_API_BASE_URL ?? '').replace(/\/+$/, '');
 const geovictoriaEndpoint = GEOVICTORIA_API_BASE_URL
@@ -380,6 +386,20 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                 <ConceptPill label="Horas extra" value="hheee50" />
                 <ConceptPill label="Atrasos" value="minatrasos" />
                 <ConceptPill label="Inasistencias" value="faltaDias" />
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[24px] border border-brand-100 bg-brand-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Alcance GeoVictoria</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {GEOVICTORIA_ALLOWED_COMPANIES.map((company) => (
+                  <span
+                    key={company}
+                    className="rounded-full border border-brand-100 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    {company}
+                  </span>
+                ))}
               </div>
             </div>
 
