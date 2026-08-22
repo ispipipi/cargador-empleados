@@ -196,6 +196,7 @@ function sendJson(response, status, payload) {
 
 function setCorsHeaders(response) {
   response.setHeader('Access-Control-Allow-Origin', process.env.GEOVICTORIA_ALLOWED_ORIGIN || 'http://localhost:5173');
+  response.setHeader('Vary', 'Origin');
   response.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }

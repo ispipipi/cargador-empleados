@@ -88,10 +88,20 @@ Ese archivo es la fuente de:
 
 ```bash
 npm install
+npm run proxy:geovictoria
 npm run dev
 ```
 
 Abre la URL que entregue Vite, normalmente `http://localhost:5173/cargador-empleados/` o `http://localhost:5173/`.
+
+El módulo `GeoVictoria` necesita un proxy backend para proteger el secreto de API. En local, `npm run proxy:geovictoria` expone `http://127.0.0.1:8787/api/geovictoria/payroll-preview`, y Vite redirige `/api/geovictoria` hacia ese proceso.
+
+En GitHub Pages no puede correr ese proxy porque el sitio es estático. Para usar GeoVictoria en producción:
+
+1. Despliega `proxy/geovictoria-proxy.mjs` en un backend Node compatible.
+2. Configura `GEOVICTORIA_ALLOWED_ORIGIN=https://ispipipi.github.io` en ese backend.
+3. Agrega el secret `VITE_GEOVICTORIA_API_BASE_URL` en GitHub con la URL base del proxy, por ejemplo `https://tu-proxy.example.com`.
+4. Ejecuta nuevamente el workflow de Pages o haz push a `main`.
 
 ## Validaciones
 

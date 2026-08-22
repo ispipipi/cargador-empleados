@@ -28,6 +28,10 @@ const GROUP_FIELDS = [
 ];
 
 const PROXY_ENDPOINT = '/api/geovictoria/payroll-preview';
+const GEOVICTORIA_API_BASE_URL = String(import.meta.env.VITE_GEOVICTORIA_API_BASE_URL ?? '').replace(/\/+$/, '');
+const geovictoriaEndpoint = GEOVICTORIA_API_BASE_URL
+  ? `${GEOVICTORIA_API_BASE_URL}${PROXY_ENDPOINT}`
+  : PROXY_ENDPOINT;
 
 export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const [form, setForm] = useState({
@@ -90,7 +94,13 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
     onBusyChange?.(true);
 
     try {
-      const response = await fetch(PROXY_ENDPOINT, {
+      if (!GEOVICTORIA_API_BASE_URL && window.location.hostname.endsWith('github.io')) {
+        throw new Error(
+          'Este despliegue esta en GitHub Pages y necesita un backend/proxy externo para GeoVictoria. Configura VITE_GEOVICTORIA_API_BASE_URL con la URL del proxy desplegado.',
+        );
+      }
+
+      const response = await fetch(geovictoriaEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,6 +113,12 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
       const payload = await response.json().catch(() => null);
 
       if (!response.ok || !payload?.ok) {
+        if (response.status === 405) {
+          throw new Error(
+            'La URL actual no tiene backend para GeoVictoria. En GitHub Pages debes usar un proxy desplegado y configurar VITE_GEOVICTORIA_API_BASE_URL.',
+          );
+        }
+
         throw new Error(payload?.message || 'No se pudo consultar GeoVictoria.');
       }
 
