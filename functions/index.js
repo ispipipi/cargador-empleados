@@ -1,6 +1,6 @@
 import { onRequest } from 'firebase-functions/v2/https';
 
-const BASE_URL = process.env.GEOVICTORIA_BASE_URL || 'https://customerapi.geovictoria.com/api/v1';
+const BASE_URL = globalThis.process?.env?.GEOVICTORIA_BASE_URL || 'https://customerapi.geovictoria.com/api/v1';
 const MAX_REQUESTED_RECORDS = 1500;
 const ALLOWED_ORIGINS = new Set([
   'https://ispipipi.github.io',

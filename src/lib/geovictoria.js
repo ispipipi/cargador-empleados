@@ -154,7 +154,7 @@ function buildAttendanceCases(attendanceUsers, usersByIdentifier, { startDate, e
   });
 }
 
-function buildOvertimeCases(overtimeRows, attendanceUsers, usersByIdentifier, { startDate, endDate }) {
+function buildOvertimeCases(overtimeRows, attendanceUsers, usersByIdentifier, { startDate }) {
   const sourceRows = overtimeRows.length > 0 ? overtimeRows : buildOvertimeRowsFromAttendance(attendanceUsers);
   const byEmployeeWeek = new Map();
 

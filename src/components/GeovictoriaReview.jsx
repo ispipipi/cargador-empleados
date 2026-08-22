@@ -32,6 +32,7 @@ const GEOVICTORIA_API_BASE_URL = String(import.meta.env.VITE_GEOVICTORIA_API_BAS
 const geovictoriaEndpoint = GEOVICTORIA_API_BASE_URL
   ? `${GEOVICTORIA_API_BASE_URL}${PROXY_ENDPOINT}`
   : PROXY_ENDPOINT;
+const STORED_CREDENTIALS_KEY = 'maper:geovictoria:credentials:v1';
 
 export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const [form, setForm] = useState({
@@ -49,6 +50,9 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [rememberCredentials, setRememberCredentials] = useState(false);
+  const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
 
   const visibleCases = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -101,8 +105,53 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
     }
   }, [availableGroupFields, primaryGroup, secondaryGroup]);
 
+  useEffect(() => {
+    const storedCredentials = loadStoredGeovictoriaCredentials();
+
+    if (!storedCredentials) {
+      setStorageReady(true);
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      apiKey: storedCredentials.apiKey,
+      apiSecret: storedCredentials.apiSecret,
+    }));
+    setRememberCredentials(true);
+    setHasStoredCredentials(true);
+    setStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) {
+      return;
+    }
+
+    if (!rememberCredentials) {
+      clearStoredGeovictoriaCredentials();
+      setHasStoredCredentials(false);
+      return;
+    }
+
+    if (form.apiKey.trim() && form.apiSecret.trim()) {
+      saveStoredGeovictoriaCredentials({
+        apiKey: form.apiKey.trim(),
+        apiSecret: form.apiSecret.trim(),
+      });
+      setHasStoredCredentials(true);
+    }
+  }, [form.apiKey, form.apiSecret, rememberCredentials, storageReady]);
+
   const updateForm = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleForgetCredentials = () => {
+    clearStoredGeovictoriaCredentials();
+    setRememberCredentials(false);
+    setHasStoredCredentials(false);
+    setForm((current) => ({ ...current, apiKey: '', apiSecret: '' }));
   };
 
   const handleQuery = async () => {
@@ -121,12 +170,20 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
         );
       }
 
+      if (rememberCredentials) {
+        saveStoredGeovictoriaCredentials({
+          apiKey: form.apiKey.trim(),
+          apiSecret: form.apiSecret.trim(),
+        });
+        setHasStoredCredentials(true);
+      }
+
       const response = await fetch(geovictoriaEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apiKey: form.apiKey.trim(),
-          apiSecret: form.apiSecret,
+          apiSecret: form.apiSecret.trim(),
           startDate: form.startDate,
           endDate: form.endDate,
         }),
@@ -238,6 +295,33 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                   autoComplete="off"
                 />
               </label>
+              <div className="rounded-[24px] border border-slate-200 bg-white/80 px-4 py-4">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={rememberCredentials}
+                    onChange={(event) => setRememberCredentials(event.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800">
+                      Recordar credenciales en este navegador
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">
+                      Se guardan solo en este navegador. No se suben a GitHub ni se guardan en el servidor.
+                    </span>
+                  </span>
+                </label>
+                {hasStoredCredentials ? (
+                  <button
+                    type="button"
+                    onClick={handleForgetCredentials}
+                    className="mt-3 text-xs font-semibold text-rose-600 transition hover:text-rose-700"
+                  >
+                    Borrar credenciales guardadas
+                  </button>
+                ) : null}
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-sm font-semibold text-slate-700">Fecha inicio</span>
@@ -693,4 +777,61 @@ function toneClass(severity) {
   }
 
   return 'bg-emerald-100 text-emerald-800';
+}
+
+function loadStoredGeovictoriaCredentials() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawCredentials = window.localStorage.getItem(STORED_CREDENTIALS_KEY);
+
+    if (!rawCredentials) {
+      return null;
+    }
+
+    const parsedCredentials = JSON.parse(rawCredentials);
+    const apiKey = String(parsedCredentials?.apiKey ?? '').trim();
+    const apiSecret = String(parsedCredentials?.apiSecret ?? '').trim();
+
+    if (!apiKey || !apiSecret) {
+      return null;
+    }
+
+    return { apiKey, apiSecret };
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredGeovictoriaCredentials({ apiKey, apiSecret }) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      STORED_CREDENTIALS_KEY,
+      JSON.stringify({
+        apiKey,
+        apiSecret,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // Storage can be disabled by browser policy.
+  }
+}
+
+function clearStoredGeovictoriaCredentials() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(STORED_CREDENTIALS_KEY);
+  } catch {
+    // Storage can be disabled by browser policy.
+  }
 }
