@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   buildGeovictoriaReviewModel,
@@ -72,6 +72,10 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
   }, [activeFilter, cases, search]);
 
   const availableGroupFields = useMemo(() => buildAvailableGroupFields(cases), [cases]);
+  const secondaryGroupFields = useMemo(
+    () => availableGroupFields.filter((field) => field.id !== primaryGroup),
+    [availableGroupFields, primaryGroup],
+  );
   const groupedSections = useMemo(
     () => buildGroupedSections(visibleCases, primaryGroup, secondaryGroup),
     [primaryGroup, secondaryGroup, visibleCases],
@@ -79,6 +83,23 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const summary = useMemo(() => summarizeCurrentCases(cases, model?.summary), [cases, model]);
   const canQuery = form.apiKey.trim() && form.apiSecret.trim() && form.startDate && form.endDate && !isLoading;
   const canExport = cases.some((item) => item.approved) && !isExporting;
+
+  useEffect(() => {
+    const availableIds = availableGroupFields.map((field) => field.id);
+    const fallbackPrimary = availableIds[0] ?? 'company';
+
+    if (!availableIds.includes(primaryGroup)) {
+      setPrimaryGroup(fallbackPrimary);
+      return;
+    }
+
+    const nextSecondaryOptions = availableIds.filter((id) => id !== primaryGroup);
+    const fallbackSecondary = nextSecondaryOptions[0] ?? primaryGroup;
+
+    if (!availableIds.includes(secondaryGroup) || (secondaryGroup === primaryGroup && nextSecondaryOptions.length > 0)) {
+      setSecondaryGroup(fallbackSecondary);
+    }
+  }, [availableGroupFields, primaryGroup, secondaryGroup]);
 
   const updateForm = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -369,7 +390,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                 onChange={(event) => setSecondaryGroup(event.target.value)}
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
               >
-                {availableGroupFields.map((field) => (
+                {(secondaryGroupFields.length > 0 ? secondaryGroupFields : availableGroupFields).map((field) => (
                   <option key={field.id} value={field.id}>{field.label}</option>
                 ))}
               </select>
