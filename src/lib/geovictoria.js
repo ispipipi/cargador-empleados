@@ -112,7 +112,7 @@ function buildAttendanceCases(attendanceUsers, usersByIdentifier, { startDate, e
     const user = resolveUser(attendanceUser.Identifier, usersByIdentifier, attendanceUser);
     const intervals = flattenIntervals(attendanceUser);
     const delayHours = intervals.reduce((total, interval) => total + intervalDelayHours(interval), 0);
-    const absenceDays = intervals.filter((interval) => isTrue(interval.Absent)).length || Number(attendanceUser.Absent) || 0;
+    const absenceDays = intervals.filter((interval) => isReportableAbsence(interval)).length;
     const cases = [];
 
     if (delayHours > 0) {
@@ -432,6 +432,12 @@ function normalizeOvertimeRows(overtime) {
 
 function intervalDelayHours(interval) {
   return parseHours(interval.Delay);
+}
+
+function isReportableAbsence(interval) {
+  return isTrue(interval.Absent) &&
+    !isTrue(interval.Holiday) &&
+    (!Array.isArray(interval.TimeOffs) || interval.TimeOffs.length === 0);
 }
 
 function parseObjectHours(value) {
