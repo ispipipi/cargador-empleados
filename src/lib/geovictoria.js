@@ -336,6 +336,7 @@ function normalizeUser(user, current = {}) {
     fullName,
     company: firstCleanValue(user, current, ['CompanyName', 'Company', 'EnterpriseName', 'Enterprise', 'EmployerName', 'BusinessName']),
     group: firstCleanValue(user, current, ['GroupDescription', 'GroupName', 'Group']),
+    position: firstCleanValue(user, current, ['PositionDescription', 'PositionName', 'Position', 'JobTitle']),
     area: firstCleanValue(user, current, ['AreaDescription', 'AreaName', 'Area']),
     department: firstCleanValue(user, current, ['DepartmentDescription', 'DepartmentName', 'Department']),
     costCenter: firstCleanValue(user, current, ['CostCenterDescription', 'CostCenterName', 'CostCenterCode', 'CostCenter']),
@@ -347,6 +348,7 @@ function buildCaseMetadata(user) {
   return {
     company: user.company,
     group: user.group,
+    position: user.position,
     area: user.area,
     department: user.department,
     costCenter: user.costCenter,
@@ -374,6 +376,9 @@ function normalizeMetadataKey(key) {
   }
   if (/group/i.test(key)) {
     return 'group';
+  }
+  if (/position|jobtitle/i.test(key)) {
+    return 'position';
   }
   if (/area/i.test(key)) {
     return 'area';

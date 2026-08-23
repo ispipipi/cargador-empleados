@@ -21,11 +21,21 @@ const FILTERS = [
 const GROUP_FIELDS = [
   { id: 'company', label: 'Empresa', emptyLabel: 'Sin empresa' },
   { id: 'group', label: 'Grupo', emptyLabel: 'Sin grupo' },
+  { id: 'position', label: 'Cargo', emptyLabel: 'Sin cargo' },
   { id: 'area', label: 'Area', emptyLabel: 'Sin area' },
   { id: 'department', label: 'Departamento', emptyLabel: 'Sin departamento' },
   { id: 'costCenter', label: 'Centro de costo', emptyLabel: 'Sin centro de costo' },
   { id: 'location', label: 'Ubicacion', emptyLabel: 'Sin ubicacion' },
 ];
+
+const ORGANIZATION_FILTERS = [
+  { id: 'company', label: 'Empresa', emptyLabel: 'Sin empresa', allLabel: 'Todas las empresas' },
+  { id: 'group', label: 'Grupo', emptyLabel: 'Sin grupo', allLabel: 'Todos los grupos' },
+  { id: 'position', label: 'Cargo', emptyLabel: 'Sin cargo', allLabel: 'Todos los cargos' },
+];
+const EMPTY_FILTER_VALUE = '__all__';
+const PRIMARY_GROUP = 'company';
+const SECONDARY_GROUP = 'group';
 
 const GEOVICTORIA_ALLOWED_COMPANIES = [
   'Comercial Progreso SPA',
@@ -50,8 +60,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
   const [model, setModel] = useState(null);
   const [cases, setCases] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
-  const [primaryGroup, setPrimaryGroup] = useState('company');
-  const [secondaryGroup, setSecondaryGroup] = useState('group');
+  const [organizationFilters, setOrganizationFilters] = useState(() => buildEmptyOrganizationFilters());
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -76,40 +85,24 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
         item.identifier.toLowerCase().includes(normalizedSearch) ||
         item.concept.toLowerCase().includes(normalizedSearch) ||
         Object.values(item.metadata ?? {}).some((value) => String(value ?? '').toLowerCase().includes(normalizedSearch));
+      const matchesOrganizationFilters = ORGANIZATION_FILTERS.every((field) => {
+        const selectedValue = organizationFilters[field.id] ?? EMPTY_FILTER_VALUE;
 
-      return matchesFilter && matchesSearch;
+        return selectedValue === EMPTY_FILTER_VALUE || cleanGroupValue(item, field.id, field.emptyLabel) === selectedValue;
+      });
+
+      return matchesFilter && matchesSearch && matchesOrganizationFilters;
     });
-  }, [activeFilter, cases, search]);
+  }, [activeFilter, cases, organizationFilters, search]);
 
-  const availableGroupFields = useMemo(() => buildAvailableGroupFields(cases), [cases]);
-  const secondaryGroupFields = useMemo(
-    () => availableGroupFields.filter((field) => field.id !== primaryGroup),
-    [availableGroupFields, primaryGroup],
-  );
+  const organizationFilterOptions = useMemo(() => buildFilterOptions(cases), [cases]);
   const groupedSections = useMemo(
-    () => buildGroupedSections(visibleCases, primaryGroup, secondaryGroup),
-    [primaryGroup, secondaryGroup, visibleCases],
+    () => buildGroupedSections(visibleCases, PRIMARY_GROUP, SECONDARY_GROUP),
+    [visibleCases],
   );
   const summary = useMemo(() => summarizeCurrentCases(cases, model?.summary), [cases, model]);
   const canQuery = form.startDate && form.endDate && !isLoading;
   const canExport = cases.some((item) => item.approved) && !isExporting;
-
-  useEffect(() => {
-    const availableIds = availableGroupFields.map((field) => field.id);
-    const fallbackPrimary = availableIds[0] ?? 'company';
-
-    if (!availableIds.includes(primaryGroup)) {
-      setPrimaryGroup(fallbackPrimary);
-      return;
-    }
-
-    const nextSecondaryOptions = availableIds.filter((id) => id !== primaryGroup);
-    const fallbackSecondary = nextSecondaryOptions[0] ?? primaryGroup;
-
-    if (!availableIds.includes(secondaryGroup) || (secondaryGroup === primaryGroup && nextSecondaryOptions.length > 0)) {
-      setSecondaryGroup(fallbackSecondary);
-    }
-  }, [availableGroupFields, primaryGroup, secondaryGroup]);
 
   useEffect(() => {
     const storedCredentials = loadStoredGeovictoriaCredentials();
@@ -217,6 +210,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
       setModel(nextModel);
       setCases(nextModel.cases);
       setActiveFilter('all');
+      setOrganizationFilters(buildEmptyOrganizationFilters());
     } catch (queryError) {
       setModel(null);
       setCases([]);
@@ -227,8 +221,16 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
     }
   };
 
-  const toggleCase = (caseId) => {
-    setCases((current) => current.map((item) => (item.id === caseId ? { ...item, approved: !item.approved } : item)));
+  const updateOrganizationFilter = (fieldId, value) => {
+    setOrganizationFilters((current) => ({ ...current, [fieldId]: value }));
+  };
+
+  const clearOrganizationFilters = () => {
+    setOrganizationFilters(buildEmptyOrganizationFilters());
+  };
+
+  const setCaseApproval = (caseId, approved) => {
+    setCases((current) => current.map((item) => (item.id === caseId ? { ...item, approved } : item)));
   };
 
   const setVisibleApproval = (approved) => {
@@ -425,7 +427,7 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                   disabled={visibleCases.length === 0}
                   className="button-secondary"
                 >
-                  Marcar no aprobados
+                  Rechazar visibles
                 </button>
                 <button
                   type="button"
@@ -476,36 +478,34 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
             ))}
           </div>
 
-          <div className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[1fr_1fr_1.4fr]">
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Agrupar por</span>
-              <select
-                value={primaryGroup}
-                onChange={(event) => setPrimaryGroup(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
-              >
-                {availableGroupFields.map((field) => (
-                  <option key={field.id} value={field.id}>{field.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Subagrupar por</span>
-              <select
-                value={secondaryGroup}
-                onChange={(event) => setSecondaryGroup(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
-              >
-                {(secondaryGroupFields.length > 0 ? secondaryGroupFields : availableGroupFields).map((field) => (
-                  <option key={field.id} value={field.id}>{field.label}</option>
-                ))}
-              </select>
-            </label>
+          <div className="mt-6 grid gap-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[1fr_1fr_1fr_1.2fr]">
+            {ORGANIZATION_FILTERS.map((field) => (
+              <label key={field.id} className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{field.label}</span>
+                <select
+                  value={organizationFilters[field.id] ?? EMPTY_FILTER_VALUE}
+                  onChange={(event) => updateOrganizationFilter(field.id, event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
+                >
+                  <option value={EMPTY_FILTER_VALUE}>{field.allLabel}</option>
+                  {(organizationFilterOptions[field.id] ?? []).map((value) => (
+                    <option key={value} value={value}>{value}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
             <div className="rounded-2xl border border-white bg-white px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Vista actual</p>
               <p className="mt-2 text-sm text-slate-600">
-                {groupedSections.length.toLocaleString('es-CL')} grupos visibles · {visibleCases.length.toLocaleString('es-CL')} casos filtrados.
+                Agrupado por Empresa y Grupo · {groupedSections.length.toLocaleString('es-CL')} empresas visibles · {visibleCases.length.toLocaleString('es-CL')} casos filtrados.
               </p>
+              <button
+                type="button"
+                onClick={clearOrganizationFilters}
+                className="mt-3 text-xs font-semibold text-brand-700 transition hover:text-brand-800"
+              >
+                Limpiar filtros
+              </button>
             </div>
           </div>
 
@@ -514,8 +514,8 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
               <GroupSummaryCard
                 key={section.key}
                 section={section}
-                primaryLabel={getGroupField(primaryGroup).label}
-                secondaryLabel={getGroupField(secondaryGroup).label}
+                primaryLabel={getGroupField(PRIMARY_GROUP).label}
+                secondaryLabel={getGroupField(SECONDARY_GROUP).label}
                 onApprove={() => setGroupApproval(section.cases, true)}
                 onReject={() => setGroupApproval(section.cases, false)}
               />
@@ -539,9 +539,9 @@ export default function GeovictoriaReview({ onBack, onBusyChange }) {
                   <GroupedRows
                     key={section.key}
                     section={section}
-                    primaryLabel={getGroupField(primaryGroup).label}
-                    secondaryLabel={getGroupField(secondaryGroup).label}
-                    onToggleCase={toggleCase}
+                    primaryLabel={getGroupField(PRIMARY_GROUP).label}
+                    secondaryLabel={getGroupField(SECONDARY_GROUP).label}
+                    onSetApproval={setCaseApproval}
                   />
                 ))}
               </tbody>
@@ -569,18 +569,6 @@ function summarizeCurrentCases(cases, baseSummary) {
     highRiskCases: cases.filter((item) => item.severity === 'high').length,
     overtimeHours: sumType(cases, 'overtime').toFixed(2).replace(/0+$/, '').replace(/\.$/, '.0'),
   };
-}
-
-function buildAvailableGroupFields(cases) {
-  if (cases.length === 0) {
-    return GROUP_FIELDS;
-  }
-
-  const fieldsWithValues = GROUP_FIELDS.filter((field) =>
-    cases.some((item) => cleanGroupValue(item, field.id, '') !== ''),
-  );
-
-  return fieldsWithValues.length > 0 ? fieldsWithValues : GROUP_FIELDS;
 }
 
 function buildGroupedSections(cases, primaryFieldId, secondaryFieldId) {
@@ -651,6 +639,21 @@ function sumType(cases, type) {
   return cases.filter((item) => item.type === type).reduce((total, item) => total + (Number(item.value) || 0), 0);
 }
 
+function buildEmptyOrganizationFilters() {
+  return Object.fromEntries(ORGANIZATION_FILTERS.map((field) => [field.id, EMPTY_FILTER_VALUE]));
+}
+
+function buildFilterOptions(cases) {
+  return Object.fromEntries(
+    ORGANIZATION_FILTERS.map((field) => [
+      field.id,
+      [...new Set(cases.map((item) => cleanGroupValue(item, field.id, field.emptyLabel)))]
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right)),
+    ]),
+  );
+}
+
 function GroupSummaryCard({ section, primaryLabel, secondaryLabel, onApprove, onReject }) {
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
@@ -681,7 +684,7 @@ function GroupSummaryCard({ section, primaryLabel, secondaryLabel, onApprove, on
           Aprobar grupo
         </button>
         <button type="button" onClick={onReject} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
-          No aprobar
+          Rechazar grupo
         </button>
       </div>
     </div>
@@ -697,7 +700,7 @@ function GroupMetric({ label, value }) {
   );
 }
 
-function GroupedRows({ section, primaryLabel, secondaryLabel, onToggleCase }) {
+function GroupedRows({ section, primaryLabel, secondaryLabel, onSetApproval }) {
   return (
     <>
       <tr className="bg-slate-100">
@@ -715,14 +718,14 @@ function GroupedRows({ section, primaryLabel, secondaryLabel, onToggleCase }) {
           key={subgroup.key}
           subgroup={subgroup}
           secondaryLabel={secondaryLabel}
-          onToggleCase={onToggleCase}
+          onSetApproval={onSetApproval}
         />
       ))}
     </>
   );
 }
 
-function SubgroupRows({ subgroup, secondaryLabel, onToggleCase }) {
+function SubgroupRows({ subgroup, secondaryLabel, onSetApproval }) {
   return (
     <>
       <tr className="bg-slate-50">
@@ -731,30 +734,41 @@ function SubgroupRows({ subgroup, secondaryLabel, onToggleCase }) {
         </td>
       </tr>
       {subgroup.cases.map((item) => (
-        <CaseRow key={item.id} item={item} onToggleCase={onToggleCase} />
+        <CaseRow key={item.id} item={item} onSetApproval={onSetApproval} />
       ))}
     </>
   );
 }
 
-function CaseRow({ item, onToggleCase }) {
+function CaseRow({ item, onSetApproval }) {
   return (
     <tr className={item.severity === 'high' ? 'bg-amber-50/70' : ''}>
       <td className="px-4 py-3">
-        <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <input
-            type="checkbox"
-            checked={item.approved}
-            onChange={() => onToggleCase(item.id)}
-            className="h-4 w-4 rounded border-slate-300 text-brand-600"
-          />
-          {item.approved ? 'Aprobado' : 'No aprobado'}
-        </label>
+        <div className="inline-flex overflow-hidden rounded-full border border-slate-200 bg-white text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => onSetApproval(item.id, true)}
+            className={`px-3 py-2 transition ${
+              item.approved ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700'
+            }`}
+          >
+            Aprobar
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetApproval(item.id, false)}
+            className={`border-l border-slate-200 px-3 py-2 transition ${
+              !item.approved ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            Rechazar
+          </button>
+        </div>
       </td>
       <td className="px-4 py-3">
         <p className="font-semibold text-slate-900">{item.employeeName}</p>
         <p className="mt-1 text-xs text-slate-500">
-          {item.identifier} · {item.metadata?.company || 'Sin empresa'} · CC {item.costCenter || '-'}
+          {item.identifier} · {item.metadata?.company || 'Sin empresa'} · {item.metadata?.position || 'Sin cargo'} · CC {item.costCenter || '-'}
         </p>
       </td>
       <td className="px-4 py-3">
