@@ -96,6 +96,10 @@ export function formatCaseValue(item) {
     return String(Math.max(0, Math.min(30, Math.trunc(Number(item.value) || 0))));
   }
 
+  if (item.type === 'delay') {
+    return formatDecimalHours(item.value, 4);
+  }
+
   return formatDecimalHours(item.value);
 }
 
@@ -121,7 +125,7 @@ function buildAttendanceCases(attendanceUsers, usersByIdentifier, { startDate, e
         costCenter: user.costCenter,
         metadata: buildCaseMetadata(user),
         periodLabel: `${startDate} al ${endDate}`,
-        value: roundHours(delayHours),
+        value: roundDecimal(delayHours, 4),
         approved: false,
         severity: delayHours >= 2 ? 'high' : delayHours >= 1 ? 'medium' : 'low',
         rankValue: delayHours,
@@ -427,12 +431,7 @@ function normalizeOvertimeRows(overtime) {
 }
 
 function intervalDelayHours(interval) {
-  const compensatedDelay = parseHours(interval.DelayTimeAfterCompensation);
-  if (compensatedDelay > 0) {
-    return compensatedDelay;
-  }
-
-  return parseHours(interval.Delay) + parseHours(interval.BreakDelay);
+  return parseHours(interval.Delay);
 }
 
 function parseObjectHours(value) {
@@ -477,7 +476,12 @@ function sumHours(...values) {
 }
 
 function roundHours(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
+  return roundDecimal(value, 2);
+}
+
+function roundDecimal(value, digits) {
+  const multiplier = 10 ** digits;
+  return Math.round((Number(value) || 0) * multiplier) / multiplier;
 }
 
 function isTrue(value) {
