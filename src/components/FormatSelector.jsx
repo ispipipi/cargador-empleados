@@ -6,7 +6,6 @@ const SYSTEM_OPTIONS = {
     { id: 'talana', name: 'Talana' },
     { id: 'meta4', name: 'Meta 4' },
     { id: 'visma', name: 'Visma' },
-    { id: 'geovictoria', name: 'GeoVictoria' },
   ],
   destinations: [
     { id: 'buk', name: 'BUK' },
@@ -19,7 +18,6 @@ const MODULE_OPTIONS = [
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
   { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
   { id: 'libros-historicos', name: 'Carga de libros históricos', detail: 'Visma → REX+ Liquidaciones Detalle' },
-  { id: 'geovictoria', name: 'GeoVictoria', detail: 'GeoVictoria → REX+ Concepto Detalle' },
 ];
 
 export default function FormatSelector({
@@ -158,8 +156,6 @@ export default function FormatSelector({
                     ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
                     : selectedModule === 'conceptos'
                       ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
-                    : selectedModule === 'geovictoria'
-                      ? 'Consulta asistencia por API y genera la carga Rex+ con horas extra, atrasos e inasistencias.'
                     : pairKey === 'talana:buk'
                       ? 'Genera 2 archivos: Colaboradores + Trabajos.'
                       : 'Genera 1 archivo final REX+ Empleados.'}
@@ -171,8 +167,6 @@ export default function FormatSelector({
                     ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
                     : selectedModule === 'conceptos'
                       ? 'Incluye informe final de matches, altas y advertencias.'
-                    : selectedModule === 'geovictoria'
-                      ? 'Destaca extras mayores a 10 horas semanales y los mayores atrasos e inasistencias.'
                     : pairKey === 'talana:buk'
                       ? 'Usa wizard y matching contra listas BUK.'
                       : 'Incluye revisión manual de no-match antes de descargar.'}
@@ -189,9 +183,7 @@ export default function FormatSelector({
             >
               {selectedModule === 'conceptos'
                 ? 'Abrir mapeo de conceptos'
-                : selectedModule === 'geovictoria'
-                  ? 'Conectar GeoVictoria'
-                  : 'Continuar a carga de archivo'}
+                : 'Continuar a carga de archivo'}
             </button>
           </div>
         </div>
