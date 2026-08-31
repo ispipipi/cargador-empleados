@@ -186,6 +186,22 @@ const CONTRACTUAL_HISTORICAL_TARGET_IDS = new Set([
 
 const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
 
+const AFP_INSTITUTION_IDS = [
+  ['capital', 'AFP Capital', '33'],
+  ['cuprum', 'AFP Cuprum', '03'],
+  ['habitat', 'AFP Habitat', '05'],
+  ['modelo', 'AFP Modelo', '34'],
+  ['planvital', 'AFP Planvital', '29'],
+  ['provida', 'AFP Provida', '08'],
+  ['uno', 'AFP UNO', '35'],
+  ['canaempu', 'Canaemput', '1405'],
+  ['capremer', 'Capremer', '0601'],
+  ['empart', 'Empart', '0101'],
+  ['sss', 'Servicio Seguro Social', '0901'],
+  ['afp', 'Sin definir', '00'],
+  ['triomar', 'Triomar', '0702'],
+];
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, historicalConcepts = concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = historicalConcepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -692,7 +708,7 @@ function resolveInstitutionId(conceptId, sourceRow) {
   }
 
   if (normalizedConceptId === 'apvi') {
-    return firstSourceValue(sourceRow, ['CÓDIGO AFP', 'CODIGO AFP', 'ID AFP', 'AFP']);
+    return resolveAfpInstitutionId(firstSourceValue(sourceRow, ['CÓDIGO AFP', 'CODIGO AFP', 'ID AFP', 'AFP']));
   }
 
   if (normalizedConceptId === 'isapre') {
@@ -700,6 +716,20 @@ function resolveInstitutionId(conceptId, sourceRow) {
   }
 
   return '';
+}
+
+function resolveAfpInstitutionId(value) {
+  const rawValue = cleanCell(value);
+  const normalizedValue = normalizeText(rawValue).replace(/^afp\s+/, '');
+  const normalizedCode = rawValue.replace(/\D/g, '').replace(/^0+/, '') || '0';
+
+  const match = AFP_INSTITUTION_IDS.find(([id, name, code]) => (
+    normalizeText(id) === normalizedValue ||
+    normalizeText(name).replace(/^afp\s+/, '') === normalizedValue ||
+    code.replace(/^0+/, '') === normalizedCode
+  ));
+
+  return match?.[0] ?? rawValue;
 }
 
 function firstSourceValue(sourceRow, keys) {
