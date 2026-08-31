@@ -184,6 +184,8 @@ const CONTRACTUAL_HISTORICAL_TARGET_IDS = new Set([
   'isapre',
 ]);
 
+const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, historicalConcepts = concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = historicalConcepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -676,9 +678,48 @@ function buildDetailRow(sourceRow, targetId, amount, employee) {
   row[5] = String(amount);
   row[6] = 'M';
   row[8] = 'M';
+  row[11] = resolveInstitutionId(targetId, sourceRow);
   row[16] = 'C';
 
   return row;
+}
+
+function resolveInstitutionId(conceptId, sourceRow) {
+  const normalizedConceptId = normalizeText(conceptId).replace(/[^a-z0-9]+/g, '');
+
+  if (LOS_ANDES_CONCEPT_IDS.has(normalizedConceptId)) {
+    return 'losandes';
+  }
+
+  if (normalizedConceptId === 'apvi') {
+    return firstSourceValue(sourceRow, ['CÓDIGO AFP', 'CODIGO AFP', 'ID AFP', 'AFP']);
+  }
+
+  if (normalizedConceptId === 'isapre') {
+    return firstSourceValue(sourceRow, ['CÓDIGO ISAPRE', 'CODIGO ISAPRE', 'ID ISAPRE', 'ISAPRE']);
+  }
+
+  return '';
+}
+
+function firstSourceValue(sourceRow, keys) {
+  const normalizedEntries = Object.entries(sourceRow ?? {}).map(([key, value]) => [normalizeText(key), value]);
+
+  for (const key of keys) {
+    const value = cleanCell(sourceRow?.[key]);
+    if (value) {
+      return value;
+    }
+
+    const normalizedKey = normalizeText(key);
+    const entry = normalizedEntries.find(([sourceKey]) => sourceKey === normalizedKey);
+    const normalizedValue = cleanCell(entry?.[1]);
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+
+  return '';
 }
 
 function getSourceEmployeeId(sourceRow) {

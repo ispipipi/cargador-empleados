@@ -92,6 +92,8 @@ const CONTRACTUAL_TARGET_IDS = new Set([
   'isapre',
 ]);
 
+const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
+
 const VISMA_ALIASES = new Map([
   ['SUELDO GANADO', 'sueldoBase'],
   ['HORAS EXTRAS NORMALES AL 50', 'horasEx50'],
@@ -176,6 +178,7 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
     sourceRows.forEach((sourceRow) => {
       const employeeId = normalizeEmployeeId(sourceRow.RUT);
       const amount = parseVismaAmount(sourceRow[decision.sourceKey]);
+      const institutionId = resolveInstitutionId(decision.targetId, sourceRow);
       if (!employeeId || amount === null || amount === 0) {
         return;
       }
@@ -193,8 +196,8 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         '1',
         decision.targetId,
         amount,
-        '',
-        '',
+        0,
+        institutionId,
         '',
         0,
         parseDays(sourceRow['Días Trabajados']),
@@ -353,6 +356,44 @@ function isContractualSourceHeader(value) {
 
 function isContractualTargetId(value) {
   return CONTRACTUAL_TARGET_IDS.has(normalizeText(value).replace(/[^a-z0-9]+/g, ''));
+}
+
+function resolveInstitutionId(conceptId, sourceRow) {
+  const normalizedConceptId = normalizeText(conceptId).replace(/[^a-z0-9]+/g, '');
+
+  if (LOS_ANDES_CONCEPT_IDS.has(normalizedConceptId)) {
+    return 'losandes';
+  }
+
+  if (normalizedConceptId === 'apvi') {
+    return firstSourceValue(sourceRow, ['CÓDIGO AFP', 'CODIGO AFP', 'ID AFP', 'AFP']);
+  }
+
+  if (normalizedConceptId === 'isapre') {
+    return firstSourceValue(sourceRow, ['CÓDIGO ISAPRE', 'CODIGO ISAPRE', 'ID ISAPRE', 'ISAPRE']);
+  }
+
+  return '';
+}
+
+function firstSourceValue(sourceRow, keys) {
+  const normalizedEntries = Object.entries(sourceRow ?? {}).map(([key, value]) => [normalizeText(key), value]);
+
+  for (const key of keys) {
+    const value = cleanCell(sourceRow?.[key]);
+    if (value) {
+      return value;
+    }
+
+    const normalizedKey = normalizeText(key);
+    const entry = normalizedEntries.find(([sourceKey]) => sourceKey === normalizedKey);
+    const normalizedValue = cleanCell(entry?.[1]);
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+
+  return '';
 }
 
 function stripDuplicateHeaderSuffix(value) {
