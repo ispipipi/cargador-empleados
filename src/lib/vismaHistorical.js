@@ -74,6 +74,24 @@ const EXCLUDED_SOURCE_PATTERNS = [
   /^IMPUESTO/,
 ];
 
+const CONTRACTUAL_SOURCE_PATTERNS = [
+  /^SUELDO(?: BASE| GANADO)?$/,
+  /^GRATIFICACION/,
+  /^ASIG\.?\s*COLACION CONTRACTUAL$/,
+  /^ASIG\.?\s*MOVILIZACION CONTRACTUAL$/,
+  /^ASIGNACION COLACION$/,
+  /^ISAPRE$/,
+];
+
+const CONTRACTUAL_TARGET_IDS = new Set([
+  'sueldobase',
+  'gratificacion',
+  'asigcolacioncontract',
+  'asigmovcontractual',
+  'asignacioncolacion',
+  'isapre',
+]);
+
 const VISMA_ALIASES = new Map([
   ['SUELDO GANADO', 'sueldoBase'],
   ['HORAS EXTRAS NORMALES AL 50', 'horasEx50'],
@@ -205,6 +223,7 @@ export function buildVismaHistoricalReportRows(decisions) {
     'Colaboradores con monto': decision.nonZeroCount,
     'Valor de muestra': decision.sampleValue,
     Estado: decision.excluded ? 'Excluido' : decision.approved ? decision.matchStatus === 'exact' ? 'Match exacto' : 'Pareado manual' : decision.suggestedMatches.length ? 'Propuesta pendiente' : 'Sin propuesta',
+    'Motivo exclusión': decision.exclusionReason ?? '',
     'Id REX+': decision.targetId,
     'Nombre REX+': decision.targetName,
     'Id propuesto': decision.proposedId,
@@ -227,6 +246,7 @@ function buildDecision(column, index, catalog) {
   const exact = findExactConcept(sourceName, catalog);
   const suggestedMatches = findSuggestedMatches(sourceName, catalog);
   const target = exact ?? null;
+  const isContractual = isContractualSourceHeader(sourceName) || isContractualTargetId(target?.id);
 
   return {
     id: `${index + 1}-${column.sourceKey}`,
@@ -239,11 +259,13 @@ function buildDecision(column, index, catalog) {
     targetName: target?.name ?? '',
     targetConcept: target,
     proposedId: buildProposedId(sourceName, index),
-    suggestedMatches,
-    matchStatus: target ? 'exact' : suggestedMatches.length ? 'proposal' : 'pending',
-    action: target ? 'reuse' : 'pending',
-    approved: Boolean(target),
-    excluded: false,
+    suggestedMatches: isContractual ? [] : suggestedMatches,
+    matchStatus: isContractual ? 'excluded' : target ? 'exact' : suggestedMatches.length ? 'proposal' : 'pending',
+    action: isContractual ? 'exclude' : target ? 'reuse' : 'pending',
+    approved: Boolean(target) || isContractual,
+    excluded: isContractual,
+    autoExcluded: isContractual,
+    exclusionReason: isContractual ? 'Concepto contractual calculado por REX+ desde contrato/días trabajados' : '',
   };
 }
 
@@ -318,6 +340,19 @@ function isExcludedSourceHeader(value) {
     .replace(/[\u0300-\u036f]/g, '');
 
   return EXCLUDED_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedValue));
+}
+
+function isContractualSourceHeader(value) {
+  const normalizedValue = cleanCell(value)
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  return CONTRACTUAL_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedValue));
+}
+
+function isContractualTargetId(value) {
+  return CONTRACTUAL_TARGET_IDS.has(normalizeText(value).replace(/[^a-z0-9]+/g, ''));
 }
 
 function stripDuplicateHeaderSuffix(value) {

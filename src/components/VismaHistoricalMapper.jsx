@@ -184,6 +184,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, mappingSco
                 <li>RUT como identificador y contrato fijo `1`.</li>
                 <li>Fecha de proceso y aplicación: {sourceFile.period || 'AAAA-MM'}.</li>
                 <li>Jornada `C`, días trabajados desde Visma y licencias `0`.</li>
+                <li>Conceptos contractuales se excluyen: REX+ los recalcula desde contrato y días trabajados.</li>
                 <li>El campo Afecto queda vacío para que REX+ lo calcule.</li>
               </ul>
             </div>
@@ -259,7 +260,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, mappingSco
 }
 
 function DecisionRow({ decision, catalog, onAssign }) {
-  const status = decision.excluded ? 'Excluido' : decision.matchStatus === 'exact' ? 'Match exacto' : decision.approved ? 'Pareado manual' : decision.suggestedMatches.length ? 'Propuesta' : 'Sin propuesta';
+  const status = decision.autoExcluded ? 'Excluido automático' : decision.excluded ? 'Excluido' : decision.matchStatus === 'exact' ? 'Match exacto' : decision.approved ? 'Pareado manual' : decision.suggestedMatches.length ? 'Propuesta' : 'Sin propuesta';
   const statusClass = decision.excluded ? 'border-slate-200 bg-slate-50 text-slate-600' : decision.approved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800';
 
   return (
@@ -267,6 +268,7 @@ function DecisionRow({ decision, catalog, onAssign }) {
       <div>
         <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>{status}</span>
         <p className="mt-3 text-xs text-slate-500">{decision.nonZeroCount.toLocaleString('es-CL')} filas con monto</p>
+        {decision.exclusionReason ? <p className="mt-2 text-xs leading-5 text-slate-500">{decision.exclusionReason}</p> : null}
       </div>
       <div>
         <p className="font-semibold text-slate-900">{decision.sourceName}</p>

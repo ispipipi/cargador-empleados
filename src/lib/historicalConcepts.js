@@ -164,6 +164,26 @@ const NON_LOADABLE_HISTORICAL_PATTERNS = [
   /^EXPECTATIVA DE VIDA\b/,
 ];
 
+const CONTRACTUAL_HISTORICAL_SOURCE_PATTERNS = [
+  /^SUELDO(?: BASE| PAGADO)?\b/,
+  /^GRATIFICACION\b/,
+  /^ASIG\.?\s*COLACION CONTRACTUAL\b/,
+  /^ASIG\.?\s*MOVILIZACION CONTRACTUAL\b/,
+  /^ASIGNACION(?: DE)? COLACION\b/,
+  /^COTIZACI(?:O|Ó)N SALUD OBLIGATORIA\b/,
+  /^COTIZACI(?:O|Ó)N ISAPRE\b/,
+  /^ISAPRE\b/,
+];
+
+const CONTRACTUAL_HISTORICAL_TARGET_IDS = new Set([
+  'sueldobase',
+  'gratificacion',
+  'asigcolacioncontract',
+  'asigmovcontractual',
+  'asignacioncolacion',
+  'isapre',
+]);
+
 export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concepts, historicalConcepts = concepts, mappingRows = [], employeeCatalog = [], mappingScope }) {
   const catalog = historicalConcepts.filter((concept) => normalizeText(concept.type) !== 'dato');
   const catalogById = new Map(catalog.map((concept) => [normalizeText(concept.id), concept]));
@@ -212,6 +232,8 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const proposedId = buildConceptId(sourceName, index);
     const lreField = sourceMapping?.lreField ?? configuredDecision?.lreField ?? '';
     const classification = sourceMapping?.classification ?? configuredDecision?.classification ?? '';
+    const targetId = exactMatch?.id ?? approvedCreation?.targetId ?? configuredDecision?.targetId ?? '';
+    const contractualExclusion = isContractualHistoricalConcept(sourceName, targetId);
 
     return {
       id: `${index + 1}-${sourceKey}`,
@@ -224,10 +246,10 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       sourceSection: column.index >= 255 ? 'Descuento' : 'Haber / remuneración',
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
-      exactMatch: Boolean(exactMatch || approvedCreation),
-      matchStatus: configuredExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
-      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
-      suggestedMatches,
+      exactMatch: Boolean(!contractualExclusion && (exactMatch || approvedCreation)),
+      matchStatus: configuredExclusion || contractualExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: configuredExclusion || contractualExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
+      suggestedMatches: contractualExclusion ? [] : suggestedMatches,
       targetConcept: exactMatch,
       targetId: exactMatch?.id ?? approvedCreation?.targetId ?? '',
       targetName: exactMatch?.name ?? approvedCreation?.targetName ?? '',
@@ -237,8 +259,10 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
       lreField,
       classification,
-      approved: Boolean(configuredExclusion || exactMatch || approvedCreation),
-      excluded: Boolean(configuredExclusion),
+      approved: Boolean(configuredExclusion || contractualExclusion || exactMatch || approvedCreation),
+      excluded: Boolean(configuredExclusion || contractualExclusion),
+      autoExcluded: Boolean(contractualExclusion),
+      exclusionReason: contractualExclusion ? 'Concepto contractual calculado por REX+ desde contrato/días trabajados' : '',
       matchOrigin: (configuredDecision || configuredCreation) && (configuredExclusion || exactMatch || approvedCreation)
         ? 'concepts-module'
         : undefined,
@@ -262,7 +286,7 @@ export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCa
   const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
 
   decisions
-    .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
+    .filter((decision) => decision.approved && !decision.excluded && decision.targetId && !isContractualHistoricalConcept(decision.sourceName, decision.targetId))
     .forEach((decision) => {
       sourceRows.forEach((sourceRow) => {
         const sourceEmployeeId = getSourceEmployeeId(sourceRow);
@@ -313,7 +337,7 @@ export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalo
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
   const eligibleIds = new Set();
-  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId && !isContractualHistoricalConcept(decision.sourceName, decision.targetId));
 
   sourceRows.forEach((sourceRow) => {
     const sourceEmployeeId = getSourceEmployeeId(sourceRow);
@@ -361,6 +385,7 @@ export function buildHistoricalReportRows(decisions) {
           ? 'Match exacto aprobado'
           : 'Asignado manualmente'
         : 'Pendiente de match',
+    'Motivo exclusión': decision.exclusionReason ?? '',
     'Propuesta principal': decision.suggestedMatches[0]?.concept?.name ?? '',
   }));
 }
@@ -624,6 +649,19 @@ function isExcludedSourceHeader(value) {
 function isNonLoadableHistoricalConcept(value) {
   const normalizedHeader = cleanCell(value).toUpperCase();
   return NON_LOADABLE_HISTORICAL_PATTERNS.some((pattern) => pattern.test(normalizedHeader));
+}
+
+function isContractualHistoricalConcept(sourceName, targetId) {
+  const normalizedSourceName = cleanCell(sourceName)
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
+
+  return (
+    CONTRACTUAL_HISTORICAL_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedSourceName)) ||
+    CONTRACTUAL_HISTORICAL_TARGET_IDS.has(normalizedTargetId)
+  );
 }
 
 function buildDetailRow(sourceRow, targetId, amount, employee) {

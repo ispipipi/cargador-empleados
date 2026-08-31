@@ -255,6 +255,10 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [], 
 }
 
 export function applyStoredHistoricalMapping(namespace, decision, { concepts = [], scope, strictCatalog = false } = {}) {
+  if (decision.autoExcluded) {
+    return decision;
+  }
+
   const memory = loadMappingMemory();
   const mappingScope = normalizeMappingScope(scope);
   const stored = findStoredHistoricalMapping(memory, namespace, decision, mappingScope);
