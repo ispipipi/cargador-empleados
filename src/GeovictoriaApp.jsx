@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import GeovictoriaReview from './components/GeovictoriaReview';
 
-function getMaperUrl() {
+function getTransformatorUrl() {
   const baseUrl = import.meta.env.BASE_URL || '/';
   return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
 }
@@ -26,10 +26,10 @@ export default function GeovictoriaApp() {
               </div>
 
               <a
-                href={getMaperUrl()}
+                href={getTransformatorUrl()}
                 className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:border-cyan-200/50 hover:bg-white/10"
               >
-                Abrir Maper
+                Abrir Transformator
               </a>
             </div>
           </div>
@@ -37,7 +37,7 @@ export default function GeovictoriaApp() {
 
         <GeovictoriaReview
           onBack={() => {
-            window.location.assign(getMaperUrl());
+            window.location.assign(getTransformatorUrl());
           }}
           onBusyChange={(isBusy) => {
             setBusyState(isBusy

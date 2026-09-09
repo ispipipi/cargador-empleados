@@ -7,3 +7,10 @@ vite.config.js.timestamp-*.mjs
 !.env.example
 firebase-debug.log
 .firebaserc
+
+# Resultados locales y datos de prueba: no publicar información de personas ni empresas.
+outputs/
+data/examples/
+public/templates/* 2.xlsx
+src/components/* 2.jsx
+src/connectors/**/* 2.js

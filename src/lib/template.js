@@ -11,6 +11,34 @@ const ESTABLECIMIENTO_PAE_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}optio
 const NOMBRE_RBD_OPTIONS_ASSET_PATH = `${import.meta.env.BASE_URL}options/nombre-rbd.txt`;
 const FICHA_CODES_ASSET_PATH = `${import.meta.env.BASE_URL}options/supervisor-fichas.json`;
 
+const REX_COMPANY_MASTER_DEFINITIONS = [
+  {
+    key: 'Cargo',
+    label: 'Cargos',
+    aliases: ['Cargo', 'Cargos'],
+  },
+  {
+    key: 'Id centro de costo',
+    label: 'Centros de costo',
+    aliases: ['Id centro de costo', 'Centro de costo', 'Centros de costo'],
+  },
+  {
+    key: 'Id sede donde se desempeña',
+    label: 'Sedes',
+    aliases: ['Id sede donde se desempeña', 'Sede', 'Sedes'],
+  },
+  {
+    key: 'Área',
+    label: 'Áreas',
+    aliases: ['Área', 'Area', 'Áreas', 'Areas'],
+  },
+  {
+    key: 'Id empresa',
+    label: 'Empresas',
+    aliases: ['Id empresa', 'Empresa', 'Empresas'],
+  },
+];
+
 export async function loadBukColaboradoresTemplateResource() {
   const [response, fichaCodesResponse] = await Promise.all([
     fetch(BUK_COLABORADORES_TEMPLATE_ASSET_PATH),
@@ -204,6 +232,78 @@ export async function loadRexTemplateResource() {
     sheetRowsByName,
     catalogs,
     emailCatalog: buildRexEmailCatalog(emailArrayBuffer),
+  };
+}
+
+export function parseRexCompanyMasterWorkbook(arrayBuffer, fileName = '') {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheetRowsByName = {};
+  const catalogs = {};
+  const missingMasters = [];
+
+  REX_COMPANY_MASTER_DEFINITIONS.forEach((definition) => {
+    const sheetName = workbook.SheetNames.find((candidate) =>
+      definition.aliases.some((alias) => normalizeRexSheetName(alias) === normalizeRexSheetName(candidate)),
+    );
+    const rows = sheetName ? getSheetRows(workbook.Sheets[sheetName]) : [];
+    const catalog = buildRexCompanyMasterCatalog(rows);
+
+    if (!sheetName || catalog.length === 0) {
+      missingMasters.push(definition.label);
+      return;
+    }
+
+    catalogs[definition.key] = catalog;
+    sheetRowsByName[definition.key] = rows;
+  });
+
+  if (missingMasters.length > 0) {
+    throw new Error(
+      `El archivo de carga REX+ debe contener con datos estas listas: ${missingMasters.join(', ')}.`,
+    );
+  }
+
+  return {
+    fileName,
+    catalogs,
+    sheetRowsByName,
+    masters: REX_COMPANY_MASTER_DEFINITIONS.map((definition) => ({
+      key: definition.key,
+      label: definition.label,
+      count: catalogs[definition.key]?.length ?? 0,
+    })),
+  };
+}
+
+export function applyRexCompanyMasterResource(templateResource, companyMasterResource) {
+  if (!templateResource || !companyMasterResource) {
+    return templateResource;
+  }
+
+  const catalogs = { ...templateResource.catalogs };
+  const sheetRowsByName = { ...templateResource.sheetRowsByName };
+
+  REX_COMPANY_MASTER_DEFINITIONS.forEach((definition) => {
+    const catalog = companyMasterResource.catalogs?.[definition.key];
+    const rows = companyMasterResource.sheetRowsByName?.[definition.key];
+
+    if (Array.isArray(catalog) && catalog.length > 0) {
+      catalogs[definition.key] = catalog;
+    }
+
+    if (Array.isArray(rows) && rows.length > 0) {
+      sheetRowsByName[definition.key] = rows;
+    }
+  });
+
+  return {
+    ...templateResource,
+    catalogs,
+    sheetRowsByName,
+    companyMasterSource: {
+      fileName: companyMasterResource.fileName ?? '',
+      masters: companyMasterResource.masters ?? [],
+    },
   };
 }
 
@@ -405,6 +505,39 @@ function buildRexManagedListCatalog(rows) {
       name: cleanCell(row[1]),
     }))
     .filter((row) => row.id || row.name);
+}
+
+function buildRexCompanyMasterCatalog(rows) {
+  const headerRowIndex = rows.findIndex((row) => {
+    const normalizedHeaders = row.map((value) => normalizeCatalogHeader(value));
+    return (
+      (normalizedHeaders.includes('id') && normalizedHeaders.includes('nombre')) ||
+      (normalizedHeaders.includes('item') && normalizedHeaders.includes('nombre'))
+    );
+  });
+
+  if (headerRowIndex === -1) {
+    return [];
+  }
+
+  const headers = rows[headerRowIndex].map((value) => normalizeCatalogHeader(value));
+  const idIndex = headers.findIndex((header) => header === 'id' || header === 'item');
+  const nameIndex = headers.findIndex((header) => header === 'nombre');
+
+  return rows
+    .slice(headerRowIndex + 1)
+    .filter((row) => row.some((value) => cleanCell(value)))
+    .map((row) => ({
+      id: cleanCell(row[idIndex]),
+      name: cleanCell(row[nameIndex]),
+    }))
+    .filter((row) => row.id || row.name);
+}
+
+function normalizeRexSheetName(value) {
+  return normalizeCatalogHeader(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function buildRexEmailCatalog(arrayBuffer) {

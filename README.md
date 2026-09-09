@@ -1,4 +1,4 @@
-# Maper
+# Transformator
 
 App en React + Vite + Tailwind + SheetJS para mapear archivos de Meta 4 a REX+ y mantener los flujos Talana → BUK.
 
@@ -31,6 +31,30 @@ firebase deploy --only firestore:rules,storage
 ```
 
 Las reglas de `firestore.rules` y `storage.rules` restringen cada carga y mapeo al usuario autenticado que lo creó. Nunca se debe subir `.env` al repositorio.
+
+## Conector VISMA API
+
+El módulo `VISMA API` consulta VISMA vía backend usando secretos guardados en Firebase Functions. La pantalla no pide usuario, password ni subscription key: solo valida la conexión, permite elegir la empresa VISMA y deja seleccionar si se traerán empleados o libros históricos.
+
+```bash
+firebase functions:secrets:set VISMA_USERNAME
+firebase functions:secrets:set VISMA_PASSWORD
+firebase functions:secrets:set VISMA_SUBSCRIPTION_KEY
+firebase deploy --only functions
+```
+
+Para GitHub Pages, configura `VITE_VISMA_API_BASE_URL` con la URL base del proxy desplegado. El proxy expone `vismaProxy`, autentica contra VISMA, lista tenants/empresas disponibles y consulta:
+
+- `vlwebapiadmin/account/tenants`
+- `vlwebapi/employees`
+- ficha, direcciones, teléfonos, fases, estructuras y cuentas bancarias por empleado
+- `search/api/search-engines/employees`
+- `organization/api/structure-types`, `position`, `payment-methods`, `payment-types`
+- `organization/api/structures/41/Structures`
+- `contact/api/emails`
+- `Payroll/api/payroll-processes`
+
+El conector ya permite generar REX+ Empleados por empresa seleccionada. En libros históricos ya lista procesos Payroll; el detalle de liquidaciones queda condicionado a que VISMA habilite permisos para conceptos y detalle de procesos, porque el usuario probado responde `NeedPermissions` en esas rutas.
 
 ## Flujo funcional
 

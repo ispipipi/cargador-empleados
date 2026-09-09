@@ -10,6 +10,10 @@ import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
 import VismaHistoricalMapper from './components/VismaHistoricalMapper';
+import VismaEmployeesReview from './components/VismaEmployeesReview';
+import VismaMastersReview from './components/VismaMastersReview';
+import VismaSidebar from './components/VismaSidebar';
+import { VismaWorkspaceProvider } from './components/VismaWorkspaceProvider';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
@@ -31,6 +35,7 @@ import {
   buildBukColaboradoresExportWorkbook,
   buildBukTrabajosExportWorkbook,
   buildRexExportWorkbook,
+  applyRexCompanyMasterResource,
   loadBukColaboradoresTemplateResource,
   loadBukTrabajosTemplateResource,
   loadRexTemplateResource,
@@ -44,7 +49,7 @@ import {
   upsertConfiguration,
   validateConfigurationShape,
 } from './lib/storage';
-import { todayStamp } from './lib/utils';
+import { sanitizeFilenameSegment, todayStamp } from './lib/utils';
 import { loadConceptsResource, parseConceptCatalogWorkbook } from './lib/concepts';
 import { loadVismaHistoricalResource } from './lib/vismaHistorical';
 import {
@@ -72,6 +77,9 @@ import {
   saveSession,
 } from './lib/sessionPersistence';
 
+const ART_BPO_LOGO_PATH = `${import.meta.env.BASE_URL}branding/artbpo-logo.png`;
+const TMF_LOGO_PATH = `${import.meta.env.BASE_URL}branding/tmf-logo.png`;
+
 const STEPS = {
   format: 'format',
   upload: 'upload',
@@ -81,16 +89,18 @@ const STEPS = {
   concepts: 'concepts',
   historicalReview: 'historical-review',
   vismaHistoricalReview: 'visma-historical-review',
+  vismaMastersReview: 'visma-masters-review',
+  vismaEmployeesReview: 'visma-employees-review',
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
 const cloudConfigured = isFirebaseConfigured();
 
 export default function App() {
-  const [step, setStep] = useState(STEPS.format);
-  const [selectedModule, setSelectedModule] = useState('empleados');
-  const [selectedOrigin, setSelectedOrigin] = useState('talana');
-  const [selectedDestination, setSelectedDestination] = useState('buk');
+  const [step, setStep] = useState(STEPS.vismaMastersReview);
+  const [selectedModule, setSelectedModule] = useState('visma-maestros');
+  const [selectedOrigin, setSelectedOrigin] = useState('visma');
+  const [selectedDestination, setSelectedDestination] = useState('rex');
   const [mappingCompany, setMappingCompany] = useState('FINNING');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
   const [configurations, setConfigurations] = useState(() => loadConfigurations());
@@ -98,7 +108,8 @@ export default function App() {
   const [templateStatus, setTemplateStatus] = useState('loading');
   const [colaboradoresTemplateResource, setColaboradoresTemplateResource] = useState(null);
   const [trabajosTemplateResource, setTrabajosTemplateResource] = useState(null);
-  const [rexTemplateResource, setRexTemplateResource] = useState(null);
+  const [baseRexTemplateResource, setBaseRexTemplateResource] = useState(null);
+  const [rexCompanyMasterResource, setRexCompanyMasterResource] = useState(null);
   const [conceptsResource, setConceptsResource] = useState(null);
   const [vismaHistoricalResource, setVismaHistoricalResource] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
@@ -118,6 +129,11 @@ export default function App() {
   const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
 
+  const rexTemplateResource = useMemo(
+    () => applyRexCompanyMasterResource(baseRexTemplateResource, rexCompanyMasterResource),
+    [baseRexTemplateResource, rexCompanyMasterResource],
+  );
+
   const pairKey = `${selectedOrigin}:${selectedDestination}`;
   const mappingScope = useMemo(
     () => normalizeMappingScope({ origin: selectedOrigin, destination: selectedDestination, company: mappingCompany }),
@@ -128,7 +144,10 @@ export default function App() {
   const isConceptsFlow = selectedModule === 'conceptos';
   const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
   const isVismaHistoricalFlow = selectedModule === 'libros-historicos';
-  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || SUPPORTED_PAIRS.has(pairKey);
+  const isVismaMastersFlow = selectedModule === 'visma-maestros';
+  const isVismaEmployeesFlow = selectedModule === 'visma-empleados';
+  const showVismaSidebar = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
+  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -155,7 +174,7 @@ export default function App() {
 
         setColaboradoresTemplateResource(loadedColaboradoresTemplate);
         setTrabajosTemplateResource(loadedTrabajosTemplate);
-        setRexTemplateResource(loadedRexTemplate);
+        setBaseRexTemplateResource(loadedRexTemplate);
         setConceptsResource(loadedConcepts);
         setVismaHistoricalResource(loadedVismaHistoricalResource);
         setTemplateStatus('ready');
@@ -322,6 +341,7 @@ export default function App() {
           sourceFile,
           validation,
           result,
+          rexCompanyMasterResource,
           historicalBatchState,
           step,
         },
@@ -343,6 +363,7 @@ export default function App() {
               sourceFile,
               validation,
               result,
+              rexCompanyMasterResource,
               historicalBatchState,
               step,
             },
@@ -373,6 +394,7 @@ export default function App() {
     sourceFile,
     step,
     validation,
+    rexCompanyMasterResource,
     historicalBatchState,
     authUser,
   ]);
@@ -436,7 +458,7 @@ export default function App() {
           templateResource: rexTemplateResource,
           rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
         });
-        const nextDownload = createPreparedDownload(workbook, `REX_empleados_${todayStamp()}.xlsx`);
+        const nextDownload = createPreparedDownload(workbook, getRexDownloadFilename(sourceFile));
 
         if (!isActive) {
           revokePreparedDownload(nextDownload);
@@ -619,6 +641,24 @@ export default function App() {
   const handleModuleChange = (moduleId) => {
     setSelectedModule(moduleId);
 
+    if (moduleId !== 'visma-empleados') {
+      setRexCompanyMasterResource(null);
+    }
+
+    if (moduleId === 'visma-empleados') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setStep(STEPS.vismaEmployeesReview);
+      return;
+    }
+
+    if (moduleId === 'visma-maestros') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setStep(STEPS.vismaMastersReview);
+      return;
+    }
+
     if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
       setSelectedOrigin('meta4');
       setSelectedDestination('rex');
@@ -629,9 +669,36 @@ export default function App() {
       setSelectedOrigin('visma');
       setSelectedDestination('rex');
       setMappingCompany('FRUTICOLA');
+      setStep(STEPS.upload);
       return;
     }
 
+  };
+
+  const handleVismaNavigation = (moduleId) => {
+    setSelectedModule(moduleId);
+    setSelectedOrigin('visma');
+    setSelectedDestination('rex');
+    setGlobalError('');
+    setStep(moduleId === 'visma-maestros' ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
+  };
+
+  const handleVismaContextChange = () => {
+    setRexCompanyMasterResource(null);
+    setSourceFile(null);
+    setValidation(null);
+    setResult(null);
+    setSessionId(null);
+    setGlobalError('');
+    setStep(isVismaMastersFlow ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
+  };
+
+  const handleOpenOtherFlows = () => {
+    setSelectedModule('empleados');
+    setSelectedOrigin('meta4');
+    setSelectedDestination('rex');
+    setRexCompanyMasterResource(null);
+    setStep(STEPS.format);
   };
 
   const handleTransform = async () => {
@@ -710,6 +777,40 @@ export default function App() {
     }
   };
 
+  const handleVismaEmployeesReady = (nextSourceFile, nextValidation, nextCompanyMasterResource) => {
+    if (!nextSourceFile?.rows?.length || !rexTemplateResource || !nextCompanyMasterResource) {
+      setGlobalError('Carga primero el archivo REX+ de la empresa y luego consulta los empleados VISMA.');
+      return;
+    }
+
+    try {
+      const nextRexTemplateResource = applyRexCompanyMasterResource(
+        baseRexTemplateResource,
+        nextCompanyMasterResource,
+      );
+      const rexTransformation = buildInitialRexTransformation({
+        sourceRows: nextSourceFile.rows,
+        templateResource: nextRexTemplateResource,
+      });
+
+      setRexCompanyMasterResource(nextCompanyMasterResource);
+      setSessionId(createSessionId());
+      setSourceFile(nextSourceFile);
+      setValidation(nextValidation);
+      setResult({
+        kind: 'rex',
+        rowStates: rexTransformation.rowStates,
+        correctionsByRow: {},
+        summary: rexTransformation.summary,
+        generatedAt: todayStamp(),
+      });
+      setGlobalError('');
+      setStep(rexTransformation.summary.pendingCount > 0 ? STEPS.review : STEPS.result);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo transformar la respuesta VISMA.');
+    }
+  };
+
   const downloadWorkbookWithFeedback = ({ title, detail, fileName, buildWorkbook }) => {
     if (exportState) {
       return;
@@ -771,7 +872,12 @@ export default function App() {
       return;
     }
 
-    if (preparedRexDownload) {
+    if (isVismaEmployeesFlow && !rexCompanyMasterResource) {
+      setGlobalError('Para descargar empleados VISMA debes cargar el archivo REX+ de la empresa.');
+      return;
+    }
+
+    if (step === STEPS.result && preparedRexDownload) {
       triggerPreparedDownload(preparedRexDownload);
       return;
     }
@@ -783,7 +889,7 @@ export default function App() {
     downloadWorkbookWithFeedback({
       title: 'Preparando REX+ Empleados',
       detail: 'Estamos construyendo el Excel final de REX+ y activando la descarga en tu navegador.',
-      fileName: `REX_empleados_${todayStamp()}.xlsx`,
+      fileName: getRexDownloadFilename(sourceFile),
       buildWorkbook: () =>
         buildRexExportWorkbook({
           templateResource: rexTemplateResource,
@@ -1003,9 +1109,11 @@ export default function App() {
       const { metadata, data } = storedSession;
       const restoredOrigin = normalizeOrigin(data.selectedOrigin ?? metadata.selectedOrigin);
       const restoredDestination = normalizeDestination(data.selectedDestination ?? metadata.selectedDestination);
+      const restoredModule = data.selectedModule ?? metadata.selectedModule ?? 'empleados';
+      const restoredCompanyMaster = data.rexCompanyMasterResource ?? null;
 
       setSessionId(metadata.id);
-      setSelectedModule(data.selectedModule ?? metadata.selectedModule ?? 'empleados');
+      setSelectedModule(restoredModule);
       setSelectedOrigin(restoredOrigin);
       setSelectedDestination(restoredDestination);
       setMappingCompany(data.mappingCompany ?? metadata.mappingCompany ?? 'FINNING');
@@ -1016,8 +1124,13 @@ export default function App() {
       setSourceFile(data.sourceFile ?? null);
       setValidation(data.validation ?? null);
       setResult(data.result ?? null);
+      setRexCompanyMasterResource(restoredCompanyMaster);
       setHistoricalBatchState(data.historicalBatchState ?? { completedEmployeeIds: [] });
-      setStep(data.step ?? metadata.step ?? STEPS.upload);
+      setStep(
+        restoredModule === 'visma-empleados' && !restoredCompanyMaster
+          ? STEPS.vismaEmployeesReview
+          : data.step ?? metadata.step ?? STEPS.upload,
+      );
       setGlobalError('');
     } catch (error) {
       setGlobalError(error instanceof Error ? error.message : 'No se pudo retomar la carga guardada.');
@@ -1056,11 +1169,16 @@ export default function App() {
   };
 
   const resetFlow = () => {
-    setStep(STEPS.format);
+    const isVismaWorkspaceFlow = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
+    setStep(isVismaWorkspaceFlow ? STEPS.vismaMastersReview : STEPS.format);
+    if (isVismaWorkspaceFlow) {
+      setSelectedModule('visma-maestros');
+    }
     setSessionId(null);
     setSourceFile(null);
     setValidation(null);
     setResult(null);
+    setRexCompanyMasterResource(null);
     setHistoricalBatchState({ completedEmployeeIds: [] });
     setGlobalError('');
   };
@@ -1070,27 +1188,38 @@ export default function App() {
   }, [configurations]);
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+    <VismaWorkspaceProvider>
+      <main className="min-h-screen bg-[#f6f7fb] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       {busyState ? <WorkInProgressOverlay title={busyState.title} detail={busyState.detail} /> : null}
       <div className="mx-auto max-w-7xl">
-        <header className="mb-8">
-          <div className="panel bg-slate-950 px-6 py-6 text-white sm:px-8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-300">NPR interno</p>
-                <h1 className="mt-3 text-3xl font-extrabold sm:text-4xl">Maper</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                  {`Mapea archivos de ${originLabel} a ${destinationLabel} en un flujo client-side, con trazabilidad antes de descargar.`}
-                </p>
+        <header className="mb-6">
+          <div className="panel px-5 py-4 sm:px-7">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <img src={ART_BPO_LOGO_PATH} alt="artBPO" className="h-14 w-24 shrink-0 object-contain object-center" />
+                <div className="min-w-0 border-l border-slate-200 pl-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.28em] text-brand-600">Plataforma interna</p>
+                  <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Transformator</h1>
+                  <p className="mt-1 max-w-3xl text-sm text-slate-500">
+                  {isVismaMastersFlow
+                    ? 'Consulta los maestros VISMA desde el backend y prepáralos para las cargas.'
+                    : isVismaEmployeesFlow
+                      ? 'Conecta VISMA por proxy backend, elige empresa y trae empleados o libros históricos para REX+.'
+                    : `Mapea archivos de ${originLabel} a ${destinationLabel} en un flujo client-side, con trazabilidad antes de descargar.`}
+                  </p>
+                </div>
               </div>
 
-              <div className="flex flex-col items-stretch gap-3 sm:items-end">
-                <div className="rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
-                  <p className="font-semibold text-white">Pair activo</p>
-                  <p className="mt-2">
+              <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <img src={TMF_LOGO_PATH} alt="TMF Group" className="h-10 w-10 rounded-xl object-cover" />
+                  <div className="text-xs">
+                    <p className="font-bold uppercase tracking-[0.16em] text-slate-500">TMF Group</p>
+                    <p className="mt-1 font-semibold text-slate-900">
                     {selectedOrigin} → {destinationLabel}
                     {isConceptsFlow || isHistoricalConceptsFlow ? ` · ${mappingScope.company.toUpperCase()}` : ''}
-                  </p>
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1103,7 +1232,18 @@ export default function App() {
           </div>
         ) : null}
 
-        {step === STEPS.format ? (
+        <div className={showVismaSidebar ? 'grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]' : ''}>
+          {showVismaSidebar ? (
+            <VismaSidebar
+              selectedModule={selectedModule}
+              onNavigate={handleVismaNavigation}
+              onContextChange={handleVismaContextChange}
+              onOpenOtherFlows={handleOpenOtherFlows}
+            />
+          ) : null}
+
+          <div className={showVismaSidebar ? 'min-w-0' : ''}>
+        {step === STEPS.format && !showVismaSidebar ? (
           <FormatSelector
             selectedOrigin={selectedOrigin}
             selectedDestination={selectedDestination}
@@ -1113,7 +1253,15 @@ export default function App() {
             onChangeDestination={setSelectedDestination}
             onChangeMappingCompany={setMappingCompany}
             onChangeModule={handleModuleChange}
-            onContinue={() => setStep(isConceptsFlow ? STEPS.concepts : STEPS.upload)}
+            onContinue={() => setStep(
+              isConceptsFlow
+                ? STEPS.concepts
+                : isVismaMastersFlow
+                  ? STEPS.vismaMastersReview
+                : isVismaEmployeesFlow
+                  ? STEPS.vismaEmployeesReview
+                  : STEPS.upload,
+            )}
             templateStatus={templateStatus}
             conceptCatalogCount={conceptsResource?.concepts?.length ?? 0}
             isUpdatingConceptCatalog={isUpdatingConceptCatalog}
@@ -1132,6 +1280,34 @@ export default function App() {
           />
         ) : null}
 
+        {step === STEPS.vismaMastersReview ? (
+          <VismaMastersReview
+            onBack={() => handleVismaNavigation('visma-empleados')}
+            onBusyChange={(isBusy) => {
+              setExportState(isBusy
+                ? {
+                    title: 'Consultando maestros VISMA',
+                    detail: 'El proxy está consultando los maestros de la conexión seleccionada.',
+                  }
+                : null);
+            }}
+          />
+        ) : null}
+
+        {step === STEPS.vismaEmployeesReview ? (
+          <VismaEmployeesReview
+            onBack={() => handleVismaNavigation('visma-maestros')}
+            onContinue={handleVismaEmployeesReady}
+            onBusyChange={(isBusy) => {
+              setExportState(isBusy
+                ? {
+                    title: 'Consultando VISMA',
+                    detail: 'El proxy está consultando VISMA con las claves guardadas y la empresa seleccionada.',
+                  }
+                : null);
+            }}
+          />
+        ) : null}
 
         {step === STEPS.upload ? (
           <FileUploader
@@ -1141,7 +1317,7 @@ export default function App() {
             isReadingFile={isReadingFile}
             continueLabel={isVismaHistoricalFlow ? 'Analizar libro histórico' : isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
-            onBack={() => setStep(STEPS.format)}
+            onBack={() => setStep(showVismaSidebar ? STEPS.vismaEmployeesReview : STEPS.format)}
             onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
           />
         ) : null}
@@ -1195,7 +1371,8 @@ export default function App() {
             rowStates={result.rowStates}
             correctionsByRow={result.correctionsByRow}
             templateResource={rexTemplateResource}
-            onBack={() => setStep(STEPS.upload)}
+            onBack={() => setStep(isVismaEmployeesFlow ? STEPS.vismaEmployeesReview : STEPS.upload)}
+            onDownloadRex={handleDownloadRex}
             onDownloadPendingReport={handleDownloadRexPendingReport}
             onUpdateCorrection={handleUpdateRexCorrection}
             onBulkApply={handleBulkApplyRexCorrection}
@@ -1221,6 +1398,8 @@ export default function App() {
         {step === STEPS.result && result?.kind === 'rex' ? (
           <RexTransformResult
             result={result}
+            sourceLabel={isVismaEmployeesFlow ? 'VISMA' : 'Meta 4'}
+            defaultConfigurationName={isVismaEmployeesFlow ? 'VISMA → REX+ Empleados' : 'Meta 4 → REX+'}
             activeConfiguration={activeConfiguration}
             onDownload={handleDownloadRex}
             downloadHref={preparedRexDownload?.objectUrl ?? ''}
@@ -1231,8 +1410,11 @@ export default function App() {
             onRestart={resetFlow}
           />
         ) : null}
+          </div>
+        </div>
       </div>
-    </main>
+      </main>
+    </VismaWorkspaceProvider>
   );
 }
 
@@ -1266,6 +1448,13 @@ function WorkInProgressOverlay({ title, detail }) {
 
 function triggerWorkbookDownload(workbook, fileName) {
   triggerPreparedDownload(createPreparedDownload(workbook, fileName));
+}
+
+function getRexDownloadFilename(sourceFile) {
+  const companyName = String(sourceFile?.companyName || '').trim();
+  return companyName
+    ? `REX_empleados_${sanitizeFilenameSegment(companyName)}_${todayStamp()}.xlsx`
+    : `REX_empleados_${todayStamp()}.xlsx`;
 }
 
 function createPreparedDownload(workbook, fileName) {
@@ -1327,6 +1516,10 @@ function normalizeDestination(destinationId) {
 }
 
 function normalizeOrigin(originId) {
+  if (originId === 'visma') {
+    return 'visma';
+  }
+
   return originId === 'meta4' ? 'meta4' : 'talana';
 }
 

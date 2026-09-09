@@ -4,15 +4,24 @@ export default {
   theme: {
     extend: {
       boxShadow: {
-        panel: '0 24px 60px rgba(15, 23, 42, 0.18)',
+        panel: '0 16px 38px rgba(30, 24, 58, 0.08)',
       },
       colors: {
         brand: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          500: '#2563eb',
-          600: '#1d4ed8',
-          700: '#1e40af',
+          50: '#f7f2ff',
+          100: '#eadcff',
+          200: '#d7baff',
+          300: '#be8cff',
+          500: '#7a3fe0',
+          600: '#6d32c8',
+          700: '#57239f',
+        },
+        tmf: {
+          50: '#fff3f1',
+          100: '#ffd9d3',
+          500: '#ef4b3f',
+          600: '#d83a31',
+          700: '#b72e27',
         },
       },
       fontFamily: {
@@ -21,7 +30,7 @@ export default {
       },
       backgroundImage: {
         'hero-grid':
-          'radial-gradient(circle at top left, rgba(37, 99, 235, 0.22), transparent 36%), radial-gradient(circle at top right, rgba(14, 165, 233, 0.18), transparent 28%), linear-gradient(180deg, rgba(255,255,255,0.88), rgba(248,250,252,0.96))',
+          'linear-gradient(180deg, #ffffff 0%, #fbf9ff 100%)',
       },
     },
   },

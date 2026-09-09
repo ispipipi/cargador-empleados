@@ -187,6 +187,8 @@ const PAYMENT_METHOD_ALIASES = {
   'deposito cuenta corriente': 'actacorr',
   'deposito cta corriente': 'actacorr',
   'abono en cuenta corriente': 'actacorr',
+  'cuenta corriente': 'actacorr',
+  'cuenta corriente otros bancos': 'actacorr',
   'deposito cuenta ahorro': 'actaaho',
   'deposito cta ahorro': 'actaaho',
   'abono en cuenta de ahorro': 'actaaho',
@@ -208,6 +210,9 @@ const AFP_NAME_ALIASES = {
   'ing capital': 'Capital',
   'afp uno': 'AFP UNO',
   'no definida': 'Sin definir',
+  'no aplica': 'Sin definir',
+  'sin afp': 'Sin definir',
+  'sin a.f.p.': 'Sin definir',
 };
 
 const HEALTH_NAME_ALIASES = {
@@ -513,6 +518,30 @@ const CATEGORY_INE_RULES = [
   { id: 'ine_nocal', keywords: ['auxiliar', 'ayudante', 'aseo', 'peon'] },
 ];
 
+const COMPANY_OCCUPATION_PROFILES = [
+  {
+    companyKeywords: ['icon chile ltda', 'icon'],
+    professionalKeywords: [
+      'clinical',
+      'research',
+      'trial',
+      'study',
+      'medical',
+      'regulatory',
+      'drug safety',
+      'site engagement',
+      'site management',
+      'site identification',
+      'site partner',
+      'clinical operations',
+      'associate',
+      'cra',
+      'sma',
+      'liaison',
+    ],
+  },
+];
+
 export const rexDestination = {
   id: 'rex',
   nombre: 'REX+',
@@ -719,6 +748,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const normalizedOccupationSource = normalizeLooseText(
     `${sourceRow.POSICION ?? ''} ${sourceRow['JOB CODE'] ?? ''} ${resolvedCargoName}`,
   );
+  const occupationRules = getOccupationRuleSet(sourceRow.EMPRESA);
   const costCenter = resolveCatalogField({
     key: 'costCenter',
     label: 'Id centro de costo',
@@ -800,7 +830,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     inferredValue: inferFromKeywordRules({
       normalizedSource: normalizedOccupationSource,
       normalizedArea: normalizedAreaSource,
-      rules: OCCUPATIONAL_LEVEL_RULES,
+      rules: occupationRules.level,
     }),
     pendingItems,
     rowNumber,
@@ -815,6 +845,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
       normalizedSource: normalizedOccupationSource,
       normalizedArea: normalizedAreaSource,
       occupationalLevelId: nivelOcupacional.value,
+      rules: occupationRules.ine,
     }),
     pendingItems,
     rowNumber,
@@ -1673,33 +1704,39 @@ function resolveComuna({
 
   const directCorrection = cleanCell(correctionValue);
   const catalog = templateResource.catalogs.Comuna ?? [];
-  const candidateValues = buildComunaCandidates({
+  const sourceAndLocationCandidates = buildComunaCandidates({
     sourceValue,
     locationValue,
     secondaryLocationValue,
+    addressValue: '',
+  });
+  const addressCandidates = buildComunaCandidates({
+    sourceValue: '',
+    locationValue: '',
+    secondaryLocationValue: '',
     addressValue,
   });
+  const resolveCandidate = (candidate) =>
+    findCatalogMatch({
+      catalog,
+      candidate,
+      normalizer: normalizeLooseText,
+    }) ||
+    findHeuristicCatalogMatch({
+      catalog,
+      candidate,
+      normalizer: normalizeLooseText,
+    }) ||
+    findScoredCatalogMatch({
+      catalog,
+      candidate,
+      normalizer: normalizeLooseText,
+    });
   const selectedComuna =
     catalog.find((item) => item.id === directCorrection) ||
-    candidateValues
-      .map((candidate) =>
-        findCatalogMatch({
-          catalog,
-          candidate,
-          normalizer: normalizeLooseText,
-        }) ||
-        findHeuristicCatalogMatch({
-          catalog,
-          candidate,
-          normalizer: normalizeLooseText,
-        }) ||
-        findScoredCatalogMatch({
-          catalog,
-          candidate,
-          normalizer: normalizeLooseText,
-        }),
-      )
-      .find(Boolean);
+    sourceAndLocationCandidates.map(resolveCandidate).find(Boolean) ||
+    findAddressComunaMatch({ catalog, addressValue }) ||
+    addressCandidates.map(resolveCandidate).find(Boolean);
 
   if (!selectedComuna) {
     pendingItems.push(
@@ -1712,6 +1749,11 @@ function resolveComuna({
         employeeId,
         employeeName,
         sourceValue: cleanCell(sourceValue),
+        sourceContext: buildPendingContext([
+          ['Ubicación', locationValue],
+          ['Ubicación Workday', secondaryLocationValue],
+          ['Dirección', addressValue],
+        ]),
       }),
     );
     return {
@@ -2252,11 +2294,38 @@ function inferFromKeywordRules({ normalizedSource, normalizedArea, rules }) {
   return matchedRule?.id ?? '';
 }
 
-function inferIneCategory({ normalizedSource, normalizedArea, occupationalLevelId }) {
+function getOccupationRuleSet(companyValue) {
+  const normalizedCompany = normalizeLooseText(companyValue);
+  const profile = COMPANY_OCCUPATION_PROFILES.find((candidate) =>
+    candidate.companyKeywords.some((keyword) => normalizedCompany.includes(normalizeLooseText(keyword))),
+  );
+
+  if (!profile) {
+    return {
+      level: OCCUPATIONAL_LEVEL_RULES,
+      ine: CATEGORY_INE_RULES,
+    };
+  }
+
+  return {
+    level: OCCUPATIONAL_LEVEL_RULES.map((rule) =>
+      rule.id === 'profesional'
+        ? { ...rule, keywords: [...rule.keywords, ...profile.professionalKeywords] }
+        : rule,
+    ),
+    ine: CATEGORY_INE_RULES.map((rule) =>
+      rule.id === 'ine_profesionales'
+        ? { ...rule, keywords: [...rule.keywords, ...profile.professionalKeywords] }
+        : rule,
+    ),
+  };
+}
+
+function inferIneCategory({ normalizedSource, normalizedArea, occupationalLevelId, rules = CATEGORY_INE_RULES }) {
   const directRule = inferFromKeywordRules({
     normalizedSource,
     normalizedArea,
-    rules: CATEGORY_INE_RULES,
+    rules,
   });
 
   if (directRule) {
@@ -2759,7 +2828,7 @@ function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationVa
     .find(Boolean);
   const inferredAddressCandidate = inferComunaFromLocation(repairedAddressValue || rawAddressValue);
 
-  if (!rawValue && !inferredLocationCandidate && !inferredAddressCandidate) {
+  if (!rawValue && !rawAddressValue && locationCandidates.length === 0 && !inferredLocationCandidate && !inferredAddressCandidate) {
     return [];
   }
 
@@ -2794,6 +2863,98 @@ function buildComunaCandidates({ sourceValue, locationValue, secondaryLocationVa
   ]
     .filter(Boolean)
     .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
+}
+
+function findAddressComunaMatch({ catalog, addressValue }) {
+  const repairedAddressValue = repairCommonMojibake(cleanCell(addressValue));
+  const normalizedAddress = normalizeLooseText(repairedAddressValue);
+
+  if (!normalizedAddress) {
+    return null;
+  }
+
+  const inferredComunaName = inferComunaFromLocation(repairedAddressValue);
+  const inferredComuna = inferredComunaName
+    ? findCatalogMatch({
+        catalog,
+        candidate: inferredComunaName,
+        normalizer: normalizeLooseText,
+      })
+    : null;
+
+  if (inferredComuna) {
+    return inferredComuna;
+  }
+
+  const addressSegments = repairedAddressValue
+    .split(',')
+    .map((segment) => normalizeLooseText(segment))
+    .filter(Boolean);
+  const numberMatches = [...normalizedAddress.matchAll(/\b\d+[a-z0-9-]*\b/g)];
+  const lastNumberMatch = numberMatches[numberMatches.length - 1];
+  const trailingAddressText = lastNumberMatch
+    ? normalizedAddress.slice(lastNumberMatch.index + lastNumberMatch[0].length).trim()
+    : '';
+  const rankedMatches = catalog
+    .map((item) => {
+      const normalizedName = normalizeLooseText(item.name);
+
+      if (!normalizedName) {
+        return { item, score: 0, exactSegment: false };
+      }
+
+      const exactSegment = addressSegments.some(
+        (segment) => segment === normalizedName || segment.endsWith(` ${normalizedName}`),
+      );
+      const appearsInAddress = hasNormalizedPhrase(normalizedAddress, normalizedName);
+      const appearsAfterNumber = hasNormalizedPhrase(trailingAddressText, normalizedName);
+      const nameTokens = tokenizeNormalized(normalizedName).filter((token) => token.length >= 4);
+      const addressTokens = new Set(tokenizeNormalized(normalizedAddress));
+      const allNameTokensPresent = nameTokens.length > 0 && nameTokens.every((token) => addressTokens.has(token));
+      const isSingleWordName = nameTokens.length === 1;
+      const isReliableAddressMatch =
+        exactSegment ||
+        appearsAfterNumber ||
+        (appearsInAddress && !isSingleWordName && normalizedAddress.endsWith(normalizedName));
+
+      if (!isReliableAddressMatch || !allNameTokensPresent) {
+        return { item, score: 0, exactSegment };
+      }
+
+      return {
+        item,
+        exactSegment,
+        score:
+          (exactSegment ? 120 : 0) +
+          (appearsAfterNumber ? 100 : 0) +
+          (normalizedAddress.endsWith(normalizedName) ? 40 : 0) +
+          nameTokens.length * 8,
+      };
+    })
+    .filter((match) => match.score > 0)
+    .sort((left, right) => right.score - left.score);
+  const [bestMatch, secondMatch] = rankedMatches;
+
+  if (!bestMatch) {
+    return null;
+  }
+
+  if (secondMatch && bestMatch.score - secondMatch.score < 16 && !bestMatch.exactSegment) {
+    return null;
+  }
+
+  return bestMatch.item;
+}
+
+function hasNormalizedPhrase(value, phrase) {
+  return Boolean(
+    value &&
+      phrase &&
+      (value === phrase ||
+        value.startsWith(`${phrase} `) ||
+        value.endsWith(` ${phrase}`) ||
+        value.includes(` ${phrase} `)),
+  );
 }
 
 function hasPendingItem(pendingItems, key) {

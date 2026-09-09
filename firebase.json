@@ -22,7 +22,7 @@
     "providers": {
       "anonymous": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "Maper",
+        "oAuthBrandDisplayName": "Transformator",
         "supportEmail": "espinozajc@gmail.com"
       }
     }

@@ -7,11 +7,11 @@
 @layer base {
   :root {
     color: #0f172a;
-    background: #eff6ff;
+    background: #f6f7fb;
   }
 
   body {
-    @apply min-h-screen bg-slate-100 text-slate-900 antialiased;
+    @apply min-h-screen bg-[#f6f7fb] text-slate-900 antialiased;
   }
 
   button,
@@ -27,14 +27,11 @@
 
 @layer components {
   .panel {
-    @apply rounded-[28px] border border-white/70 bg-white/90 shadow-panel backdrop-blur;
+    @apply rounded-[22px] border border-slate-200/80 bg-white shadow-panel;
   }
 
   .soft-grid {
-    background-image:
-      linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
-    background-size: 24px 24px;
+    background-image: none;
   }
 
   .loader-orb {
@@ -54,11 +51,11 @@
   }
 
   .button-primary {
-    @apply rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800;
+    @apply rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700;
   }
 
   .button-secondary {
-    @apply rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-500;
+    @apply rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-500;
   }
 }
 

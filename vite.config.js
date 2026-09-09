@@ -14,6 +14,10 @@ export default defineConfig({
         target: 'http://localhost:8787',
         changeOrigin: true,
       },
+      '/api/visma': {
+        target: 'http://localhost:8788',
+        changeOrigin: true,
+      },
     },
   },
   build: {

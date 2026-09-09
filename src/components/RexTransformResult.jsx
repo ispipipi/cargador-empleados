@@ -1,5 +1,7 @@
 export default function RexTransformResult({
   result,
+  sourceLabel = 'Meta 4',
+  defaultConfigurationName = 'Meta 4 → REX+',
   activeConfiguration,
   onDownload,
   downloadHref = '',
@@ -19,7 +21,7 @@ export default function RexTransformResult({
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.22),_transparent_28%),radial-gradient(circle_at_85%_20%,_rgba(56,189,248,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
             <div className="relative">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Paso 5</p>
-              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Resultado Meta 4 → REX+</h2>
+              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Resultado {sourceLabel} → REX+</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
                 El archivo quedó consolidado y listo para descarga después de pasar por la revisión manual de no-match.
               </p>
@@ -59,7 +61,7 @@ export default function RexTransformResult({
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={() => onSaveConfiguration(activeConfiguration?.nombre ?? 'Meta 4 → REX+')}
+                    onClick={() => onSaveConfiguration(activeConfiguration?.nombre ?? defaultConfigurationName)}
                     className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
                   >
                     Guardar configuración

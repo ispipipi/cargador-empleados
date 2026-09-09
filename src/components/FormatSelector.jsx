@@ -14,7 +14,9 @@ const SYSTEM_OPTIONS = {
 };
 
 const MODULE_OPTIONS = [
+  { id: 'visma-maestros', name: 'Maestros VISMA', detail: 'Consulta y copia cargos, sedes y organizaciones' },
   { id: 'empleados', name: 'Empleados', detail: 'Meta 4 → REX+ Empleados' },
+  { id: 'visma-empleados', name: 'Cargas VISMA', detail: 'Elige empresa y genera REX+ Empleados' },
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
   { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
   { id: 'libros-historicos', name: 'Carga de libros históricos', detail: 'Visma → REX+ Liquidaciones Detalle' },
@@ -54,12 +56,12 @@ export default function FormatSelector({
       <section className="panel overflow-hidden">
         <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="bg-hero-grid soft-grid px-6 py-8 sm:px-10 sm:py-10">
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-700">Maper · Paso 1</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-700">Transformator · Paso 1</p>
             <h2 className="mt-3 max-w-xl text-3xl font-extrabold text-slate-950 sm:text-4xl">
               Elige qué quieres transformar.
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-              Maper reúne los flujos de Empleados y Conceptos en un solo lugar, con revisión antes de descargar.
+              Transformator reúne maestros, empleados y conceptos en un solo lugar, con revisión antes de descargar.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -152,24 +154,32 @@ export default function FormatSelector({
                 <li>
                   {selectedModule === 'libros-historicos'
                     ? 'Lee un libro mensual de Visma y genera Liquidaciones Detalle para REX+.'
+                    : selectedModule === 'visma-maestros'
+                      ? 'Consulta y copia los maestros disponibles en VISMA para preparar las cargas.'
                     : selectedModule === 'conceptos-historicos'
-                    ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
+                      ? 'Lee la remuneración de Meta 4 y genera el CSV mensual de Concepto Detalle.'
                     : selectedModule === 'conceptos'
                       ? 'Usa los maestros de conceptos, propone altas y genera el archivo de importación REX+.'
-                    : pairKey === 'talana:buk'
-                      ? 'Genera 2 archivos: Colaboradores + Trabajos.'
-                      : 'Genera 1 archivo final REX+ Empleados.'}
+                      : selectedModule === 'visma-empleados'
+                        ? 'Elige una empresa VISMA y genera su archivo de carga REX+.'
+                        : pairKey === 'talana:buk'
+                          ? 'Genera 2 archivos: Colaboradores + Trabajos.'
+                          : 'Genera 1 archivo final REX+ Empleados.'}
                 </li>
                 <li>
                   {selectedModule === 'libros-historicos'
                     ? 'Pareará haberes y descuentos contra el catálogo del template REX+.'
+                    : selectedModule === 'visma-maestros'
+                      ? 'Es el primer paso para revisar cargos, sedes, áreas, empresas y centros de costo.'
                     : selectedModule === 'conceptos-historicos'
-                    ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
+                      ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
                     : selectedModule === 'conceptos'
                       ? 'Incluye informe final de matches, altas y advertencias.'
-                    : pairKey === 'talana:buk'
-                      ? 'Usa wizard y matching contra listas BUK.'
-                      : 'Incluye revisión manual de no-match antes de descargar.'}
+                      : selectedModule === 'visma-empleados'
+                        ? 'Trae identidad, estructuras, dirección, banco y emails disponibles antes de transformar.'
+                        : pairKey === 'talana:buk'
+                          ? 'Usa wizard y matching contra listas BUK.'
+                          : 'Incluye revisión manual de no-match antes de descargar.'}
                 </li>
                 <li>{isSupportedPair ? 'El par seleccionado está soportado por la app.' : 'Este par aún no está habilitado.'}</li>
               </ul>
@@ -183,7 +193,11 @@ export default function FormatSelector({
             >
               {selectedModule === 'conceptos'
                 ? 'Abrir mapeo de conceptos'
-                : 'Continuar a carga de archivo'}
+                : selectedModule === 'visma-maestros'
+                  ? 'Consultar maestros VISMA'
+                  : selectedModule === 'visma-empleados'
+                    ? 'Conectar VISMA'
+                    : 'Continuar a carga de archivo'}
             </button>
           </div>
         </div>

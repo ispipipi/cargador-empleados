@@ -59,7 +59,7 @@ export default function ConceptsMapper({
           <div className="relative overflow-hidden bg-slate-950 p-7 text-white sm:p-10">
             <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl" />
             <div className="relative">
-              <p className="eyebrow text-cyan-300">Maper · Biblioteca de conceptos</p>
+              <p className="eyebrow text-cyan-300">Transformator · Biblioteca de conceptos</p>
               <h1 className="mt-4 max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">
                 Mantenemos el mapeo listo para comparar
               </h1>
@@ -132,7 +132,7 @@ export default function ConceptsMapper({
         <div className="max-w-2xl">
           <p className="eyebrow text-blue-700">Cómo funciona</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">La revisión aparece después de cargar el libro</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-600">Así se evita revisar toda la biblioteca sin contexto. Maper compara solamente los conceptos que vienen en el período que estás procesando.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-600">Así se evita revisar toda la biblioteca sin contexto. Transformator compara solamente los conceptos que vienen en el período que estás procesando.</p>
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">

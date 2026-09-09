@@ -165,7 +165,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, mappingSco
       <section className="panel overflow-hidden">
         <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="bg-slate-950 px-6 py-8 text-white sm:px-10 sm:py-10">
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-300">Maper · Libro histórico</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-300">Transformator · Libro histórico</p>
             <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Visma → REX+ Liquidaciones Detalle</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
               Revisa los haberes y descuentos detectados, confirma sus conceptos REX+ y descarga el CSV del período {sourceFile.period || 'mensual'}.

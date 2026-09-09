@@ -12,6 +12,7 @@ export default function RexCorrectionsStep({
   correctionsByRow,
   templateResource,
   onBack,
+  onDownloadRex,
   onDownloadPendingReport,
   onUpdateCorrection,
   onBulkApply,
@@ -98,7 +99,7 @@ export default function RexCorrectionsStep({
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.22),_transparent_28%),radial-gradient(circle_at_85%_20%,_rgba(56,189,248,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
             <div className="relative">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-emerald-300">Paso 4</p>
-              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Resuelve los no-match antes de descargar</h2>
+              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Revisa los no-match y descarga cuando lo necesites</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
                 El sistema dejó vacíos los campos que no pudo mapear con seguridad. Aquí los completamos por fila o en
                 bloque usando solo valores válidos del template destino.
@@ -119,8 +120,32 @@ export default function RexCorrectionsStep({
                 <li>Selecciona un campo pendiente desde la lista de la derecha.</li>
                 <li>Corrige por fila o usa selección múltiple para cargar el mismo valor a varias filas.</li>
                 <li>Si prefieres no tocar un campo, puedes omitirlo o dejarlo vacío y seguir avanzando.</li>
-                <li>La descarga final se habilita solo cuando no queden pendientes.</li>
+                <li>Puedes descargar el archivo REX+ aunque queden pendientes; esos campos se conservarán vacíos.</li>
               </ul>
+            </div>
+
+            <div className="mt-5 rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-[0_20px_40px_rgba(245,158,11,0.08)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Carga parcial disponible</p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar archivo REX+ con pendientes</h3>
+                  <p className="mt-2 max-w-xl text-sm leading-7 text-slate-700">
+                    Incluye todas las filas transformadas. Los campos que requieren revisión quedarán vacíos para que puedas completar el archivo después.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onDownloadRex}
+                  disabled={rowStates.length === 0}
+                  className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Descargar REX+ ahora
+                </button>
+              </div>
+              <p className="mt-4 text-xs leading-5 text-amber-800">
+                Advertencia: REX+ podría rechazar una fila hasta que completes sus campos pendientes.
+              </p>
             </div>
 
             <div className="mt-5 rounded-[28px] border border-sky-200 bg-gradient-to-r from-sky-50 via-white to-cyan-50 p-5 shadow-[0_20px_40px_rgba(14,165,233,0.08)]">
@@ -171,7 +196,7 @@ export default function RexCorrectionsStep({
             </div>
 
             {pendingEntries.length > 0 ? (
-              <p className="mt-3 text-sm text-amber-700">Aún hay {pendingEntries.length} pendientes por resolver.</p>
+              <p className="mt-3 text-sm text-amber-700">Aún hay {pendingEntries.length} pendientes por resolver. También puedes descargar la carga parcial.</p>
             ) : (
               <p className="mt-3 text-sm text-emerald-700">No quedan pendientes. Ya puedes descargar el archivo final.</p>
             )}

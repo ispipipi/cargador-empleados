@@ -363,7 +363,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           <div className="relative overflow-hidden bg-[#07101f] px-6 py-8 text-white sm:px-8">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_30%),radial-gradient(circle_at_80%_20%,_rgba(16,185,129,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
             <div className="relative">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Maper · Conceptos históricos</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Transformator · Conceptos históricos</p>
               <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Meta 4 → REX+ Concepto Detalle</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
                 Los mapeos guardados son matches perfectos. Las propuestas quedan destacadas y las altas aprobadas se muestran antes de descargar.
