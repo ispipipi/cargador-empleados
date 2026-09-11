@@ -517,6 +517,13 @@ function normalizeMasterListItems(payload, type) {
       id: cleanValue(structure.id ?? structure.structureId ?? structure.externalId ?? structure.description),
       code: cleanValue(structure.externalId ?? structure.externalCode),
       name: cleanValue(structure.description ?? structure.name ?? structure.externalDescription),
+      rate: cleanValue(
+        structure.rate
+        ?? structure.tasa
+        ?? structure.percentage
+        ?? structure.additionalRate
+        ?? structure.additionalPercentage,
+      ),
       typeId: cleanValue(type.id ?? type.structureTypeId),
       typeName: cleanValue(type.description ?? type.name ?? type.externalCode),
     }))

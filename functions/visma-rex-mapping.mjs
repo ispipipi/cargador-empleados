@@ -69,6 +69,24 @@ export const VISMA_REX_MASTER_LISTS = Object.freeze([
     typeIds: Object.freeze(['16']),
     typeKeywords: Object.freeze(['sindicato']),
   }),
+  Object.freeze({
+    key: 'compensationFunds',
+    label: 'Cajas de compensación',
+    typeIds: Object.freeze([]),
+    typeKeywords: Object.freeze(['caja de compensacion', 'cajas de compensacion', 'caja compensacion', 'ccaf']),
+  }),
+  Object.freeze({
+    key: 'mutuals',
+    label: 'Mutuales',
+    typeIds: Object.freeze([]),
+    typeKeywords: Object.freeze(['mutual de seguridad', 'mutualidad', 'mutual']),
+  }),
+  Object.freeze({
+    key: 'rates',
+    label: 'Tasas',
+    typeIds: Object.freeze([]),
+    typeKeywords: Object.freeze(['tasa ley', 'tasa adicional', 'tasa cotizacion', 'tasa riesgo', 'tasa mutual', 'tasa basica']),
+  }),
 ]);
 
 export function matchesVismaMasterType(type, definition) {
