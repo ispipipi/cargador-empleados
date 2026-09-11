@@ -3,7 +3,7 @@ import { cleanCell, sanitizeFilenameSegment } from './utils';
 const PROXY_ENDPOINT = '/api/visma';
 const VISMA_API_BASE_URL = String(import.meta.env.VITE_VISMA_API_BASE_URL ?? '').replace(/\/+$/, '');
 export const vismaEmployeesEndpoint = VISMA_API_BASE_URL
-  ? `${VISMA_API_BASE_URL}${PROXY_ENDPOINT}`
+  ? VISMA_API_BASE_URL
   : PROXY_ENDPOINT;
 export const VISMA_REX_MAPPING_PROFILE_ID = 'VISMA_REX_BASE_V1';
 

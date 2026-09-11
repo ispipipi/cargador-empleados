@@ -1,0 +1,25 @@
+specVersion: v1alpha1
+endpoints:
+  geovictoriaProxy:
+    region:
+      - us-central1
+    platform: gcfv2
+    entryPoint: geovictoriaProxy
+    availableMemoryMb: 512
+    timeoutSeconds: 540
+    secretEnvironmentVariables:
+      - key: GEOVICTORIA_API_KEY
+      - key: GEOVICTORIA_API_SECRET
+    httpsTrigger: {}
+  vismaProxy:
+    region:
+      - us-central1
+    platform: gcfv2
+    entryPoint: vismaProxy
+    availableMemoryMb: 1024
+    timeoutSeconds: 540
+    secretEnvironmentVariables:
+      - key: VISMA_USERNAME
+      - key: VISMA_PASSWORD
+      - key: VISMA_SUBSCRIPTION_KEY
+    httpsTrigger: {}
