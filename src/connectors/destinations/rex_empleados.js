@@ -956,7 +956,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Id sindicato'] = union.value;
   exportedRow['¿Jornada parcial?'] = resolvePartialShift(sourceRow['HORAS JORNADA']);
   exportedRow['Horas de trabajo semanales'] = resolveWeeklyHours(sourceRow['HORAS JORNADA']);
-  exportedRow['¿Cotiza seguro de cesantía?'] = sourceRow['FECHA SEGURO CESANTIA'] ? 'S' : 'N';
+  exportedRow['¿Cotiza seguro de cesantía?'] = resolveUnemploymentInsuranceValue(sourceRow);
   exportedRow['Fecha de incorporación al seguro de cesantía'] = formatRexDate(sourceRow['FECHA SEGURO CESANTIA']);
   exportedRow['Id empresa'] = company.value;
   exportedRow['Id plantilla grupal'] = 'GRUPO01';
@@ -2170,6 +2170,20 @@ function resolveRetirementStatus(value) {
 
 function resolvePensionSystem() {
   return 'N';
+}
+
+function resolveUnemploymentInsuranceValue(sourceRow) {
+  const normalizedStatus = normalizeLooseText(sourceRow['SEGURO CESANTIA']);
+
+  if (['s', 'si', 'yes', 'true', '1', 'afecto', 'afecta', 'cotiza'].includes(normalizedStatus)) {
+    return 'S';
+  }
+
+  if (['n', 'no', 'no aplica', 'no cotiza', 'false', '0', 'exento'].includes(normalizedStatus)) {
+    return 'N';
+  }
+
+  return cleanCell(sourceRow['FECHA SEGURO CESANTIA']) ? 'S' : 'N';
 }
 
 function resolveHealthAmount({ healthValue, sourceValue, correctionValue, pendingItems, rowNumber, employeeId, employeeName }) {

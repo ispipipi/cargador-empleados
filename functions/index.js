@@ -777,6 +777,14 @@ function normalizeVismaEmployee({
     phase,
     healthStructure: organization.healthStructure,
   });
+  const unemploymentInsuranceStatus = extractVismaYesNo(organization.unemploymentInsurance);
+  const unemploymentInsuranceDate = unemploymentInsuranceStatus === 'S'
+    ? cleanValue(
+        organization.unemploymentInsurance?.dateFrom ??
+        organization.unemploymentInsurance?.startDate ??
+        organization.unemploymentInsurance?.validFrom,
+      )
+    : '';
   const names = [firstName, middleName].filter(Boolean).join(' ');
   const lastNames = [lastName, familyName].filter(Boolean).join(' ');
 
@@ -817,7 +825,8 @@ function normalizeVismaEmployee({
     'FEC FIN CONTRATO': phase?.endDate || '',
     'SUELDO BASE': extractSalaryValue(phase?.salary),
     'HORAS JORNADA': extractWeeklyHours(phase),
-    'FECHA SEGURO CESANTIA': '',
+    'SEGURO CESANTIA': unemploymentInsuranceStatus,
+    'FECHA SEGURO CESANTIA': unemploymentInsuranceDate,
     'FECHA ANTIGUEDAD': phase?.recognizedStartDate || employee.hiringDate || '',
     EMAIL: primaryEmail,
     __visma: {
@@ -837,6 +846,8 @@ function normalizeVismaEmployee({
       },
       sex,
       healthAmount,
+      unemploymentInsuranceStatus,
+      unemploymentInsuranceDate,
     },
   };
 }
@@ -865,6 +876,10 @@ function inferOrganizationFields(structures, catalogs) {
   const union = byType(VISMA_REX_STRUCTURE_TYPES.union, ['sindicato']);
   const afp = byType(VISMA_REX_STRUCTURE_TYPES.afp, ['fondos pension', 'afp']);
   const health = byType(VISMA_REX_STRUCTURE_TYPES.health, ['institucion de salud', 'salud']);
+  const unemploymentInsurance = byType(
+    VISMA_REX_STRUCTURE_TYPES.unemploymentInsurance,
+    ['afc', 'seguro cesantia', 'seguro de cesantia'],
+  );
   const position = byType(VISMA_REX_STRUCTURE_TYPES.position, ['cargo', 'posicion', 'puesto']) ||
     activeStructures.find((structure) => catalogs.positions.some((item) => String(item.structureId) === String(structure.structureId)));
 
@@ -880,6 +895,7 @@ function inferOrganizationFields(structures, catalogs) {
     afp: getVismaStructureName(afp),
     health: getVismaStructureName(health),
     healthStructure: health,
+    unemploymentInsurance,
     position: getVismaStructureName(position),
     positionExternalId: cleanValue(position?.externalId),
   };
@@ -1338,6 +1354,22 @@ function extractVismaSex(employee, searchEmployee) {
     if (value) {
       return value;
     }
+  }
+
+  return '';
+}
+
+function extractVismaYesNo(value) {
+  const normalizedValue = normalizeLookupText(
+    getVismaStructureName(value) || extractVismaText(value),
+  );
+
+  if (['s', 'si', 'yes', 'true', '1', 'afecto', 'afecta', 'cotiza'].includes(normalizedValue)) {
+    return 'S';
+  }
+
+  if (['n', 'no', 'no aplica', 'no cotiza', 'false', '0', 'exento'].includes(normalizedValue)) {
+    return 'N';
   }
 
   return '';
