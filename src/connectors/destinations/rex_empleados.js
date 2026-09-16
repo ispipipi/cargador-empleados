@@ -2132,7 +2132,15 @@ function resolveStatusValue(value) {
 
 function resolveSexValue(value) {
   const normalizedValue = normalizeLooseText(value);
-  return normalizedValue.startsWith('fem') ? 'F' : normalizedValue.startsWith('mas') ? 'M' : '';
+  if (['f', 'female', 'fem', 'femenino', 'mujer', 'woman'].includes(normalizedValue) || normalizedValue.startsWith('fem')) {
+    return 'F';
+  }
+
+  if (['m', 'male', 'mas', 'masculino', 'hombre', 'man'].includes(normalizedValue) || normalizedValue.startsWith('mas')) {
+    return 'M';
+  }
+
+  return '';
 }
 
 function resolveRetirementStatus(value) {

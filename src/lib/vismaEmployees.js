@@ -13,6 +13,7 @@ export const VISMA_EMPLOYEE_HEADERS = [
   'NOMBRE',
   'EMPRESA',
   'POSICION',
+  'SEXO',
   'FECHA INGRESO',
   'ESTADO',
   'ESTADO CIVIL',

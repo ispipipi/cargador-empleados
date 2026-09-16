@@ -771,6 +771,7 @@ function normalizeVismaEmployee({
   const middleName = cleanNamePart(employee.middleName || searchEmployee?.secondName);
   const lastName = cleanNamePart(employee.lastName || searchEmployee?.lastName);
   const familyName = cleanNamePart(employee.familyName || searchEmployee?.secondLastName);
+  const sex = extractVismaSex(employee, searchEmployee);
   const names = [firstName, middleName].filter(Boolean).join(' ');
   const lastNames = [lastName, familyName].filter(Boolean).join(' ');
 
@@ -779,6 +780,7 @@ function normalizeVismaEmployee({
     'ID EMPLEADO': cleanValue(employee.externalId || searchEmployee?.fileNumber || employee.id),
     CI: documentNumber,
     NOMBRE: [names, lastNames].filter(Boolean).join(' '),
+    SEXO: sex,
     EMPRESA: organization.company || cleanValue(tenant?.name || tenant?.id),
     POSICION: positionName || organization.position,
     'JOB CODE': organization.positionExternalId,
@@ -827,6 +829,7 @@ function normalizeVismaEmployee({
         lastName,
         familyName,
       },
+      sex,
     },
   };
 }
@@ -1296,6 +1299,48 @@ function cleanValue(value) {
 function cleanNamePart(value) {
   const cleaned = cleanValue(value);
   return /^[.\-_]+$/.test(cleaned) ? '' : cleaned;
+}
+
+function extractVismaSex(employee, searchEmployee) {
+  const candidates = [
+    employee?.sex,
+    employee?.sexo,
+    employee?.gender,
+    employee?.genderName,
+    employee?.genderType,
+    employee?.sexDescription,
+    employee?.genderDescription,
+    employee?.sexCode,
+    employee?.genderCode,
+    employee?.personalData?.sex,
+    employee?.personalData?.sexo,
+    employee?.personalData?.gender,
+    searchEmployee?.sex,
+    searchEmployee?.sexo,
+    searchEmployee?.gender,
+    searchEmployee?.genderName,
+    searchEmployee?.sexDescription,
+    searchEmployee?.genderDescription,
+    searchEmployee?.additionalAttributes?.Sex,
+    searchEmployee?.additionalAttributes?.Gender,
+  ];
+
+  for (const candidate of candidates) {
+    const value = extractVismaText(candidate);
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function extractVismaText(value) {
+  if (value && typeof value === 'object') {
+    return cleanValue(value.description || value.name || value.label || value.code || value.id);
+  }
+
+  return cleanValue(value);
 }
 
 function normalizeLookupText(value) {
