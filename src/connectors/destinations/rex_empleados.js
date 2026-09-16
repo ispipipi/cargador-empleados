@@ -723,6 +723,15 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     employeeName,
     noCotiza,
   });
+  const healthAmount = resolveHealthAmount({
+    healthValue: health.value,
+    sourceValue: sourceRow['MONTO SALUD UF'] || sourceRow.__visma?.healthAmount,
+    correctionValue: corrections?.healthAmount,
+    pendingItems,
+    rowNumber,
+    employeeId,
+    employeeName,
+  });
   const company = resolveCatalogField({
     key: 'company',
     label: 'Id empresa',
@@ -931,7 +940,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['Estado de jubilación'] = retirementStatus;
   exportedRow['Sistema de pensiones'] = resolvePensionSystem(sourceRow.AFP);
   exportedRow['Id institución de salud'] = health.value;
-  exportedRow['Monto cotizado en la Isapre en UF'] = resolveHealthAmount(health.value);
+  exportedRow['Monto cotizado en la Isapre en UF'] = healthAmount.value;
   exportedRow['Moneda de la cotización'] = resolveHealthCurrency(health.value);
   exportedRow['Nombre del contrato'] = cleanCell(sourceRow['NOMBRE CONTRATO']);
   exportedRow['Tipo del contrato'] = contractTypeValue;
@@ -2163,16 +2172,42 @@ function resolvePensionSystem() {
   return 'N';
 }
 
-function resolveHealthAmount(healthValue) {
-  if (!healthValue) {
-    return '';
+function resolveHealthAmount({ healthValue, sourceValue, correctionValue, pendingItems, rowNumber, employeeId, employeeName }) {
+  const normalizedHealth = normalizeLooseText(healthValue);
+
+  if (!healthValue || normalizedHealth === 'fonasa') {
+    return { value: '' };
   }
 
-  if (healthValue === 'fonasa') {
-    return '';
+  const directCorrection = cleanCell(correctionValue);
+  if (directCorrection) {
+    return { value: normalizeUfAmount(directCorrection) };
   }
 
-  return '1';
+  const sourceAmount = normalizeUfAmount(sourceValue);
+  if (sourceAmount) {
+    return { value: sourceAmount };
+  }
+
+  pendingItems.push(
+    buildPendingItem({
+      key: 'healthAmount',
+      label: 'Monto cotizado en la Isapre en UF',
+      type: 'value',
+      rowNumber,
+      employeeId,
+      employeeName,
+      sourceValue: cleanCell(sourceValue),
+    }),
+  );
+
+  return { value: '' };
+}
+
+function normalizeUfAmount(value) {
+  const cleaned = cleanCell(value).replace(',', '.');
+  const match = cleaned.match(/(\d+(?:\.\d+)?)/);
+  return match ? match[1] : '';
 }
 
 function resolveHealthCurrency(healthValue) {

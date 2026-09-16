@@ -772,6 +772,11 @@ function normalizeVismaEmployee({
   const lastName = cleanNamePart(employee.lastName || searchEmployee?.lastName);
   const familyName = cleanNamePart(employee.familyName || searchEmployee?.secondLastName);
   const sex = extractVismaSex(employee, searchEmployee);
+  const healthAmount = extractVismaHealthAmount({
+    employee,
+    phase,
+    healthStructure: organization.healthStructure,
+  });
   const names = [firstName, middleName].filter(Boolean).join(' ');
   const lastNames = [lastName, familyName].filter(Boolean).join(' ');
 
@@ -799,6 +804,7 @@ function normalizeVismaEmployee({
     'N° CTA CTE': cleanValue(bankAccount?.accountNumber || bankAccount?.cbuNumber),
     AFP: organization.afp,
     ISAPRE: organization.health,
+    'MONTO SALUD UF': healthAmount,
     'CODIGO AFP': '',
     'CENTRO COSTO': organization.costCenter,
     'UNIDAD DE NEGOCIOS': organization.area || organization.department,
@@ -830,6 +836,7 @@ function normalizeVismaEmployee({
         familyName,
       },
       sex,
+      healthAmount,
     },
   };
 }
@@ -872,6 +879,7 @@ function inferOrganizationFields(structures, catalogs) {
     union: getVismaStructureName(union),
     afp: getVismaStructureName(afp),
     health: getVismaStructureName(health),
+    healthStructure: health,
     position: getVismaStructureName(position),
     positionExternalId: cleanValue(position?.externalId),
   };
@@ -1333,6 +1341,112 @@ function extractVismaSex(employee, searchEmployee) {
   }
 
   return '';
+}
+
+function extractVismaHealthAmount({ employee, phase, healthStructure }) {
+  const candidates = [
+    healthStructure?.amountUf,
+    healthStructure?.amountUF,
+    healthStructure?.ufAmount,
+    healthStructure?.planAmountUf,
+    healthStructure?.planAmountUF,
+    healthStructure?.contributionUf,
+    healthStructure?.contributionUF,
+    healthStructure?.montoUf,
+    healthStructure?.montoUF,
+    healthStructure?.pactadoUf,
+    healthStructure?.pactadoUF,
+    healthStructure?.planUf,
+    healthStructure?.planUF,
+    healthStructure?.amount,
+    healthStructure?.monto,
+    healthStructure?.pactado,
+    healthStructure?.valueUf,
+    healthStructure?.valueUF,
+    healthStructure?.valorUf,
+    healthStructure?.valorUF,
+    healthStructure?.value,
+    healthStructure?.healthAmount,
+    healthStructure?.healthPlanAmount,
+    healthStructure?.healthContribution,
+    phase?.health?.amountUf,
+    phase?.health?.amountUF,
+    phase?.health?.montoUf,
+    phase?.health?.montoUF,
+    phase?.health?.amount,
+    phase?.health?.monto,
+    phase?.healthInsurance?.amountUf,
+    phase?.healthInsurance?.amountUF,
+    phase?.healthInsurance?.montoUf,
+    phase?.healthInsurance?.montoUF,
+    phase?.healthInsurance?.amount,
+    phase?.healthInsurance?.monto,
+    phase?.healthPlan?.amountUf,
+    phase?.healthPlan?.amountUF,
+    phase?.healthPlan?.montoUf,
+    phase?.healthPlan?.montoUF,
+    phase?.healthPlan?.amount,
+    phase?.healthPlan?.monto,
+    employee?.health?.amountUf,
+    employee?.health?.amountUF,
+    employee?.health?.montoUf,
+    employee?.health?.montoUF,
+    employee?.health?.amount,
+    employee?.health?.monto,
+    employee?.healthInsurance?.amountUf,
+    employee?.healthInsurance?.amountUF,
+    employee?.healthInsurance?.montoUf,
+    employee?.healthInsurance?.montoUF,
+    employee?.healthInsurance?.amount,
+    employee?.healthInsurance?.monto,
+    employee?.healthPlan?.amountUf,
+    employee?.healthPlan?.amountUF,
+    employee?.healthPlan?.montoUf,
+    employee?.healthPlan?.montoUF,
+    employee?.healthPlan?.amount,
+    employee?.healthPlan?.monto,
+  ];
+
+  for (const candidate of candidates) {
+    const amount = extractVismaAmount(candidate);
+    if (amount) {
+      return amount;
+    }
+  }
+
+  const descriptiveValues = [
+    healthStructure?.description,
+    healthStructure?.name,
+    phase?.health?.description,
+    phase?.healthInsurance?.description,
+    phase?.healthPlan?.description,
+    employee?.health?.description,
+    employee?.healthInsurance?.description,
+    employee?.healthPlan?.description,
+  ];
+
+  for (const value of descriptiveValues) {
+    const amount = extractUfAmountFromText(value);
+    if (amount) {
+      return amount;
+    }
+  }
+
+  return '';
+}
+
+function extractVismaAmount(value) {
+  if (value && typeof value === 'object') {
+    return extractVismaAmount(value.amount ?? value.value ?? value.description);
+  }
+
+  return extractUfAmountFromText(value);
+}
+
+function extractUfAmountFromText(value) {
+  const cleaned = cleanValue(value).replace(',', '.');
+  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:uf|u\.f\.)?/i);
+  return match ? match[1] : '';
 }
 
 function extractVismaText(value) {
