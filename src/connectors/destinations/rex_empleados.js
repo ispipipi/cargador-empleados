@@ -577,7 +577,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   const normalizedAreaSource = normalizeLooseText(sourceRow['UNIDAD DE NEGOCIOS']);
   const sourceEstado = cleanCell(sourceRow.ESTADO);
   const noCotiza = isNoCotiza(sourceRow);
-  const parsedName = splitEmployeeName(sourceRow.NOMBRE);
+  const parsedName = splitEmployeeName(sourceRow.NOMBRE, sourceRow.__visma?.nameParts);
   const contractType = resolveContractTypeField({
     sourceRow,
     correctionValue: corrections?.contractType,
@@ -2101,16 +2101,29 @@ function isIntentionalBlankCorrection(value) {
   return value === REX_KEEP_CURRENT_CORRECTION || value === REX_EMPTY_CORRECTION;
 }
 
-function splitEmployeeName(value) {
+function splitEmployeeName(value, vismaNameParts = null) {
+  if (vismaNameParts && Object.values(vismaNameParts).some(Boolean)) {
+    return {
+      names: [vismaNameParts.firstName, vismaNameParts.middleName].map(cleanNamePart).filter(Boolean).join(' '),
+      lastName: cleanNamePart(vismaNameParts.lastName),
+      middleName: cleanNamePart(vismaNameParts.familyName),
+    };
+  }
+
   const rawValue = cleanCell(value);
   const [lastNames = '', names = ''] = rawValue.split(/\s*,\s*/);
   const lastNameParts = lastNames.split(/\s+/).filter(Boolean);
 
   return {
     names: cleanCell(names),
-    lastName: lastNameParts[0] ?? '',
-    middleName: lastNameParts.slice(1).join(' '),
+    lastName: cleanNamePart(lastNameParts[0]),
+    middleName: cleanNamePart(lastNameParts.slice(1).join(' ')),
   };
+}
+
+function cleanNamePart(value) {
+  const cleaned = cleanCell(value);
+  return /^[.\-_]+$/.test(cleaned) ? '' : cleaned;
 }
 
 function resolveStatusValue(value) {

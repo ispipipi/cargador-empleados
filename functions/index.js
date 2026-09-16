@@ -767,14 +767,12 @@ function normalizeVismaEmployee({
   const street = cleanValue(address?.street);
   const houseNumber = cleanValue(address?.houseNumber);
   const streetAddress = [street, houseNumber].filter(Boolean).join(' ');
-  const names = [
-    cleanValue(employee.firstName || searchEmployee?.name),
-    cleanValue(employee.middleName || searchEmployee?.secondName),
-  ].filter(Boolean).join(' ');
-  const lastNames = [
-    cleanValue(employee.lastName || searchEmployee?.lastName),
-    cleanValue(employee.familyName || searchEmployee?.secondLastName),
-  ].filter(Boolean).join(' ');
+  const firstName = cleanNamePart(employee.firstName || searchEmployee?.name);
+  const middleName = cleanNamePart(employee.middleName || searchEmployee?.secondName);
+  const lastName = cleanNamePart(employee.lastName || searchEmployee?.lastName);
+  const familyName = cleanNamePart(employee.familyName || searchEmployee?.secondLastName);
+  const names = [firstName, middleName].filter(Boolean).join(' ');
+  const lastNames = [lastName, familyName].filter(Boolean).join(' ');
 
   return {
     __sourceRowNumber: rowNumber,
@@ -823,6 +821,12 @@ function normalizeVismaEmployee({
       paymentType: paymentTypeName,
       structures: structures.length,
       structureKeys,
+      nameParts: {
+        firstName,
+        middleName,
+        lastName,
+        familyName,
+      },
     },
   };
 }
@@ -1287,6 +1291,11 @@ function compactDate(value) {
 
 function cleanValue(value) {
   return String(value ?? '').trim();
+}
+
+function cleanNamePart(value) {
+  const cleaned = cleanValue(value);
+  return /^[.\-_]+$/.test(cleaned) ? '' : cleaned;
 }
 
 function normalizeLookupText(value) {
