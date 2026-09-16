@@ -67,7 +67,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       .slice(0, 20);
   }, [search, sourceFile]);
   const canQuery = !isLoading && !isLoadingConnection && Boolean(selection.tenantId)
-    && (form.extractionMode === 'payroll' || (Boolean(selection.companyId) && Boolean(rexCompanyMasterResource)));
+    && (form.extractionMode === 'payroll' || Boolean(selection.companyId));
   const canContinue = form.extractionMode === 'employees'
     && Boolean(sourceFile?.rows?.length)
     && Boolean(rexCompanyMasterResource);
@@ -311,8 +311,8 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
                     : 'Traer empleados'}
               </button>
             </div>
-            {form.extractionMode === 'employees' && selection.companyId && !rexCompanyMasterResource ? (
-              <p className="mt-3 text-xs font-semibold text-amber-700">Carga el archivo base de REX+ para habilitar la consulta de empleados.</p>
+            {form.extractionMode === 'employees' && selection.companyId && !rexCompanyMasterResource && !sourceFile ? (
+              <p className="mt-3 text-xs font-semibold text-amber-700">La consulta está habilitada. Carga el maestro REX+ cuando quieras generar el archivo final.</p>
             ) : null}
           </div>
 
@@ -379,6 +379,12 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
                 />
               </div>
             ) : null}
+
+            {sourceFile && !rexCompanyMasterResource ? (
+              <p className="mt-3 text-xs font-semibold text-amber-700">
+                Consulta completada. Carga el maestro REX+ para habilitar la generación del archivo final.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -408,14 +414,14 @@ function RexCompanyMasterUploader({ fileName, resource, error, isReading, disabl
     <section className="rounded-[24px] border border-brand-200 bg-brand-50/60 p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Maestro REX+ de la empresa</p>
-          <h3 className="mt-2 text-base font-bold text-slate-950">Carga el archivo base antes de consultar empleados</h3>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Maestro REX+</p>
+          <h3 className="mt-2 text-base font-bold text-slate-950">Carga el archivo base para generar REX+</h3>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Se usarán solo sus Cargos, Sedes, Áreas, Empresas y Centros de costo. Las demás listas seguirán viniendo del template REX+.
+            Puedes consultar empleados desde VISMA sin este archivo. Debes cargarlo antes de generar el archivo final REX+.
           </p>
         </div>
         <span className="rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
-          Obligatorio
+          Para generar
         </span>
       </div>
 

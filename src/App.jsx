@@ -779,7 +779,7 @@ export default function App() {
 
   const handleVismaEmployeesReady = (nextSourceFile, nextValidation, nextCompanyMasterResource) => {
     if (!nextSourceFile?.rows?.length || !rexTemplateResource || !nextCompanyMasterResource) {
-      setGlobalError('Carga primero el archivo REX+ de la empresa y luego consulta los empleados VISMA.');
+      setGlobalError('Carga el maestro REX+ para generar el archivo final.');
       return;
     }
 
@@ -873,7 +873,7 @@ export default function App() {
     }
 
     if (isVismaEmployeesFlow && !rexCompanyMasterResource) {
-      setGlobalError('Para descargar empleados VISMA debes cargar el archivo REX+ de la empresa.');
+      setGlobalError('Para descargar empleados VISMA debes cargar el maestro REX+.');
       return;
     }
 

@@ -28,12 +28,15 @@ export function VismaWorkspaceProvider({ children }) {
       const hasSuggestedCompany = (selectedGroup?.options ?? []).some(
         (company) => String(company.id) === String(suggestedCompanyId),
       );
+      const nextCompanyId = hasSuggestedCompany
+        ? suggestedCompanyId
+        : (selectedGroup?.options?.length ? ALL_COMPANIES_VALUE : '');
 
       setConnection(nextConnection);
       setSelection({
         tenantId: nextConnection.selectedTenantId || nextConnection.tenants?.[0]?.id || '',
         companyTypeId: selectedGroup?.id || '',
-        companyId: hasSuggestedCompany ? suggestedCompanyId : '',
+        companyId: nextCompanyId,
       });
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : 'No se pudo validar la conexión VISMA.');
