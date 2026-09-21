@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   buildVismaPayrollWorkbook,
+  buildVismaRexConceptDetailCsv,
   buildVismaSourceFile,
   fetchVismaEmployeesPreview,
   fetchVismaPayrollBookPreview,
@@ -26,7 +27,7 @@ const EXTRACTION_MODES = [
   },
 ];
 
-export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange }) {
+export default function VismaEmployeesReview({ conceptsResource, onBack, onContinue, onBusyChange }) {
   const {
     connection,
     connectionError,
@@ -46,6 +47,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
   const [payload, setPayload] = useState(null);
   const [payrollPayload, setPayrollPayload] = useState(null);
   const [payrollBookPayload, setPayrollBookPayload] = useState(null);
+  const [payrollDetailSummary, setPayrollDetailSummary] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -86,6 +88,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
     setPayload(null);
     setPayrollPayload(null);
     setPayrollBookPayload(null);
+    setPayrollDetailSummary(null);
     setSourceFile(null);
     setSearch('');
   }, [selection.companyId, selection.companyTypeId, selection.tenantId]);
@@ -101,6 +104,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       setPayload(null);
       setPayrollPayload(null);
       setPayrollBookPayload(null);
+      setPayrollDetailSummary(null);
       setSourceFile(null);
       setSearch('');
     }
@@ -157,6 +161,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
         setSourceFile(null);
         setPayrollPayload(nextPayrollPayload);
         setPayrollBookPayload(null);
+        setPayrollDetailSummary(null);
         setSearch('');
         return;
       }
@@ -179,6 +184,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
 
       setPayrollPayload(null);
       setPayrollBookPayload(null);
+      setPayrollDetailSummary(null);
       setPayload(nextPayload);
       setSourceFile(nextSourceFile);
       setSearch('');
@@ -203,15 +209,30 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
     onBusyChange?.(true);
 
     try {
-      const nextBookPayload = await fetchVismaPayrollBookPreview({
-        tenantId: selection.tenantId,
-        periodId: process.periodId,
-        processId: process.id,
-        printable: form.payrollPrintable,
-        pageSize: DEFAULT_PAYROLL_PAGE_SIZE,
-      });
+      const [nextBookPayload, employeePayload] = await Promise.all([
+        fetchVismaPayrollBookPreview({
+          tenantId: selection.tenantId,
+          periodId: process.periodId,
+          processId: process.id,
+          printable: form.payrollPrintable,
+          pageSize: DEFAULT_PAYROLL_PAGE_SIZE,
+        }),
+        fetchVismaEmployeesPreview({
+          tenantId: selection.tenantId,
+          companyId: isAllCompanies ? '' : selection.companyId,
+          companyTypeId: selection.companyTypeId,
+          includeInactive: true,
+        }).catch(() => ({ employees: [] })),
+      ]);
       const period = payrollPeriods.find((item) => String(item.id) === String(process.periodId)) ?? payrollPeriods[0] ?? null;
-      setPayrollBookPayload({ ...nextBookPayload, period, process });
+      setPayrollBookPayload({
+        ...nextBookPayload,
+        period,
+        process,
+        company: isAllCompanies ? null : selectedCompany,
+        employeeRows: employeePayload.employees ?? [],
+      });
+      setPayrollDetailSummary(null);
     } catch (queryError) {
       setPayrollBookPayload(null);
       setError(queryError instanceof Error ? queryError.message : 'No se pudo traer el libro de remuneraciones.');
@@ -229,6 +250,17 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
     const workbook = buildVismaPayrollWorkbook({ book: payrollBookPayload });
     const filename = `VISMA_LIBRO_REMUNERACIONES_${payrollBookPayload.processId}_${payrollBookPayload.periodId}.xlsx`;
     XLSX.writeFile(workbook, filename);
+  };
+
+  const handlePayrollDetailDownload = () => {
+    if (!payrollBookPayload) {
+      return;
+    }
+
+    const detail = buildVismaRexConceptDetailCsv({ book: payrollBookPayload, conceptsResource });
+    const filename = `REX_CONCEPTOS_DETALLE_${payrollBookPayload.processId}_${payrollBookPayload.periodId}.csv`;
+    triggerTextDownload(detail.csv, filename);
+    setPayrollDetailSummary(detail.summary);
   };
 
   const handleContinue = () => {
@@ -438,13 +470,29 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
                 <p className="mt-1 text-xs leading-5 text-emerald-800">
                   Incluye {payrollBookPayload.summary?.employees ?? 0} trabajadores, {payrollBookPayload.summary?.concepts ?? 0} conceptos y {payrollBookPayload.summary?.accumulators ?? 0} acumuladores.
                 </p>
-                <button
-                  type="button"
-                  onClick={handlePayrollBookDownload}
-                  className="mt-4 rounded-full bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
-                >
-                  Descargar libro completo
-                </button>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={handlePayrollBookDownload}
+                    className="rounded-full bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                  >
+                    Descargar libro VISMA RG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePayrollDetailDownload}
+                    disabled={!conceptsResource}
+                    className="rounded-full border border-emerald-700 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Descargar Concepto Detalle REX+
+                  </button>
+                </div>
+                {payrollDetailSummary ? (
+                  <p className="mt-3 text-xs leading-5 text-emerald-800">
+                    Archivo REX+ generado con {payrollDetailSummary.rows.toLocaleString('es-CL')} filas y {payrollDetailSummary.matchedConcepts.toLocaleString('es-CL')} conceptos mapeados.
+                    {payrollDetailSummary.pendingConcepts.length ? ` Quedaron ${payrollDetailSummary.pendingConcepts.length} conceptos sin mapeo.` : ''}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -656,4 +704,16 @@ function MetricCard({ label, value, detail }) {
       <p className="mt-2 text-xs text-slate-500">{detail}</p>
     </div>
   );
+}
+
+function triggerTextDownload(contents, fileName) {
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }

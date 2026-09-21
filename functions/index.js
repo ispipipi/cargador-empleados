@@ -319,10 +319,18 @@ export const vismaProxy = onRequest(
           fetchAllVismaPages(({ page, pageSize: employeePageSize }) => getVismaRaetJson({
             token,
             tenantId,
-            path: `/vlwebapi/employees?page=${page}&pageSize=${employeePageSize}&active=true`,
+            path: `/vlwebapi/employees?page=${page}&pageSize=${employeePageSize}`,
           }), VISMA_EMPLOYEE_PAGE_SIZE),
         ]);
-        const employeeRoster = await mapWithConcurrency(employeesPayload.values, VISMA_CONCURRENCY, async (employee) => {
+        const processEmployeeIds = new Set([
+          ...conceptsPayload.values,
+          ...accumulatorsPayload.values,
+        ].map((row) => cleanValue(row.employeeId)));
+        const processEmployees = employeesPayload.values.filter((employee) => {
+          const employeeIds = [employee.id, employee.externalId].map(cleanValue).filter(Boolean);
+          return !processEmployeeIds.size || employeeIds.some((employeeId) => processEmployeeIds.has(employeeId));
+        });
+        const employeeRoster = await mapWithConcurrency(processEmployees, VISMA_CONCURRENCY, async (employee) => {
           const employeeRef = employee.externalId || `rh-${employee.id}`;
           const detail = await getVismaRaetJson({
             token,
@@ -375,11 +383,12 @@ export const vismaProxy = onRequest(
 
       const requestedCompanyId = cleanValue(body.companyId);
       const requestedCompanyTypeId = cleanValue(body.companyTypeId);
+      const includeInactive = body.includeInactive === true || body.includeInactive === 'true';
       const [employeesPayload, searchEmployeesPayload, structureTypes, positions, paymentMethods, paymentTypes, banks] = await Promise.all([
         fetchAllVismaPages(({ page, pageSize }) => getVismaRaetJson({
           token,
           tenantId,
-          path: `/vlwebapi/employees?page=${page}&pageSize=${pageSize}&active=true`,
+          path: `/vlwebapi/employees?page=${page}&pageSize=${pageSize}${includeInactive ? '' : '&active=true'}`,
         }), VISMA_EMPLOYEE_PAGE_SIZE),
         subscriptionKey
           ? fetchAllVismaPages(({ page, pageSize }) => getVismaTenantJson({

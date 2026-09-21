@@ -1296,6 +1296,7 @@ export default function App() {
 
         {step === STEPS.vismaEmployeesReview ? (
           <VismaEmployeesReview
+            conceptsResource={conceptsResource}
             onBack={() => handleVismaNavigation('visma-maestros')}
             onContinue={handleVismaEmployeesReady}
             onBusyChange={(isBusy) => {
