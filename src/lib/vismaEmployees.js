@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { cleanCell, sanitizeFilenameSegment } from './utils';
 
 const PROXY_ENDPOINT = '/api/visma';
@@ -6,6 +7,7 @@ export const vismaEmployeesEndpoint = VISMA_API_BASE_URL
   ? VISMA_API_BASE_URL
   : PROXY_ENDPOINT;
 export const VISMA_REX_MAPPING_PROFILE_ID = 'VISMA_REX_BASE_V1';
+export const VISMA_PAYROLL_PAGE_SIZE = 500;
 
 export const VISMA_EMPLOYEE_HEADERS = [
   'ID EMPLEADO',
@@ -80,12 +82,68 @@ export function fetchVismaEmployeesPreview({ tenantId, companyId, companyTypeId 
   });
 }
 
-export function fetchVismaPayrollProcessesPreview({ tenantId, limit }) {
+export function fetchVismaPayrollProcessesPreview({ tenantId, year, month, periodId, pageSize = VISMA_PAYROLL_PAGE_SIZE }) {
   return postToVismaProxy({
     action: 'payroll-processes-preview',
     tenantId: cleanCell(tenantId),
-    limit: Number(limit) || 50,
+    year: Number(year),
+    month: Number(month),
+    periodId: cleanCell(periodId),
+    limit: Number(pageSize) || VISMA_PAYROLL_PAGE_SIZE,
   });
+}
+
+export function fetchVismaPayrollBookPreview({ tenantId, periodId, processId, printable = false, pageSize = VISMA_PAYROLL_PAGE_SIZE }) {
+  return postToVismaProxy({
+    action: 'payroll-book-preview',
+    tenantId: cleanCell(tenantId),
+    periodId: cleanCell(periodId),
+    processId: cleanCell(processId),
+    printable: Boolean(printable),
+    limit: Number(pageSize) || VISMA_PAYROLL_PAGE_SIZE,
+  });
+}
+
+export function buildVismaPayrollWorkbook({ book }) {
+  const workbook = XLSX.utils.book_new();
+  const process = book?.process ?? {};
+  const summary = book?.summary ?? {};
+  const summaryRows = [
+    { Campo: 'Tenant', Valor: cleanCell(book?.tenant?.name || book?.tenant?.id) },
+    { Campo: 'Período', Valor: cleanCell(book?.period?.description || book?.periodId) },
+    { Campo: 'Proceso', Valor: cleanCell(process.name || book?.processId) },
+    { Campo: 'ID período', Valor: cleanCell(book?.periodId) },
+    { Campo: 'ID proceso', Valor: cleanCell(book?.processId) },
+    { Campo: 'Desde', Valor: cleanCell(process.dateFrom || book?.period?.dateFrom) },
+    { Campo: 'Hasta', Valor: cleanCell(process.dateTo || book?.period?.dateTo) },
+    { Campo: 'Filtro', Valor: book?.printable ? 'Solo conceptos imprimibles' : 'Todos los conceptos y acumuladores' },
+    { Campo: 'Trabajadores', Valor: summary.employees ?? book?.employees?.length ?? 0 },
+    { Campo: 'Conceptos', Valor: summary.concepts ?? book?.concepts?.length ?? 0 },
+    { Campo: 'Acumuladores', Valor: summary.accumulators ?? book?.accumulators?.length ?? 0 },
+  ];
+  const employees = (book?.employees ?? []).map((employee) => ({
+    'Id empleado VISMA': employee.employeeId,
+    'Id externo': employee.externalId,
+    RUT: employee.documentNumber,
+    Nombres: [employee.firstName, employee.middleName].filter(Boolean).join(' '),
+    'Apellido paterno': employee.lastName,
+    'Apellido materno': employee.familyName,
+    'Nombre completo': employee.fullName,
+    'Fecha ingreso': employee.hiringDate,
+    'Fecha nacimiento': employee.dateOfBirth,
+    Estado: employee.isActive ? 'Activo' : 'Inactivo',
+  }));
+
+  appendJsonSheet(workbook, 'Resumen', summaryRows);
+  appendJsonSheet(workbook, 'Trabajadores', employees);
+  appendJsonSheet(workbook, 'Conceptos', book?.concepts ?? []);
+  appendJsonSheet(workbook, 'Acumuladores', book?.accumulators ?? []);
+  return workbook;
+}
+
+function appendJsonSheet(workbook, name, rows) {
+  const sheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Información: 'Sin registros' }]);
+  XLSX.utils.book_append_sheet(workbook, sheet, name);
 }
 
 export function fetchVismaOrganizationLists({ tenantId, companyId, companyTypeId }) {

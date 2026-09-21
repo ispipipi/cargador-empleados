@@ -27,7 +27,6 @@ const VISMA_MAX_EMPLOYEES = 500;
 const VISMA_EMPLOYEE_PAGE_SIZE = 500;
 const VISMA_MAX_EMPLOYEE_PAGES = 100;
 const VISMA_DEFAULT_EMPLOYEES = 50;
-const VISMA_DEFAULT_PAYROLL_PROCESSES = 50;
 const VISMA_CONCURRENCY = 8;
 const ALLOWED_TRADE_NAMES = new Map([
   ['22893', 'COMERCIAL PROGRESO SPA'],
@@ -150,7 +149,13 @@ export const vismaProxy = onRequest(
     try {
       const body = typeof request.body === 'object' && request.body ? request.body : {};
       const action = String(body.action || 'employees-preview').trim();
-      const supportedActions = new Set(['connection-context', 'employees-preview', 'payroll-processes-preview', 'organization-lists-preview']);
+      const supportedActions = new Set([
+        'connection-context',
+        'employees-preview',
+        'payroll-processes-preview',
+        'payroll-book-preview',
+        'organization-lists-preview',
+      ]);
 
       if (!supportedActions.has(action)) {
         response.status(400).json({ ok: false, message: 'Accion VISMA no soportada.' });
@@ -232,23 +237,118 @@ export const vismaProxy = onRequest(
           return;
         }
 
-        const processLimit = Math.max(1, Math.min(200, Number.isFinite(requestedLimit) && requestedLimit > 0
+        const requestedYear = Number(body.year);
+        const requestedMonth = Number(body.month);
+        const year = Number.isInteger(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100
+          ? requestedYear
+          : new Date().getFullYear();
+        const month = Number.isInteger(requestedMonth) && requestedMonth >= 1 && requestedMonth <= 12
+          ? requestedMonth
+          : new Date().getMonth() + 1;
+        const periodPageSize = Math.max(1, Math.min(500, Number.isFinite(requestedLimit) && requestedLimit > 0
           ? Math.trunc(requestedLimit)
-          : VISMA_DEFAULT_PAYROLL_PROCESSES));
-        const payrollProcesses = await getVismaTenantJson({
+          : 500));
+        const periodsPayload = await getVismaRaetJson({
           token,
           tenantId,
           subscriptionKey,
-          path: `/Payroll/api/payroll-processes?Page=1&PageSize=${processLimit}`,
+          path: `/vlwebapi/payrolls/periods?year=${year}&month=${month}&pageSize=${periodPageSize}`,
+        });
+        const periods = normalizeVismaPayrollPeriods(periodsPayload);
+        const periodId = cleanValue(body.periodId || periods[0]?.id);
+        const processesPayload = periodId
+          ? await getVismaRaetJson({
+              token,
+              tenantId,
+              subscriptionKey,
+              path: `/vlwebapi/payrolls/processes?periodId=${encodeURIComponent(periodId)}`,
+            })
+          : [];
+        const payrollProcesses = normalizeVismaPayrollProcesses(processesPayload, periodId);
+
+        response.status(200).json({
+          ok: true,
+          tenant,
+          year,
+          month,
+          periods,
+          payrollProcesses,
+          detailStatus: {
+            available: Boolean(payrollProcesses.length),
+            message: payrollProcesses.length
+              ? 'Selecciona un proceso para traer el libro completo de remuneraciones.'
+              : 'No se encontraron procesos de remuneraciones para el período seleccionado.',
+          },
+          mappingProfile: VISMA_REX_MAPPING_PROFILE,
+          fetchedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (action === 'payroll-book-preview') {
+        if (!subscriptionKey) {
+          response.status(400).json({ ok: false, message: 'Falta VISMA_SUBSCRIPTION_KEY guardada en el backend para consultar Payroll.' });
+          return;
+        }
+
+        const periodId = cleanValue(body.periodId);
+        const processId = cleanValue(body.processId);
+        if (!periodId || !processId) {
+          response.status(400).json({ ok: false, message: 'Faltan periodId y processId para consultar el libro de remuneraciones.' });
+          return;
+        }
+
+        const pageSize = Math.max(1, Math.min(500, Number.isFinite(requestedLimit) && requestedLimit > 0
+          ? Math.trunc(requestedLimit)
+          : 500));
+        const printable = body.printable === true || body.printable === 'true';
+        const conceptPath = `/vlwebapi/payrolls/process-concepts?periodId=${encodeURIComponent(periodId)}&processId=${encodeURIComponent(processId)}&printable=${printable}&pageSize=${pageSize}&page=`;
+        const [conceptsPayload, accumulatorsPayload, employeesPayload] = await Promise.all([
+          fetchAllVismaPages(({ page }) => getVismaRaetJson({
+            token,
+            tenantId,
+            subscriptionKey,
+            path: `${conceptPath}${page}`,
+          }), pageSize),
+          fetchAllVismaPages(({ page }) => getVismaRaetJson({
+            token,
+            tenantId,
+            subscriptionKey,
+            path: `/vlwebapi/payrolls/process-acumulators?periodId=${encodeURIComponent(periodId)}&processId=${encodeURIComponent(processId)}&printable=${printable}&page=${page}&pageSize=${pageSize}`,
+          }), pageSize),
+          fetchAllVismaPages(({ page, pageSize: employeePageSize }) => getVismaRaetJson({
+            token,
+            tenantId,
+            path: `/vlwebapi/employees?page=${page}&pageSize=${employeePageSize}&active=true`,
+          }), VISMA_EMPLOYEE_PAGE_SIZE),
+        ]);
+        const employeeRoster = await mapWithConcurrency(employeesPayload.values, VISMA_CONCURRENCY, async (employee) => {
+          const employeeRef = employee.externalId || `rh-${employee.id}`;
+          const detail = await getVismaRaetJson({
+            token,
+            tenantId,
+            path: `/vlwebapi/employees/${encodeURIComponent(employeeRef)}`,
+          }).catch(() => employee);
+
+          return normalizeVismaPayrollEmployee({ ...employee, ...detail });
         });
 
         response.status(200).json({
           ok: true,
           tenant,
-          payrollProcesses: normalizeVismaPayrollProcesses(payrollProcesses),
-          detailStatus: {
-            available: false,
-            message: 'VISMA permite listar procesos payroll, pero el detalle de conceptos/liquidaciones requiere permisos Payroll adicionales.',
+          periodId,
+          processId,
+          printable,
+          employees: employeeRoster,
+          concepts: conceptsPayload.values,
+          accumulators: accumulatorsPayload.values,
+          summary: {
+            employees: employeeRoster.length,
+            concepts: conceptsPayload.values.length,
+            accumulators: accumulatorsPayload.values.length,
+            printable,
+            conceptsTotal: conceptsPayload.totalCount,
+            accumulatorsTotal: accumulatorsPayload.totalCount,
           },
           mappingProfile: VISMA_REX_MAPPING_PROFILE,
           fetchedAt: new Date().toISOString(),
@@ -424,7 +524,22 @@ function selectVismaTenant(tenants, requestedTenantId) {
   return tenants.find((tenant) => tenant.webApiEnabled) ?? tenants[0] ?? null;
 }
 
-function normalizeVismaPayrollProcesses(payload) {
+function normalizeVismaPayrollPeriods(payload) {
+  return arrayValues(payload)
+    .map((period) => ({
+      id: vismaLabel(period.id ?? period.periodId),
+      description: vismaLabel(period.periodDescription ?? period.description ?? period.name),
+      companyId: vismaLabel(period.companyId),
+      companyName: vismaLabel(period.companyName),
+      dateFrom: vismaLabel(period.startingDate ?? period.dateFrom ?? period.startDate),
+      dateTo: vismaLabel(period.endDate ?? period.dateTo ?? period.toDate),
+      month: vismaLabel(period.periodMonth ?? period.month),
+      year: vismaLabel(period.periodYear ?? period.year),
+    }))
+    .filter((period) => period.id || period.description);
+}
+
+function normalizeVismaPayrollProcesses(payload, periodId = '') {
   return arrayValues(payload)
     .map((process) => ({
       id: vismaLabel(process.id ?? process.idPayrollProcess ?? process.payrollProcessId),
@@ -435,8 +550,32 @@ function normalizeVismaPayrollProcesses(payload) {
       dateFrom: vismaLabel(process.dateFrom ?? process.startDate ?? process.periodFrom),
       dateTo: vismaLabel(process.dateTo ?? process.endDate ?? process.periodTo),
       employeeCount: Number(process.employeeCount ?? process.employeesCount ?? process.quantityEmployees ?? 0) || 0,
+      periodId: vismaLabel(process.periodId ?? periodId),
+      companyName: vismaLabel(process.companyName ?? process.company),
+      paymentDate: vismaLabel(process.paymentDate),
     }))
     .filter((process) => process.id || process.name || process.period);
+}
+
+function normalizeVismaPayrollEmployee(employee) {
+  const firstName = cleanNamePart(employee.firstName);
+  const middleName = cleanNamePart(employee.middleName);
+  const lastName = cleanNamePart(employee.lastName);
+  const familyName = cleanNamePart(employee.familyName);
+
+  return {
+    employeeId: cleanValue(employee.id),
+    externalId: cleanValue(employee.externalId || employee.id),
+    documentNumber: findMainDocument(employee),
+    firstName,
+    middleName,
+    lastName,
+    familyName,
+    fullName: [firstName, middleName, lastName, familyName].filter(Boolean).join(' '),
+    hiringDate: cleanValue(employee.hiringDate),
+    dateOfBirth: cleanValue(employee.dateOfBirth),
+    isActive: employee.isActive !== false,
+  };
 }
 
 async function discoverVismaOrganizationGroups({ token, tenantId, subscriptionKey, tenant }) {
@@ -696,12 +835,13 @@ async function getVismaAdminJson({ token, path }) {
   return getVismaJson({ token, path });
 }
 
-async function getVismaRaetJson({ token, tenantId, path }) {
+async function getVismaRaetJson({ token, tenantId, subscriptionKey, path }) {
   return getVismaJson({
     token,
     path,
     tenantHeaderName: 'X-RAET-Tenant-Id',
     tenantId,
+    subscriptionKey,
   });
 }
 
@@ -1055,7 +1195,7 @@ async function fetchAllVismaPages(fetchPage, pageSize) {
 
     const first = pageValues[0];
     const last = pageValues[pageValues.length - 1];
-    const pageKey = `${first?.id ?? first?.externalId ?? ''}|${last?.id ?? last?.externalId ?? ''}|${pageValues.length}`;
+    const pageKey = `${vismaPageIdentity(first)}|${vismaPageIdentity(last)}|${pageValues.length}`;
     if (pageKey === previousPageKey || pageValues.length < pageSize || (totalCount !== null && values.length >= totalCount)) {
       break;
     }
@@ -1064,6 +1204,27 @@ async function fetchAllVismaPages(fetchPage, pageSize) {
   }
 
   return { values, totalCount };
+}
+
+function vismaPageIdentity(value) {
+  if (!value || typeof value !== 'object') {
+    return cleanValue(value);
+  }
+
+  const identity = [
+    value.id,
+    value.externalId,
+    value.employeeId,
+    value.conceptId,
+    value.acumulatorId,
+    value.accumulatorId,
+    value.conceptCode,
+    value.conceptName,
+    value.acumulatorName,
+    value.accumulatorName,
+  ].find((candidate) => cleanValue(candidate));
+
+  return cleanValue(identity) || JSON.stringify(value);
 }
 
 function readVismaTotalCount(payload) {

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
+  buildVismaPayrollWorkbook,
   buildVismaSourceFile,
   fetchVismaEmployeesPreview,
+  fetchVismaPayrollBookPreview,
   fetchVismaPayrollProcessesPreview,
   summarizeVismaSourceFile,
 } from '../lib/vismaEmployees';
@@ -9,7 +12,7 @@ import { parseRexCompanyMasterWorkbook } from '../lib/template';
 import { cleanCell } from '../lib/utils';
 import { useVismaWorkspace, ALL_COMPANIES_VALUE } from './VismaWorkspaceProvider';
 
-const DEFAULT_PAYROLL_LIMIT = 50;
+const DEFAULT_PAYROLL_PAGE_SIZE = 500;
 const EXTRACTION_MODES = [
   {
     id: 'employees',
@@ -19,7 +22,7 @@ const EXTRACTION_MODES = [
   {
     id: 'payroll',
     label: 'Libros históricos',
-    detail: 'Procesos payroll disponibles para armar Liquidaciones Detalle.',
+    detail: 'Remuneraciones, conceptos, aportes y leyes sociales.',
   },
 ];
 
@@ -36,10 +39,13 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
   } = useVismaWorkspace();
   const [form, setForm] = useState({
     extractionMode: 'employees',
-    payrollLimit: DEFAULT_PAYROLL_LIMIT,
+    payrollYear: new Date().getFullYear(),
+    payrollMonth: new Date().getMonth() + 1,
+    payrollPrintable: false,
   });
   const [payload, setPayload] = useState(null);
   const [payrollPayload, setPayrollPayload] = useState(null);
+  const [payrollBookPayload, setPayrollBookPayload] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +56,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
   const [search, setSearch] = useState('');
   const isAllCompanies = selection.companyId === ALL_COMPANIES_VALUE;
   const payrollProcesses = payrollPayload?.payrollProcesses ?? [];
+  const payrollPeriods = payrollPayload?.periods ?? [];
   const summary = useMemo(() => summarizeVismaSourceFile(sourceFile, payload?.summary), [payload, sourceFile]);
   const visibleRows = useMemo(() => {
     const rows = sourceFile?.rows ?? [];
@@ -78,6 +85,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
     setRexCompanyMasterError('');
     setPayload(null);
     setPayrollPayload(null);
+    setPayrollBookPayload(null);
     setSourceFile(null);
     setSearch('');
   }, [selection.companyId, selection.companyTypeId, selection.tenantId]);
@@ -92,6 +100,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       setRexCompanyMasterError('');
       setPayload(null);
       setPayrollPayload(null);
+      setPayrollBookPayload(null);
       setSourceFile(null);
       setSearch('');
     }
@@ -139,12 +148,15 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       if (form.extractionMode === 'payroll') {
         const nextPayrollPayload = await fetchVismaPayrollProcessesPreview({
           tenantId: selection.tenantId,
-          limit: form.payrollLimit,
+          year: form.payrollYear,
+          month: form.payrollMonth,
+          pageSize: DEFAULT_PAYROLL_PAGE_SIZE,
         });
 
         setPayload(null);
         setSourceFile(null);
         setPayrollPayload(nextPayrollPayload);
+        setPayrollBookPayload(null);
         setSearch('');
         return;
       }
@@ -166,6 +178,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       }
 
       setPayrollPayload(null);
+      setPayrollBookPayload(null);
       setPayload(nextPayload);
       setSourceFile(nextSourceFile);
       setSearch('');
@@ -178,6 +191,44 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       setIsLoading(false);
       onBusyChange?.(false);
     }
+  };
+
+  const handlePayrollBookQuery = async (process) => {
+    if (!process?.id || !selection.tenantId || isLoading) {
+      return;
+    }
+
+    setError('');
+    setIsLoading(true);
+    onBusyChange?.(true);
+
+    try {
+      const nextBookPayload = await fetchVismaPayrollBookPreview({
+        tenantId: selection.tenantId,
+        periodId: process.periodId,
+        processId: process.id,
+        printable: form.payrollPrintable,
+        pageSize: DEFAULT_PAYROLL_PAGE_SIZE,
+      });
+      const period = payrollPeriods.find((item) => String(item.id) === String(process.periodId)) ?? payrollPeriods[0] ?? null;
+      setPayrollBookPayload({ ...nextBookPayload, period, process });
+    } catch (queryError) {
+      setPayrollBookPayload(null);
+      setError(queryError instanceof Error ? queryError.message : 'No se pudo traer el libro de remuneraciones.');
+    } finally {
+      setIsLoading(false);
+      onBusyChange?.(false);
+    }
+  };
+
+  const handlePayrollBookDownload = () => {
+    if (!payrollBookPayload) {
+      return;
+    }
+
+    const workbook = buildVismaPayrollWorkbook({ book: payrollBookPayload });
+    const filename = `VISMA_LIBRO_REMUNERACIONES_${payrollBookPayload.processId}_${payrollBookPayload.periodId}.xlsx`;
+    XLSX.writeFile(workbook, filename);
   };
 
   const handleContinue = () => {
@@ -275,18 +326,44 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
                   <p className="mt-1 text-sm text-slate-600">Se traerá la totalidad de los trabajadores activos disponibles en VISMA.</p>
                 </div>
               ) : (
-                <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">Cantidad de procesos a revisar</span>
-                  <input
-                    value={form.payrollLimit}
-                    onChange={(event) => updateForm('payrollLimit', event.target.value)}
-                    type="number"
-                    min="1"
-                    max="200"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  />
-                  <span className="mt-2 block text-xs text-slate-500">Se listan procesos payroll; el detalle depende de permisos VISMA.</span>
-                </label>
+                <div className="space-y-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Año</span>
+                      <input
+                        value={form.payrollYear}
+                        onChange={(event) => updateForm('payrollYear', event.target.value)}
+                        type="number"
+                        min="2000"
+                        max="2100"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Mes</span>
+                      <input
+                        value={form.payrollMonth}
+                        onChange={(event) => updateForm('payrollMonth', event.target.value)}
+                        type="number"
+                        min="1"
+                        max="12"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-start gap-3 text-sm text-slate-700">
+                    <input
+                      checked={form.payrollPrintable}
+                      onChange={(event) => updateForm('payrollPrintable', event.target.checked)}
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600"
+                    />
+                    <span>
+                      <span className="block font-semibold">Traer solo lo imprimible</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">Desmárcalo para incluir también aportes, leyes sociales, bases y acumuladores no impresos en el recibo.</span>
+                    </span>
+                  </label>
+                </div>
               )}
             </div>
 
@@ -307,7 +384,7 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
                 {isLoading
                   ? 'Consultando...'
                   : form.extractionMode === 'payroll'
-                    ? 'Traer libros históricos'
+                    ? 'Buscar procesos'
                     : 'Traer empleados'}
               </button>
             </div>
@@ -324,8 +401,8 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
               {form.extractionMode === 'payroll' ? (
                 <>
                   <MetricCard label="Procesos" value={payrollProcesses.length} detail="Encontrados" />
-                  <MetricCard label="Empresa" value={selectedCompany?.id || selectedTenant?.id || '-'} detail={selectedCompany?.name || selectedTenant?.name || 'Sin seleccionar'} />
-                  <MetricCard label="Detalle" value={payrollPayload?.detailStatus?.available ? 'OK' : '-'} detail="Permisos Payroll" />
+                  <MetricCard label="Períodos" value={payrollPeriods.length} detail={`${form.payrollMonth}/${form.payrollYear}`} />
+                  <MetricCard label="Libro" value={payrollBookPayload ? 'Listo' : '-'} detail={payrollBookPayload ? `${payrollBookPayload.summary?.concepts ?? 0} conceptos` : 'Selecciona un proceso'} />
                 </>
               ) : (
                 <>
@@ -350,8 +427,24 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
             ) : null}
 
             {payrollPayload?.detailStatus ? (
-              <div className="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+              <div className={`mt-6 rounded-[24px] border px-5 py-4 text-sm ${payrollPayload.detailStatus.available ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
                 {payrollPayload.detailStatus.message}
+              </div>
+            ) : null}
+
+            {payrollBookPayload ? (
+              <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <p className="text-sm font-semibold text-emerald-900">Libro de remuneraciones listo</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-800">
+                  Incluye {payrollBookPayload.summary?.employees ?? 0} trabajadores, {payrollBookPayload.summary?.concepts ?? 0} conceptos y {payrollBookPayload.summary?.accumulators ?? 0} acumuladores.
+                </p>
+                <button
+                  type="button"
+                  onClick={handlePayrollBookDownload}
+                  className="mt-4 rounded-full bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                >
+                  Descargar libro completo
+                </button>
               </div>
             ) : null}
 
@@ -394,7 +487,12 @@ export default function VismaEmployeesReview({ onBack, onContinue, onBusyChange 
       ) : null}
 
       {payrollProcesses.length ? (
-        <PayrollProcessesPreview processes={payrollProcesses} />
+        <PayrollProcessesPreview
+          processes={payrollProcesses}
+          onLoadBook={handlePayrollBookQuery}
+          isLoading={isLoading}
+          loadedProcessId={payrollBookPayload?.processId}
+        />
       ) : null}
     </div>
   );
@@ -505,20 +603,20 @@ function EmployeesPreview({ rows, companyName }) {
   );
 }
 
-function PayrollProcessesPreview({ processes }) {
+function PayrollProcessesPreview({ processes, onLoadBook, isLoading, loadedProcessId }) {
   return (
     <section className="panel p-6 sm:p-8">
       <div>
         <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Libros históricos</p>
-        <h3 className="mt-2 text-2xl font-bold text-slate-950">Procesos VISMA disponibles</h3>
-        <p className="mt-2 text-sm text-slate-600">Estos procesos son la base para generar Liquidaciones Detalle cuando VISMA habilite el detalle Payroll.</p>
+        <h3 className="mt-2 text-2xl font-bold text-slate-950">Procesos de remuneraciones disponibles</h3>
+        <p className="mt-2 text-sm text-slate-600">Selecciona un proceso para traer el libro completo con conceptos y acumuladores.</p>
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead className="bg-slate-50">
             <tr>
-              {['ID', 'PERÍODO', 'NOMBRE', 'MODELO', 'ESTADO', 'EMPLEADOS'].map((header) => (
+              {['ID', 'PERÍODO', 'NOMBRE', 'MODELO', 'ESTADO', 'ACCIÓN'].map((header) => (
                 <th key={header} className="px-4 py-3 font-semibold text-slate-700">{header}</th>
               ))}
             </tr>
@@ -531,7 +629,16 @@ function PayrollProcessesPreview({ processes }) {
                 <td className="px-4 py-3 text-slate-700">{process.name || '-'}</td>
                 <td className="px-4 py-3 text-slate-700">{process.model || '-'}</td>
                 <td className="px-4 py-3 text-slate-700">{process.status || '-'}</td>
-                <td className="px-4 py-3 text-slate-700">{process.employeeCount || '-'}</td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onLoadBook(process)}
+                    disabled={isLoading}
+                    className="rounded-full border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loadedProcessId === process.id ? 'Libro cargado' : isLoading ? 'Consultando...' : 'Traer libro'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
