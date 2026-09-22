@@ -72,9 +72,11 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
       return accumulator;
     }, {});
     const rowErrors = [];
+    const rowAlerts = [];
     const rowNumber = rowIndex + 2;
     const contractType = normalizeContractType(row['Tipo de Contrato']);
     const companyName = findEmpresaName(row['Razón Social'], supportSheets.empresasCatalog);
+    const cargoResolution = resolveCargoCode(row.Cargo, supportSheets.cargosCatalog);
 
     exportedRow['Número de Documento*'] = formatRutWithDots(row.RUT);
     exportedRow['Código de Ficha'] = findFichaCode(row.RUT, supportSheets.fichaCodesCatalog);
@@ -82,7 +84,16 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
     exportedRow['Moneda*'] = 'CLP';
     exportedRow['Fecha de Inicio*'] = formatIsoDate(row['Fecha de Ingreso']);
     exportedRow['Horario Semanal*'] = cleanCell(row['Horas de la Jornada']) || '40';
-    exportedRow['Código Cargo*'] = findCargoCode(row.Cargo, supportSheets.cargosCatalog);
+    exportedRow['Código Cargo*'] = cargoResolution.code;
+    if (cargoResolution.suggestion) {
+      rowAlerts.push({
+        row: rowNumber,
+        field: 'Código Cargo*',
+        value: cleanCell(row.Cargo),
+        appliedValue: cargoResolution.suggestion.code,
+        message: `Se aplicó el cargo BUK más cercano: ${cargoResolution.suggestion.name}.`,
+      });
+    }
     exportedRow['Código Sub-área*'] = findSubAreaCode(row, supportSheets.subAreasCatalog);
     exportedRow['Número de Documento Supervisor*'] = formatRutWithDots(row['Rut Jefe']);
     exportedRow['Código de Ficha Supervisor'] = findSupervisorFichaCode(
@@ -158,21 +169,26 @@ export function transformBukTrabajosRows({ sourceRows, trabajosHeaders, supportS
       exportedRow,
       hasErrors: rowErrors.length > 0,
       errors: rowErrors,
+      alerts: rowAlerts,
     };
   });
 
   const allErrors = transformedRows.flatMap((row) => row.errors);
+  const allAlerts = transformedRows.flatMap((row) => row.alerts);
   const cleanRows = transformedRows.filter((row) => !row.hasErrors).map((row) => row.exportedRow);
 
   return {
     transformedRows,
     allErrors,
+    allAlerts,
     allExportedRows: transformedRows.map((row) => row.exportedRow),
     cleanExportedRows: cleanRows,
     summary: {
       totalRows: transformedRows.length,
       cleanRows: cleanRows.length,
       warningRows: transformedRows.length - cleanRows.length,
+      alertRows: transformedRows.filter((row) => row.alerts.length > 0).length,
+      alertCount: allAlerts.length,
     },
   };
 }
@@ -199,7 +215,7 @@ function findEmpresaName(inputValue, catalog) {
   return cleanCell(match?.Nombre);
 }
 
-function findCargoCode(inputValue, catalog) {
+function resolveCargoCode(inputValue, catalog) {
   const directMatch = findCatalogMatch({
     inputValue,
     catalog,
@@ -208,24 +224,107 @@ function findCargoCode(inputValue, catalog) {
   });
 
   if (directMatch) {
-    return directMatch;
+    return { code: directMatch, suggestion: null };
   }
 
   const normalizedInput = normalizeText(inputValue);
   const aliasValue = CARGO_ALIASES[normalizedInput];
 
   if (aliasValue) {
-    return (
-      findCatalogMatch({
-        inputValue: aliasValue,
-        catalog,
-        compareKey: 'Cargo',
-        returnKey: 'Código',
-      }) || ''
-    );
+    const aliasMatch = findCatalogMatch({
+      inputValue: aliasValue,
+      catalog,
+      compareKey: 'Cargo',
+      returnKey: 'Código',
+    });
+
+    if (aliasMatch) {
+      return { code: aliasMatch, suggestion: null };
+    }
   }
 
-  return '';
+  const closestMatch = findClosestCargoCatalogMatch(inputValue, catalog);
+  if (!closestMatch) {
+    return { code: '', suggestion: null };
+  }
+
+  return {
+    code: closestMatch.code,
+    suggestion: closestMatch,
+  };
+}
+
+function findClosestCargoCatalogMatch(inputValue, catalog) {
+  const candidateTokens = tokenizeCargoName(inputValue);
+  if (candidateTokens.length === 0) {
+    return null;
+  }
+
+  const rankedMatches = catalog
+    .map((entry) => {
+      const nameTokens = tokenizeCargoName(entry.Cargo);
+      const sharedTokens = candidateTokens.filter((token) => nameTokens.includes(token));
+      let score = sharedTokens.length * 30;
+
+      if (sharedTokens.length === candidateTokens.length) {
+        score += 35;
+      }
+
+      if (candidateTokens[0] && nameTokens[0] === candidateTokens[0]) {
+        score += 12;
+      }
+
+      score -= Math.max(0, nameTokens.length - candidateTokens.length) * 2;
+
+      return {
+        code: cleanCell(entry['Código']),
+        name: cleanCell(entry.Cargo),
+        score,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  const [bestMatch, secondMatch] = rankedMatches;
+  if (!bestMatch || bestMatch.score < 68) {
+    return null;
+  }
+
+  if (secondMatch && bestMatch.score - secondMatch.score < 14) {
+    return null;
+  }
+
+  return bestMatch;
+}
+
+function tokenizeCargoName(value) {
+  const normalized = normalizeText(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\badm\b/g, 'administrativo')
+    .replace(/\benc\b/g, 'encargado')
+    .replace(/\bsubgte\b/g, 'subgerente')
+    .replace(/\bsub gerente\b/g, 'subgerente')
+    .replace(/\bd o\b/g, 'desarrollo organizacional')
+    .replace(/\bplanific\b/g, 'planificacion')
+    .replace(/\boper\b/g, 'operacional');
+  const stopwords = new Set(['a', 'de', 'del', 'el', 'la', 'las', 'los', 'en', 'o', 'y']);
+  const tokenAliases = {
+    administrativa: 'administrativo',
+    asesora: 'asesor',
+    encargada: 'encargado',
+    ejecutiva: 'ejecutivo',
+    jefa: 'jefe',
+    monitora: 'monitor',
+    operadora: 'operador',
+    supervisora: 'supervisor',
+    tecnica: 'tecnico',
+  };
+
+  return [...new Set(
+    normalized
+      .split(/\s+/)
+      .filter((token) => token && !stopwords.has(token))
+      .map((token) => tokenAliases[token] || token),
+  )];
 }
 
 function findSubAreaCode(row, catalog) {

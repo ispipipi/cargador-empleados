@@ -762,6 +762,7 @@ export default function App() {
             trabajos: {
               ...trabajosTransformation,
               errors: trabajosTransformation.allErrors,
+              alerts: trabajosTransformation.allAlerts,
               supportSheets: trabajosSupportSheets,
             },
             generatedAt: todayStamp(),

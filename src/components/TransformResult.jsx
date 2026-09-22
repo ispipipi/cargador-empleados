@@ -18,6 +18,7 @@ export default function TransformResult({
   const deferredColaboradoresErrors = useDeferredValue(colaboradoresResult.errors);
   const deferredColaboradoresAlerts = useDeferredValue(colaboradoresResult.alerts ?? []);
   const deferredTrabajosErrors = useDeferredValue(trabajosResult.errors);
+  const deferredTrabajosAlerts = useDeferredValue(trabajosResult.alerts ?? []);
   const totalErrors = colaboradoresResult.errors.length + trabajosResult.errors.length;
 
   const visibleColaboradoresErrors = useMemo(
@@ -32,10 +33,15 @@ export default function TransformResult({
     () => deferredTrabajosErrors.slice(0, 150),
     [deferredTrabajosErrors],
   );
+  const visibleTrabajosAlerts = useMemo(
+    () => deferredTrabajosAlerts.slice(0, 150),
+    [deferredTrabajosAlerts],
+  );
   const totalWarnings =
     colaboradoresResult.summary.warningRows +
     trabajosResult.summary.warningRows +
-    (colaboradoresResult.summary.alertCount ?? 0);
+    (colaboradoresResult.summary.alertCount ?? 0) +
+    (trabajosResult.summary.alertCount ?? 0);
 
   const handleSave = () => {
     if (!configName.trim()) {
@@ -216,6 +222,7 @@ export default function TransformResult({
         subtitle="Resultado del archivo de trabajos y su reporte de matching contra Cargos, Sub-áreas y Empresas."
         result={trabajosResult}
         visibleErrors={visibleTrabajosErrors}
+        visibleAlerts={visibleTrabajosAlerts}
       />
     </div>
   );
