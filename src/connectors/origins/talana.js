@@ -42,3 +42,14 @@ export function getTalanaMissingColumns(headers) {
   const normalizedHeaders = headers.map(cleanCell);
   return talanaOrigin.columnasClave.filter((requiredColumn) => !normalizedHeaders.includes(requiredColumn));
 }
+
+export const talanaHistoricalOrigin = {
+  id: 'talana-historico',
+  nombre: 'Talana libro histórico',
+  columnasClave: ['Año', 'Mes', 'Rut de la Empresa', 'Rut del Trabajador', 'Días Trabajados', 'Remuneración Total'],
+};
+
+export function getTalanaHistoricalMissingColumns(headers) {
+  const normalizedHeaders = headers.map(cleanCell);
+  return talanaHistoricalOrigin.columnasClave.filter((requiredColumn) => !normalizedHeaders.includes(requiredColumn));
+}

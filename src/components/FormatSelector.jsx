@@ -19,7 +19,8 @@ const MODULE_OPTIONS = [
   { id: 'visma-empleados', name: 'Cargas VISMA', detail: 'Elige empresa y genera REX+ Empleados' },
   { id: 'conceptos', name: 'Conceptos', detail: 'Meta 4 → REX+ Conceptos' },
   { id: 'conceptos-historicos', name: 'Conceptos históricos', detail: 'Meta 4 → REX+ Concepto Detalle' },
-  { id: 'libros-historicos', name: 'Carga de libros históricos', detail: 'Visma → REX+ Liquidaciones Detalle' },
+  { id: 'libros-historicos', name: 'Libros históricos Visma', detail: 'Visma → REX+ Liquidaciones Detalle' },
+  { id: 'talana-libros-historicos', name: 'Libros históricos Talana', detail: 'Talana → BUK Liquidaciones Históricas' },
 ];
 
 export default function FormatSelector({
@@ -98,7 +99,7 @@ export default function FormatSelector({
               />
             </div>
 
-            {['conceptos', 'conceptos-historicos', 'libros-historicos'].includes(selectedModule) ? (
+            {['conceptos', 'conceptos-historicos', 'libros-historicos', 'talana-libros-historicos'].includes(selectedModule) ? (
               <label className="mt-4 block rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
                 <span className="text-sm font-semibold text-slate-900">Empresa de la memoria de mapeos</span>
                 <input
@@ -154,6 +155,8 @@ export default function FormatSelector({
                 <li>
                   {selectedModule === 'libros-historicos'
                     ? 'Lee un libro mensual de Visma y genera Liquidaciones Detalle para REX+.'
+                    : selectedModule === 'talana-libros-historicos'
+                      ? 'Lee un libro mensual de Talana y genera el libro de Liquidaciones Históricas para BUK.'
                     : selectedModule === 'visma-maestros'
                       ? 'Consulta y copia los maestros disponibles en VISMA para preparar las cargas.'
                     : selectedModule === 'conceptos-historicos'
@@ -169,11 +172,13 @@ export default function FormatSelector({
                 <li>
                   {selectedModule === 'libros-historicos'
                     ? 'Pareará haberes y descuentos contra el catálogo del template REX+.'
+                    : selectedModule === 'talana-libros-historicos'
+                      ? 'Revisa los conceptos, excluye leyes sociales y confirma los ítems BUK antes de descargar.'
                     : selectedModule === 'visma-maestros'
                       ? 'Es el primer paso para revisar cargos, sedes, áreas, empresas y centros de costo.'
                     : selectedModule === 'conceptos-historicos'
                       ? 'Permite asignar matches individuales o masivos y descargar pendientes.'
-                    : selectedModule === 'conceptos'
+                : selectedModule === 'conceptos'
                       ? 'Incluye informe final de matches, altas y advertencias.'
                       : selectedModule === 'visma-empleados'
                         ? 'Trae identidad, estructuras, dirección, banco y emails disponibles antes de transformar.'

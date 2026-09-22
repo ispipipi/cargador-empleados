@@ -10,6 +10,7 @@ import TransformResult from './components/TransformResult';
 import ConceptsMapper from './components/ConceptsMapper';
 import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
 import VismaHistoricalMapper from './components/VismaHistoricalMapper';
+import TalanaHistoricalMapper from './components/TalanaHistoricalMapper';
 import VismaEmployeesReview from './components/VismaEmployeesReview';
 import VismaMastersReview from './components/VismaMastersReview';
 import VismaSidebar from './components/VismaSidebar';
@@ -89,6 +90,7 @@ const STEPS = {
   concepts: 'concepts',
   historicalReview: 'historical-review',
   vismaHistoricalReview: 'visma-historical-review',
+  talanaHistoricalReview: 'talana-historical-review',
   vismaMastersReview: 'visma-masters-review',
   vismaEmployeesReview: 'visma-employees-review',
 };
@@ -144,10 +146,11 @@ export default function App() {
   const isConceptsFlow = selectedModule === 'conceptos';
   const isHistoricalConceptsFlow = selectedModule === 'conceptos-historicos';
   const isVismaHistoricalFlow = selectedModule === 'libros-historicos';
+  const isTalanaHistoricalFlow = selectedModule === 'talana-libros-historicos';
   const isVismaMastersFlow = selectedModule === 'visma-maestros';
   const isVismaEmployeesFlow = selectedModule === 'visma-empleados';
   const showVismaSidebar = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
-  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || SUPPORTED_PAIRS.has(pairKey);
+  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isTalanaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -425,10 +428,12 @@ export default function App() {
               }
             : isPreparingHistoricalDownload
               ? {
-                  title: isVismaHistoricalFlow ? 'Preparando libro histórico' : 'Preparando conceptos históricos',
-                  detail: isVismaHistoricalFlow
-                    ? 'Estamos armando el CSV de Liquidaciones Detalle y validando sus filas antes de descargar.'
-                    : 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
+              title: isVismaHistoricalFlow || isTalanaHistoricalFlow ? 'Preparando libro histórico' : 'Preparando conceptos históricos',
+              detail: isVismaHistoricalFlow
+                ? 'Estamos armando el CSV de Liquidaciones Detalle y validando sus filas antes de descargar.'
+                : isTalanaHistoricalFlow
+                  ? 'Estamos armando el libro histórico de BUK y validando sus pestañas antes de descargar.'
+                  : 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
                 }
               : exportState
                 ? exportState
@@ -516,7 +521,13 @@ export default function App() {
     try {
       await waitForUiToPaint();
       const arrayBuffer = await file.arrayBuffer();
-      const parserOrigin = isVismaHistoricalFlow ? 'visma-historico' : isHistoricalConceptsFlow ? 'meta4-historico' : selectedOrigin;
+      const parserOrigin = isVismaHistoricalFlow
+        ? 'visma-historico'
+        : isTalanaHistoricalFlow
+          ? 'talana-historico'
+          : isHistoricalConceptsFlow
+            ? 'meta4-historico'
+            : selectedOrigin;
       const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin);
       const validationMessage = buildValidationMessage({
         originId: parserOrigin,
@@ -671,6 +682,13 @@ export default function App() {
       setMappingCompany('FRUTICOLA');
       setStep(STEPS.upload);
       return;
+    }
+
+    if (moduleId === 'talana-libros-historicos') {
+      setSelectedOrigin('talana');
+      setSelectedDestination('buk');
+      setMappingCompany('SOSER');
+      setStep(STEPS.upload);
     }
 
   };
@@ -1316,10 +1334,10 @@ export default function App() {
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
-            continueLabel={isVismaHistoricalFlow ? 'Analizar libro histórico' : isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
+            continueLabel={isVismaHistoricalFlow || isTalanaHistoricalFlow ? 'Analizar libro histórico' : isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(showVismaSidebar ? STEPS.vismaEmployeesReview : STEPS.format)}
-            onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
+            onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isTalanaHistoricalFlow ? STEPS.talanaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
           />
         ) : null}
 
@@ -1361,6 +1379,15 @@ export default function App() {
           <VismaHistoricalMapper
             sourceFile={sourceFile}
             resource={vismaHistoricalResource}
+            mappingScope={mappingScope}
+            onBack={() => setStep(STEPS.upload)}
+            onBusyChange={setIsPreparingHistoricalDownload}
+          />
+        ) : null}
+
+        {step === STEPS.talanaHistoricalReview && sourceFile ? (
+          <TalanaHistoricalMapper
+            sourceFile={sourceFile}
             mappingScope={mappingScope}
             onBack={() => setStep(STEPS.upload)}
             onBusyChange={setIsPreparingHistoricalDownload}
@@ -1568,6 +1595,8 @@ function buildValidationMessage({ originId, parsedSource }) {
       ? 'El archivo no cumple con las columnas mínimas para Meta 4.'
       : originId === 'visma-historico'
         ? 'El archivo no cumple con las columnas mínimas para Visma.'
+        : originId === 'talana-historico'
+          ? 'El archivo no cumple con las columnas mínimas para un libro histórico de Talana.'
         : 'El archivo no cumple con las columnas mínimas para Talana.';
   }
 

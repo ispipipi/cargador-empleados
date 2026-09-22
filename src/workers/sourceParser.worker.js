@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
 import { extractVismaPeriod, getVismaHeaderRow, getVismaHistoricalFormatIssues } from '../connectors/origins/visma';
-import { getTalanaMissingColumns } from '../connectors/origins/talana';
+import { getTalanaHistoricalMissingColumns, getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
 
 self.onmessage = (event) => {
@@ -18,6 +18,8 @@ self.onmessage = (event) => {
           ? parseMeta4Workbook(workbook, { preserveDuplicateHeaders: true })
           : originId === 'visma-historico'
             ? parseVismaWorkbook(workbook)
+          : originId === 'talana-historico'
+            ? parseTalanaHistoricalWorkbook(workbook)
           : parseTalanaWorkbook(workbook);
 
     self.postMessage({
@@ -64,6 +66,49 @@ function parseTalanaWorkbook(workbook) {
     formatName: 'Talana',
     rows: filteredRows,
   };
+}
+
+function parseTalanaHistoricalWorkbook(workbook) {
+  const firstSheetName = workbook.SheetNames[0];
+  const firstSheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, {
+    defval: '',
+    raw: false,
+  });
+  const headers = Object.keys(rows[0] ?? {}).map(cleanCell);
+  const missingColumns = getTalanaHistoricalMissingColumns(headers);
+  const filteredRows = rows
+    .filter((row) => isTalanaHistoricalEmployeeRow(row))
+    .map((row, index) => ({
+      ...row,
+      __sourceRowNumber: index + 2,
+      __sheetName: firstSheetName,
+    }));
+
+  return {
+    workbookName: firstSheetName,
+    headers,
+    missingColumns,
+    formatIssues: [],
+    formatName: 'Talana libro histórico',
+    period: buildTalanaPeriod(rows[0]),
+    rows: filteredRows,
+  };
+}
+
+function isTalanaHistoricalEmployeeRow(row) {
+  const rut = cleanCell(row['Rut del Trabajador']);
+  return /^\d{6,9}-[\dkK]$/.test(rut.replace(/\./g, ''));
+}
+
+function buildTalanaPeriod(row) {
+  const year = cleanCell(row?.Año);
+  const month = cleanCell(row?.Mes);
+  if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month)) {
+    return '';
+  }
+
+  return `${year}-${month.padStart(2, '0')}`;
 }
 
 function parseVismaWorkbook(workbook) {
