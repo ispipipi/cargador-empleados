@@ -1543,7 +1543,7 @@ function firstSourceValue(sourceRow, keys) {
 }
 
 function resolveSourceEmployeeName(sourceRow) {
-  const directName = firstSourceValue(sourceRow, ['Empleado', 'Nombre completo', 'NOMBRE', 'Nombre']);
+  const directName = firstSourceValue(sourceRow, ['Empleado', 'Nombre completo', 'NOMBRE']);
   if (directName) {
     return directName;
   }
