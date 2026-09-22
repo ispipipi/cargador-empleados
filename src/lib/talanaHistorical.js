@@ -154,7 +154,7 @@ const BUK_CONCEPT_CATALOG = [
   ['bono_noche', 'Bono Noche', 'Haberes Imponibles', false],
   ['movilizacion', 'Movilización', 'Haberes No Imponibles', false],
   ['asfam', 'Asignación Familiar y Maternal', 'Haberes No Imponibles', false],
-  ['otro_haber_no_imponible', 'Otro Haber No Imponible', 'Haberes No Imponibles', true],
+  ['otro_haber_no_imponible', 'Otro Haber No Imponible', 'Haberes No Imponibles', false],
   ['colacion', 'Colación', 'Haberes No Imponibles', false],
   ['asignacion_familiar_retroactiva', 'Asignación Familiar Retroactiva', 'Haberes No Imponibles', false],
   ['desgaste_materiales', 'Desgaste Materiales', 'Haberes No Imponibles', false],
@@ -213,6 +213,8 @@ const SOURCE_ALIASES = new Map([
   ['bono noche', 'bono_noche'],
   ['junji-integra-bono', 'bono_junji_integra'],
   ['movilizacion', 'movilizacion'],
+  ['sobregiro', 'otro_haber_no_imponible'],
+  ['indemnizacion por vacaciones pendientes', 'otro_haber_no_imponible'],
   ['colacion', 'colacion'],
   ['asignacion familiar y maternal', 'asfam'],
   ['asignacion familiar retroactiva', 'asignacion_familiar_retroactiva'],
@@ -234,6 +236,7 @@ const SOURCE_ALIASES = new Map([
   ['descuento prestamo n°2', 'descuento_prestamo_n2'],
   ['descuento adicional sindicato', 'descuento_adicional_sindicato'],
   ['ahorro coop', 'dcto_ahorrocoop'],
+  ['dcto ahorrocoop', 'dcto_ahorrocoop'],
   ['cuota sindical 2', 'cuota_sindical_2'],
   ['optica roccelli', 'dcto_optica_roccelli'],
   ['vale de gas', 'dcto_vale_de_gas'],
@@ -300,8 +303,23 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, f
     });
   });
 
+  employeeRows.forEach((row) => {
+    const detailDiscounts = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Descuentos');
+    const totalBukOtherDiscounts = parseAmount(row['Otros Descuentos']) + parseAmount(row['Impuestos']);
+    const residualDiscount = totalBukOtherDiscounts - detailDiscounts;
+    if (residualDiscount > 0) {
+      detailRowsBySheet.get('Descuentos')?.push([
+        cleanCell(row['Rut del Trabajador']),
+        fichaCode,
+        cleanCell(row['Rut de la Empresa']),
+        catalogById.get('otro_descuento').name,
+        residualDiscount,
+        'otro_descuento',
+      ]);
+    }
+  });
+
   const liquidationRows = employeeRows.map((row) => {
-    const remTotal = parseAmount(row['Remuneración Total']);
     const employerContributions = sumFields(row, [
       'Capitalización Individual AFP',
       'Expectativa de Vida',
@@ -310,8 +328,11 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, f
       'Seguro Cesantia (Fondo Solidario)',
       'Seguro Invalidez y Supervivencia (SIS)',
     ]);
+    const imponible = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes Imponibles');
     const noTaxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && !decision.taxable);
     const taxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && decision.taxable);
+    const otherDiscounts = parseAmount(row['Otros Descuentos']) + parseAmount(row['Impuestos']);
+    const liquid = imponible + noTaxable + taxable - parseAmount(row['Descuentos Legales']) - otherDiscounts;
 
     return [
       cleanCell(row['Rut del Trabajador']),
@@ -326,13 +347,13 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, f
       0,
       0,
       sumFields(row, ['HHs. Extra 50%', 'HHs. Extra 100%', 'Horas a pago por días compensatorios vencidos']),
-      remTotal + employerContributions,
-      parseAmount(row['Remuneración Imponible']),
-      noTaxable || parseAmount(row['Remuneración No Imponible']),
+      imponible + noTaxable + taxable + employerContributions,
+      imponible,
+      noTaxable,
       taxable,
       parseAmount(row['Descuentos Legales']),
-      parseAmount(row['Otros Descuentos']),
-      parseAmount(row['Sueldo Liquido A Pago']),
+      otherDiscounts,
+      liquid,
       parseAmount(row['Renta Tributable']),
       0,
       parseAmount(row['Impuestos']),
@@ -398,6 +419,75 @@ export function buildTalanaHistoricalReportRows(decisions) {
   }));
 }
 
+export function buildTalanaHistoricalReconciliation({ sourceRows, decisions, fichaCode = 'F1' }) {
+  const employeeRows = consolidateTalanaEmployeeRows(sourceRows);
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+
+  return employeeRows.map((row) => {
+    const imponible = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes Imponibles');
+    const noTaxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && !decision.taxable);
+    const taxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && decision.taxable);
+    const discounts = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Descuentos');
+    const legalDiscounts = parseAmount(row['Descuentos Legales']);
+    const otherDiscounts = parseAmount(row['Otros Descuentos']);
+    const tax = parseAmount(row['Impuestos']);
+    const voluntaryPension = sumFields(row, ['APV (Régimen A)', 'APV', 'APV 2']);
+    const voluntaryHealth = parseAmount(row['Isapre sobre 7%']);
+    const bukOtherDiscounts = otherDiscounts + tax;
+    const expectedDetailDiscounts = bukOtherDiscounts;
+    const sourceLiquid = parseAmount(row['Sueldo Liquido A Pago']);
+    const bukLiquid = imponible + noTaxable + taxable - legalDiscounts - bukOtherDiscounts;
+    const detailTotal = imponible + noTaxable + taxable;
+    const sourceTotal = parseAmount(row['Remuneración Total']);
+    const loadedDiscounts = discounts + Math.max(0, expectedDetailDiscounts - discounts);
+
+    return {
+      'Número de Documento': cleanCell(row['Rut del Trabajador']),
+      'RUT Empresa': cleanCell(row['Rut de la Empresa']),
+      'Código de Ficha': fichaCode,
+      'Haberes imponibles BUK': imponible,
+      'Haberes no imponibles no tributables BUK': noTaxable,
+      'Haberes no imponibles tributables BUK': taxable,
+      'Total haberes BUK': detailTotal,
+      'Total haberes Talana': sourceTotal,
+      'Descuentos legales': legalDiscounts,
+      'Otros descuentos Talana': otherDiscounts,
+      Impuesto: tax,
+      'APV / previsión voluntaria': voluntaryPension,
+      'Salud voluntaria': voluntaryHealth,
+      'Otros descuentos BUK': bukOtherDiscounts,
+      'Líquido a pago Talana': sourceLiquid,
+      'Líquido a pago BUK': bukLiquid,
+      'Diferencia líquido': bukLiquid - sourceLiquid,
+      'Diferencia haberes': detailTotal - sourceTotal,
+      'Descuentos detallados BUK': loadedDiscounts,
+      'Otros descuentos BUK a detallar': expectedDetailDiscounts,
+      'Diferencia descuentos': loadedDiscounts - expectedDetailDiscounts,
+      Estado: bukLiquid === sourceLiquid && detailTotal === sourceTotal && loadedDiscounts === expectedDetailDiscounts ? 'Cuadrado' : 'Revisar',
+    };
+  });
+}
+
+export function summarizeTalanaHistoricalReconciliation(rows) {
+  const liquidDifferences = rows.filter((row) => row['Diferencia líquido'] !== 0);
+  const totalDifferences = rows.filter((row) => row['Diferencia haberes'] !== 0);
+  const discountDifferences = rows.filter((row) => row['Diferencia descuentos'] !== 0);
+
+  return {
+    employees: rows.length,
+    liquidMatched: rows.length - liquidDifferences.length,
+    liquidDifferences: liquidDifferences.length,
+    liquidDifferenceTotal: liquidDifferences.reduce((total, row) => total + row['Diferencia líquido'], 0),
+    totalMatched: rows.length - totalDifferences.length,
+    totalDifferences: totalDifferences.length,
+    totalDifferenceTotal: totalDifferences.reduce((total, row) => total + row['Diferencia haberes'], 0),
+    discountsMatched: rows.length - discountDifferences.length,
+    discountDifferences: discountDifferences.length,
+    discountDifferenceTotal: discountDifferences.reduce((total, row) => total + row['Diferencia descuentos'], 0),
+    isBalanced: liquidDifferences.length === 0 && totalDifferences.length === 0 && discountDifferences.length === 0,
+  };
+}
+
 export function summarizeTalanaHistoricalDecisions(decisions) {
   return {
     total: decisions.length,
@@ -414,7 +504,7 @@ function buildDecision(column, sourceRows, index) {
   const sourceName = column.sourceName;
   const nonZeroRows = sourceRows.filter((row) => isValidRut(row['Rut del Trabajador']) && parseAmount(row[column.sourceKey]) !== 0);
   const normalizedSourceName = normalizeSourceName(sourceName);
-  const autoExcluded = AUTO_EXCLUDED_PATTERNS.some((pattern) => pattern.test(normalizedSourceName)) || normalizedSourceName === 'sobregiro';
+  const autoExcluded = AUTO_EXCLUDED_PATTERNS.some((pattern) => pattern.test(normalizedSourceName));
 
   if (autoExcluded) {
     return {
@@ -442,6 +532,7 @@ function buildDecision(column, sourceRows, index) {
   const targetId = SOURCE_ALIASES.get(normalizedSourceName) ?? findCatalogByName(normalizedSourceName)?.id ?? '';
   const target = catalogById.get(targetId);
   const suggestedMatches = target ? [] : findSuggestedMatches(normalizedSourceName);
+  const taxable = getTaxability(sourceName, target);
 
   return {
     id: `talana-historical-${index}`,
@@ -455,7 +546,7 @@ function buildDecision(column, sourceRows, index) {
     suggestedMatches,
     proposedId: suggestedMatches[0]?.id ?? '',
     sheet: target?.sheet ?? '',
-    taxable: target?.taxable ?? false,
+    taxable,
     approved: Boolean(target),
     excluded: false,
     autoExcluded: false,
@@ -463,6 +554,18 @@ function buildDecision(column, sourceRows, index) {
     exclusionReason: '',
     action: target ? 'reuse' : '',
   };
+}
+
+function getTaxability(sourceName, target) {
+  if (!target) {
+    return false;
+  }
+
+  if (target.id === 'otro_haber_no_imponible' && normalizeSourceName(sourceName) === 'bono aguinaldo') {
+    return true;
+  }
+
+  return target.taxable;
 }
 
 function findCatalogByName(sourceName) {

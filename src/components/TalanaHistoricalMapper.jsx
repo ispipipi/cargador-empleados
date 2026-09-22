@@ -3,9 +3,11 @@ import * as XLSX from 'xlsx';
 import ConceptSearchPicker from './ConceptSearchPicker';
 import {
   buildTalanaHistoricalModel,
+  buildTalanaHistoricalReconciliation,
   buildTalanaHistoricalReportRows,
   buildTalanaHistoricalWorkbook,
   getTalanaHistoricalCatalog,
+  summarizeTalanaHistoricalReconciliation,
   summarizeTalanaHistoricalDecisions,
 } from '../lib/talanaHistorical';
 import { normalizeText, todayStamp } from '../lib/utils';
@@ -64,6 +66,13 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
 
   const summary = summarizeTalanaHistoricalDecisions(decisions);
   const catalog = model?.catalog ?? getTalanaHistoricalCatalog();
+  const reconciliationRows = useMemo(() => buildTalanaHistoricalReconciliation({
+    sourceRows: sourceFile.rows,
+    decisions,
+  }), [decisions, sourceFile.rows]);
+  const reconciliation = summarizeTalanaHistoricalReconciliation(reconciliationRows);
+  const unresolvedConcepts = summary.proposals + summary.pending;
+  const isReadyToDownload = unresolvedConcepts === 0 && reconciliation.isBalanced;
   const visibleDecisions = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
@@ -120,7 +129,7 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
   };
 
   const downloadWorkbook = () => {
-    if (summary.proposals + summary.pending > 0 || isDownloading) {
+    if (!isReadyToDownload || isDownloading) {
       return;
     }
 
@@ -145,8 +154,26 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
 
   const downloadReport = () => {
     const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.json_to_sheet(buildTalanaHistoricalReportRows(decisions));
-    XLSX.utils.book_append_sheet(workbook, sheet, 'Mapeo Talana BUK');
+    const mappingSheet = XLSX.utils.json_to_sheet(buildTalanaHistoricalReportRows(decisions));
+    XLSX.utils.book_append_sheet(workbook, mappingSheet, 'Mapeo Talana BUK');
+    const reconciliationSheet = XLSX.utils.json_to_sheet(reconciliationRows);
+    XLSX.utils.book_append_sheet(workbook, reconciliationSheet, 'Conciliación por RUT');
+    const summarySheet = XLSX.utils.json_to_sheet([{
+      Período: sourceFile.period || '',
+      Trabajadores: reconciliation.employees,
+      'Líquidos cuadrados': reconciliation.liquidMatched,
+      'Diferencias de líquido': reconciliation.liquidDifferences,
+      'Diferencia líquida total': reconciliation.liquidDifferenceTotal,
+      'Haberes cuadrados': reconciliation.totalMatched,
+      'Diferencias de haberes': reconciliation.totalDifferences,
+      'Diferencia de haberes total': reconciliation.totalDifferenceTotal,
+      'Descuentos cuadrados': reconciliation.discountsMatched,
+      'Diferencias de descuentos': reconciliation.discountDifferences,
+      'Diferencia de descuentos total': reconciliation.discountDifferenceTotal,
+      'Conceptos sin resolver': unresolvedConcepts,
+      Estado: isReadyToDownload ? 'Listo para cargar' : 'Requiere revisión',
+    }]);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen conciliación');
     downloadBlob(
       XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }),
       `BUK_informe_libro_historico_${sourceFile.period || todayStamp()}.xlsx`,
@@ -195,16 +222,40 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
                 <li>Se usa el RUT del trabajador y el RUT de la empresa del libro Talana.</li>
                 <li>Se generan las pestañas Liquidaciones, Haberes y Descuentos.</li>
                 <li>Totales, impuestos, AFP, salud, cesantía y aportes patronales no se cargan como detalles.</li>
+                <li>Sobregiro se lleva a Otro Haber No Imponible, según el formato BUK de referencia.</li>
                 <li>Los mapeos confirmados quedan guardados para la empresa SOSER.</li>
               </ul>
             </div>
-            <div className={`rounded-3xl border p-5 text-sm ${summary.proposals + summary.pending === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-              {summary.proposals + summary.pending === 0
-                ? 'Todos los conceptos están listos para generar el archivo de BUK.'
-                : `Faltan resolver ${summary.proposals + summary.pending} conceptos antes de descargar.`}
+            <div className={`rounded-3xl border p-5 text-sm ${isReadyToDownload ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+              {unresolvedConcepts > 0
+                ? `Faltan resolver ${unresolvedConcepts} conceptos antes de descargar.`
+                : reconciliation.isBalanced
+                  ? 'Todos los conceptos están listos y el líquido a pago cuadra con Talana.'
+                  : `Hay ${reconciliation.liquidDifferences} diferencias de líquido, ${reconciliation.totalDifferences} de haberes y ${reconciliation.discountDifferences} de descuentos.`}
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="panel p-6 sm:p-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Conciliación BUK</p>
+            <h3 className="mt-2 text-2xl font-bold text-slate-950">Control del líquido a pago</h3>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">Compara por RUT el líquido informado por Talana contra la fórmula del archivo BUK: haberes menos descuentos legales y otros descuentos, incluyendo el impuesto.</p>
+          </div>
+          <span className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] ${reconciliation.isBalanced ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+            {reconciliation.isBalanced ? 'Cuadrado' : 'Requiere revisión'}
+          </span>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <ReconciliationMetric label="Trabajadores" value={reconciliation.employees} />
+          <ReconciliationMetric label="Líquidos cuadrados" value={reconciliation.liquidMatched} tone="green" />
+          <ReconciliationMetric label="Diferencias de líquido" value={reconciliation.liquidDifferences} tone={reconciliation.liquidDifferences ? 'amber' : 'green'} />
+          <ReconciliationMetric label="Diferencias de haberes" value={reconciliation.totalDifferences} tone={reconciliation.totalDifferences ? 'amber' : 'green'} />
+          <ReconciliationMetric label="Diferencias de descuentos" value={reconciliation.discountDifferences} tone={reconciliation.discountDifferences ? 'amber' : 'green'} />
+        </div>
+        {!reconciliation.isBalanced ? <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">La descarga de carga BUK queda bloqueada hasta cuadrar estas diferencias. Descarga el reporte para revisar cada RUT.</p> : null}
       </section>
 
       <section className="panel p-6 sm:p-8">
@@ -253,10 +304,10 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
           <button
             type="button"
             onClick={downloadWorkbook}
-            disabled={summary.proposals + summary.pending > 0 || isDownloading}
+            disabled={!isReadyToDownload || isDownloading}
             className="rounded-full bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {isDownloading ? 'Preparando archivo BUK…' : 'Descargar carga BUK'}
+            {isDownloading ? 'Preparando archivo BUK…' : isReadyToDownload ? 'Descargar carga BUK' : 'Carga BUK bloqueada'}
           </button>
         </div>
       </section>
@@ -310,6 +361,11 @@ function getReviewGroup(decision) {
 function Metric({ label, value, tone = 'slate' }) {
   const toneClass = tone === 'green' ? 'bg-emerald-400/15 text-emerald-200' : tone === 'amber' ? 'bg-amber-300/15 text-amber-100' : 'bg-white/10 text-white';
   return <div className={`rounded-2xl px-4 py-3 ${toneClass}`}><p className="text-xs uppercase tracking-[0.16em] opacity-75">{label}</p><p className="mt-1 text-2xl font-bold">{value.toLocaleString('es-CL')}</p></div>;
+}
+
+function ReconciliationMetric({ label, value, tone = 'slate' }) {
+  const toneClass = tone === 'green' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : tone === 'amber' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-700';
+  return <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}><p className="text-xs uppercase tracking-[0.16em] opacity-75">{label}</p><p className="mt-1 text-2xl font-bold">{value.toLocaleString('es-CL')}</p></div>;
 }
 
 function LoadingCard({ text }) {
