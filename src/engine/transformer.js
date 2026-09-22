@@ -42,6 +42,8 @@ export function transformWorkbookRows({
             row: context.rowNumber,
             field: fieldDefinition.target,
             value: error.originalValue,
+            listName: error.listName,
+            message: `El valor no coincide con la lista de BUK "${error.listName}".`,
           });
         }
 

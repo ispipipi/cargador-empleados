@@ -290,6 +290,7 @@ function registerMissingValue({ rowErrors, rowNumber, field, originalValue, valu
       row: rowNumber,
       field,
       value: cleanCell(originalValue),
+      message: 'No se encontró una coincidencia válida en el catálogo de BUK.',
     });
   }
 }

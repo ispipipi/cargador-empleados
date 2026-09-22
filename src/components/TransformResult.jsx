@@ -8,6 +8,7 @@ export default function TransformResult({
   onDownloadColaboradoresClean,
   onDownloadTrabajosAll,
   onDownloadTrabajosClean,
+  onDownloadErrors,
   onSaveConfiguration,
   onExportActiveConfiguration,
   onRestart,
@@ -17,6 +18,7 @@ export default function TransformResult({
   const deferredColaboradoresErrors = useDeferredValue(colaboradoresResult.errors);
   const deferredColaboradoresAlerts = useDeferredValue(colaboradoresResult.alerts ?? []);
   const deferredTrabajosErrors = useDeferredValue(trabajosResult.errors);
+  const totalErrors = colaboradoresResult.errors.length + trabajosResult.errors.length;
 
   const visibleColaboradoresErrors = useMemo(
     () => deferredColaboradoresErrors.slice(0, 150),
@@ -120,6 +122,15 @@ export default function TransformResult({
                     icon={<ShieldCheckIcon />}
                     onClick={onDownloadTrabajosClean}
                     disabled={trabajosResult.summary.cleanRows === 0}
+                  />
+                  <DownloadCard
+                    title="Errores de carga"
+                    subtitle="Reporte para corregir y volver a trabajar"
+                    detail={`${totalErrors} errores encontrados`}
+                    accent="rose"
+                    icon={<WarningIcon />}
+                    onClick={onDownloadErrors}
+                    disabled={totalErrors === 0}
                   />
                 </div>
               </div>
@@ -235,6 +246,7 @@ function ResultDetailsSection({ title, subtitle, result, visibleErrors, visibleA
                 <th className="px-4 py-3 font-semibold text-slate-700">Fila</th>
                 <th className="px-4 py-3 font-semibold text-slate-700">Campo</th>
                 <th className="px-4 py-3 font-semibold text-slate-700">Valor original</th>
+                <th className="px-4 py-3 font-semibold text-slate-700">Motivo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-100 bg-white">
@@ -243,6 +255,7 @@ function ResultDetailsSection({ title, subtitle, result, visibleErrors, visibleA
                   <td className="px-4 py-3 font-mono text-xs text-slate-700">{error.row}</td>
                   <td className="px-4 py-3 text-slate-800">{error.field}</td>
                   <td className="px-4 py-3 text-slate-600">{error.value}</td>
+                  <td className="px-4 py-3 text-slate-600">{error.message || 'Requiere revisión'}</td>
                 </tr>
               ))}
             </tbody>
@@ -326,6 +339,7 @@ function DownloadCard({ title, subtitle, detail, accent, icon, onClick, disabled
     emerald: 'from-emerald-500 to-teal-600 shadow-emerald-500/20',
     sky: 'from-sky-500 to-blue-600 shadow-sky-500/20',
     amber: 'from-amber-500 to-orange-500 shadow-amber-500/20',
+    rose: 'from-rose-500 to-red-600 shadow-rose-500/20',
   };
 
   return (
@@ -441,6 +455,15 @@ function ArrowDownIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 5.75v10.5M7.75 12l4.25 4.25L16.25 12" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="m12 4.25 8.25 14.5a1.25 1.25 0 0 1-1.08 1.87H4.83a1.25 1.25 0 0 1-1.08-1.87L12 4.25Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M12 9v4.75M12 17.25v.1" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
     </svg>
   );
 }

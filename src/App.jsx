@@ -885,6 +885,28 @@ export default function App() {
     });
   };
 
+  const handleDownloadBukErrors = () => {
+    if (!result || result.kind !== 'buk' || !sourceFile?.rows?.length) {
+      return;
+    }
+
+    const errorRows = [
+      ...result.colaboradores.errors.map((error) => ({ section: 'Colaboradores', error })),
+      ...result.trabajos.errors.map((error) => ({ section: 'Trabajos', error })),
+    ];
+
+    if (errorRows.length === 0) {
+      return;
+    }
+
+    downloadWorkbookWithFeedback({
+      title: 'Preparando reporte de errores',
+      detail: 'Estamos consolidando los errores de colaboradores y trabajos para que puedas corregirlos.',
+      fileName: `BUK_errores_${todayStamp()}.xlsx`,
+      buildWorkbook: () => buildBukErrorsReportWorkbook({ errorRows, sourceRows: sourceFile.rows, sourceFileName: sourceFile.fileName }),
+    });
+  };
+
   const handleDownloadRex = () => {
     if (!result || !rexTemplateResource || result.kind !== 'rex') {
       return;
@@ -1417,6 +1439,7 @@ export default function App() {
             onDownloadColaboradoresClean={() => handleDownloadColaboradores('clean')}
             onDownloadTrabajosAll={() => handleDownloadTrabajos('all')}
             onDownloadTrabajosClean={() => handleDownloadTrabajos('clean')}
+            onDownloadErrors={handleDownloadBukErrors}
             onSaveConfiguration={handleSaveConfiguration}
             onExportActiveConfiguration={handleExportActiveConfiguration}
             onRestart={resetFlow}
@@ -1476,6 +1499,58 @@ function WorkInProgressOverlay({ title, detail }) {
 
 function triggerWorkbookDownload(workbook, fileName) {
   triggerPreparedDownload(createPreparedDownload(workbook, fileName));
+}
+
+function buildBukErrorsReportWorkbook({ errorRows, sourceRows, sourceFileName }) {
+  const sourceRowsByNumber = new Map(
+    sourceRows.map((row, index) => [Number(row.__sourceRowNumber) || index + 2, row]),
+  );
+  const reportRows = errorRows.map(({ section, error }) => {
+    const sourceRow = sourceRowsByNumber.get(Number(error.row)) ?? {};
+    const rut = firstSourceValue(sourceRow, ['RUT', 'CI', 'Número de Documento', 'Numero de Documento']);
+    const employeeName = resolveSourceEmployeeName(sourceRow);
+    const originalValue = error.value ?? '';
+
+    return {
+      Archivo: sourceFileName || '',
+      Sección: section,
+      Fila: error.row,
+      RUT: rut,
+      Empleado: employeeName,
+      Campo: error.field || '',
+      'Valor original': originalValue,
+      Catálogo: error.listName || '',
+      Motivo: error.message || 'El valor requiere revisión antes de cargarlo en BUK.',
+    };
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const errorSheet = XLSX.utils.json_to_sheet(reportRows);
+  const summaryRows = [
+    { Indicador: 'Total de errores', Valor: reportRows.length },
+    { Indicador: 'Errores en colaboradores', Valor: reportRows.filter((row) => row.Sección === 'Colaboradores').length },
+    { Indicador: 'Errores en trabajos', Valor: reportRows.filter((row) => row.Sección === 'Trabajos').length },
+    { Indicador: 'Archivo de origen', Valor: sourceFileName || '' },
+  ];
+
+  XLSX.utils.book_append_sheet(workbook, errorSheet, 'Errores');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'Resumen');
+  return workbook;
+}
+
+function firstSourceValue(sourceRow, keys) {
+  return keys.map((key) => sourceRow[key]).find((value) => String(value ?? '').trim()) ?? '';
+}
+
+function resolveSourceEmployeeName(sourceRow) {
+  const directName = firstSourceValue(sourceRow, ['Empleado', 'Nombre completo', 'NOMBRE', 'Nombre']);
+  if (directName) {
+    return directName;
+  }
+
+  return [sourceRow['Apellido Paterno'], sourceRow['Apellido Materno'], sourceRow.Nombre]
+    .filter((value) => String(value ?? '').trim())
+    .join(' ');
 }
 
 function getRexDownloadFilename(sourceFile) {
