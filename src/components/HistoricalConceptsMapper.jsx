@@ -532,8 +532,11 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
                   {exportGroupDecisions.map((decision) => {
                     const canInclude = canIncludeInHistoricalOutput(decision);
+                    const hasNonZeroAmount = Number(decision.nonZeroCount) > 0;
                     const status = decision.excluded
                       ? 'Excluido'
+                      : !hasNonZeroAmount
+                        ? 'Sin valores distintos de cero'
                       : canInclude
                         ? 'Listo para incluir'
                         : 'Pendiente de mapeo';
@@ -913,7 +916,13 @@ function getConceptGroup(decision) {
 }
 
 function canIncludeInHistoricalOutput(decision) {
-  return Boolean(decision.approved && !decision.excluded && !decision.autoExcluded && decision.targetId);
+  return Boolean(
+    decision.approved
+      && !decision.excluded
+      && !decision.autoExcluded
+      && decision.targetId
+      && Number(decision.nonZeroCount) > 0,
+  );
 }
 
 function exportGroupSlug(group) {
