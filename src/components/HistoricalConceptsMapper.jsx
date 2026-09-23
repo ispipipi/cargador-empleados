@@ -100,12 +100,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
   const excludedConcepts = model?.excludedConcepts ?? [];
   const exportGroupDecisions = useMemo(
-    () => decisions.filter((decision) => getConceptGroup(decision) === exportGroup),
+    () => decisions
+      .filter((decision) => getConceptGroup(decision) === exportGroup)
+      .sort((left, right) => (left.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER) - (right.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER)),
     [decisions, exportGroup],
   );
   const selectedExportDecisions = useMemo(
-    () => decisions.filter((decision) => getConceptGroup(decision) === exportGroup && exportSelectedIds.includes(decision.id)),
-    [decisions, exportGroup, exportSelectedIds],
+    () => exportGroupDecisions.filter((decision) => exportSelectedIds.includes(decision.id)),
+    [exportGroupDecisions, exportSelectedIds],
   );
   const selectedExportIdsInGroup = useMemo(
     () => exportGroupDecisions.map((decision) => decision.id).filter((id) => exportSelectedIds.includes(id)),
@@ -418,7 +420,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   return (
     <div className="space-y-8">
       <section className="panel overflow-hidden">
-        <div className="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="grid gap-0 lg:grid-cols-[0.72fr_1.28fr]">
           <div className="relative overflow-hidden bg-[#07101f] px-6 py-8 text-white sm:px-8">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_30%),radial-gradient(circle_at_80%_20%,_rgba(16,185,129,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
             <div className="relative">
@@ -529,7 +531,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   </span>
                 </div>
 
-                <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+                <div className="mt-4 grid max-h-96 gap-2 overflow-y-auto pr-1">
                   {exportGroupDecisions.map((decision) => {
                     const canInclude = canIncludeInHistoricalOutput(decision);
                     const hasNonZeroAmount = Number(decision.nonZeroCount) > 0;
@@ -553,9 +555,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                           disabled={!canInclude}
                           onChange={() => handleExportSelect(decision)}
                         />
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold text-slate-900">{decision.sourceName}</span>
-                          <span className="mt-1 block truncate text-xs text-slate-500">
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words font-semibold leading-5 text-slate-900">{decision.sourceName}</span>
+                          <span className="mt-1 block break-words text-xs leading-5 text-slate-500">
                             {decision.targetName ? `${decision.targetName} (${decision.targetId})` : 'Sin concepto REX+ asignado'}
                           </span>
                           <span className={`mt-1 block text-[11px] font-semibold ${canInclude ? 'text-emerald-700' : 'text-amber-700'}`}>{status}</span>
