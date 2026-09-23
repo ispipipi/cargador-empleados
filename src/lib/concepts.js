@@ -7,6 +7,7 @@ const FINNING_LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conc
 const MAPPING_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lre-mapeo-general.xlsx`;
 const OUTPUT_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/ejemplo-importacion-conceptos.xlsx`;
 const EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/rex-empleados-concepto-detalle.xlsx`;
+const FINNING_EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/maestro-finning.xlsx`;
 export const MAX_CONCEPT_ID_LENGTH = 20;
 
 const REQUIRED_CONCEPT_HEADERS = ['Concepto', 'Nombre', 'Tipo', 'Secuencia'];
@@ -98,24 +99,26 @@ const VIRTUAL_EXISTING_CONCEPTS = [
 const AUTO_EXCLUDED_CONCEPTS = new Set(['ADICIONAL AL 7%']);
 
 export async function loadConceptsResource() {
-  const [listsResponse, finningListsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse] = await Promise.all([
+  const [listsResponse, finningListsResponse, mappingResponse, outputTemplateResponse, employeeTemplateResponse, finningEmployeeTemplateResponse] = await Promise.all([
     fetch(LISTS_ASSET_PATH),
     fetch(FINNING_LISTS_ASSET_PATH),
     fetch(MAPPING_ASSET_PATH),
     fetch(OUTPUT_TEMPLATE_ASSET_PATH),
     fetch(EMPLOYEE_TEMPLATE_ASSET_PATH),
+    fetch(FINNING_EMPLOYEE_TEMPLATE_ASSET_PATH),
   ]);
 
-  if (!listsResponse.ok || !finningListsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok || !employeeTemplateResponse.ok) {
+  if (!listsResponse.ok || !finningListsResponse.ok || !mappingResponse.ok || !outputTemplateResponse.ok || !employeeTemplateResponse.ok || !finningEmployeeTemplateResponse.ok) {
     throw new Error('No fue posible cargar los maestros embebidos de Conceptos y colaboradores REX+.');
   }
 
-  const [listsBuffer, finningListsBuffer, mappingBuffer, outputTemplateBuffer, employeeTemplateBuffer] = await Promise.all([
+  const [listsBuffer, finningListsBuffer, mappingBuffer, outputTemplateBuffer, employeeTemplateBuffer, finningEmployeeTemplateBuffer] = await Promise.all([
     listsResponse.arrayBuffer(),
     finningListsResponse.arrayBuffer(),
     mappingResponse.arrayBuffer(),
     outputTemplateResponse.arrayBuffer(),
     employeeTemplateResponse.arrayBuffer(),
+    finningEmployeeTemplateResponse.arrayBuffer(),
   ]);
 
   const listsWorkbook = XLSX.read(listsBuffer, { type: 'array' });
@@ -123,6 +126,7 @@ export async function loadConceptsResource() {
   const mappingWorkbook = XLSX.read(mappingBuffer, { type: 'array' });
   const outputTemplateWorkbook = XLSX.read(outputTemplateBuffer, { type: 'array' });
   const employeeTemplateWorkbook = XLSX.read(employeeTemplateBuffer, { type: 'array' });
+  const finningEmployeeTemplateWorkbook = XLSX.read(finningEmployeeTemplateBuffer, { type: 'array' });
 
   const concepts = loadConceptCatalogMemory() ?? parseConceptsList(listsWorkbook);
   const finningCatalog = parseConceptsList(finningListsWorkbook);
@@ -133,6 +137,7 @@ export async function loadConceptsResource() {
   const mappingRows = parseMapping(mappingWorkbook);
   const outputTemplate = parseOutputTemplate(outputTemplateWorkbook);
   const employeeCatalog = parseEmployeeTemplate(employeeTemplateWorkbook);
+  const finningEmployeeCatalog = parseEmployeeTemplate(finningEmployeeTemplateWorkbook);
 
   return {
     concepts,
@@ -141,6 +146,7 @@ export async function loadConceptsResource() {
     mappingRows,
     outputTemplate,
     employeeCatalog,
+    finningEmployeeCatalog,
   };
 }
 
@@ -378,14 +384,27 @@ function parseOutputTemplate(workbook) {
 
 function parseEmployeeTemplate(workbook) {
   const sheetName = workbook.SheetNames.find((name) => normalizeText(name) === normalizeText('Conceptos detalle')) ?? workbook.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+  const headerRowIndex = rows.findIndex((row) => {
+    const normalizedHeaders = new Set(row.map((value) => normalizeText(value)));
+    return normalizedHeaders.has('plantilla') || normalizedHeaders.has('empleado');
+  });
+  const headers = rows[headerRowIndex] ?? [];
+  const headerIndexes = new Map(headers.map((header, index) => [normalizeText(header), index]));
+  const get = (row, names) => {
+    const index = names.map((name) => headerIndexes.get(normalizeText(name))).find((value) => value !== undefined);
+    return index === undefined ? '' : row[index];
+  };
 
-  return rows
+  return rows.slice(headerRowIndex + 1)
     .map((row) => ({
-      id: cleanCell(row.Plantilla),
-      name: cleanCell(row['Nombre colaborador']),
-      contract: cleanCell(row.Contrato) || '1',
-      contractName: cleanCell(row['Nombre de contrato']) || 'Contrato Indefinido',
+      id: cleanCell(get(row, ['Plantilla', 'empleado'])),
+      name: cleanCell(get(row, ['Nombre colaborador', 'nombre_completo'])),
+      contract: cleanCell(get(row, ['Contrato', 'contrato'])) || '1',
+      contractName: cleanCell(get(row, ['Nombre de contrato', 'tipoCont'])) || 'Contrato Indefinido',
+      status: cleanCell(get(row, ['estado'])),
+      afp: cleanCell(get(row, ['afp'])),
+      afpName: cleanCell(get(row, ['nombre_afp'])),
     }))
     .filter((employee) => employee.id);
 }

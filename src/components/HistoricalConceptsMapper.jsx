@@ -37,7 +37,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [bulkTarget, setBulkTarget] = useState('');
   const [batchSize, setBatchSize] = useState(10);
   const [preparedBatch, setPreparedBatch] = useState(null);
-  const employeeCatalog = useMemo(() => conceptsResource?.employeeCatalog ?? [], [conceptsResource]);
+  const employeeCatalog = useMemo(
+    () => (isFinningCatalog
+      ? conceptsResource?.finningEmployeeCatalog ?? conceptsResource?.employeeCatalog ?? []
+      : conceptsResource?.employeeCatalog ?? []),
+    [conceptsResource, isFinningCatalog],
+  );
 
   useEffect(() => {
     let active = true;
