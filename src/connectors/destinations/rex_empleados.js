@@ -2183,7 +2183,9 @@ function resolveUnemploymentInsuranceValue(sourceRow) {
     return 'N';
   }
 
-  return cleanCell(sourceRow['FECHA SEGURO CESANTIA']) ? 'S' : 'N';
+  // Para la carga de empleados REX+, los registros sin marca explícita de VISMA
+  // deben quedar afectos al seguro de cesantía por defecto.
+  return 'S';
 }
 
 function resolveHealthAmount({ healthValue, sourceValue, correctionValue, pendingItems, rowNumber, employeeId, employeeName }) {
