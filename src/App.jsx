@@ -1663,7 +1663,7 @@ function waitForUiToPaint() {
 
 function buildValidationMessage({ originId, parsedSource }) {
   if (parsedSource.formatIssues?.length > 0) {
-    return `Formato no compatible. Se esperaba ${parsedSource.formatName ?? 'Meta 4 Finning'}: ${parsedSource.formatIssues.join(' ')}`;
+    return `Formato no compatible para ${parsedSource.formatName ?? 'el flujo seleccionado'}: ${parsedSource.formatIssues.join(' ')}`;
   }
 
   if (parsedSource.missingColumns.length > 0) {

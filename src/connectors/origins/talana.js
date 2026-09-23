@@ -43,6 +43,19 @@ export function getTalanaMissingColumns(headers) {
   return talanaOrigin.columnasClave.filter((requiredColumn) => !normalizedHeaders.includes(requiredColumn));
 }
 
+export function getTalanaFormatIssues(headers) {
+  const normalizedHeaders = new Set(headers.map(cleanCell));
+  const bukColaboradoresHeaders = ['Tipo de Documento', 'Número de Documento*', 'Apellido*', 'Nombre*'];
+
+  if (bukColaboradoresHeaders.every((header) => normalizedHeaders.has(header))) {
+    return [
+      'El archivo seleccionado parece ser un archivo BUK Colaboradores ya convertido. En este paso debes cargar el libro original exportado desde Talana.',
+    ];
+  }
+
+  return [];
+}
+
 export const talanaHistoricalOrigin = {
   id: 'talana-historico',
   nombre: 'Talana libro histórico',

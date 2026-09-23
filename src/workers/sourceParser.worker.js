@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } from '../connectors/origins/meta4';
 import { extractVismaPeriod, getVismaHeaderRow, getVismaHistoricalFormatIssues } from '../connectors/origins/visma';
-import { getTalanaHistoricalMissingColumns, getTalanaMissingColumns } from '../connectors/origins/talana';
+import { getTalanaFormatIssues, getTalanaHistoricalMissingColumns, getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
 
 self.onmessage = (event) => {
@@ -49,7 +49,8 @@ function parseTalanaWorkbook(workbook) {
     raw: false,
   });
   const headers = Object.keys(rows[0] ?? {}).map(cleanCell);
-  const missingColumns = getTalanaMissingColumns(headers);
+  const formatIssues = getTalanaFormatIssues(headers);
+  const missingColumns = formatIssues.length > 0 ? [] : getTalanaMissingColumns(headers);
   const filteredRows = rows
     .filter((row) => Object.values(row).some((value) => cleanCell(value)))
     .map((row, index) => ({
@@ -62,7 +63,7 @@ function parseTalanaWorkbook(workbook) {
     workbookName: firstSheetName,
     headers,
     missingColumns,
-    formatIssues: [],
+    formatIssues,
     formatName: 'Talana',
     rows: filteredRows,
   };
