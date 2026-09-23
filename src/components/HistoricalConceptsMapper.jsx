@@ -32,6 +32,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [exportGroup, setExportGroup] = useState('haber');
+  const [exportSelectedIds, setExportSelectedIds] = useState([]);
   const [bulkTarget, setBulkTarget] = useState('');
   const [batchSize, setBatchSize] = useState(10);
   const [preparedBatch, setPreparedBatch] = useState(null);
@@ -62,6 +64,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
 
       setModel(nextModel);
       setDecisions(storedDecisions);
+      setExportGroup('haber');
+      setExportSelectedIds(storedDecisions
+        .filter((decision) => getConceptGroup(decision) === 'haber' && canIncludeInHistoricalOutput(decision))
+        .map((decision) => decision.id));
       setIsBuilding(false);
       onBusyChange?.(false);
     }, 60);
@@ -83,25 +89,42 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
 
   useEffect(() => {
     setPreparedBatch(null);
-  }, [mappingScope, sourceFile]);
+  }, [exportGroup, exportSelectedIds, mappingScope, sourceFile]);
 
   const summary = summarizeHistoricalDecisions(decisions);
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
   const excludedConcepts = model?.excludedConcepts ?? [];
+  const exportGroupDecisions = useMemo(
+    () => decisions.filter((decision) => getConceptGroup(decision) === exportGroup),
+    [decisions, exportGroup],
+  );
+  const selectedExportDecisions = useMemo(
+    () => decisions.filter((decision) => getConceptGroup(decision) === exportGroup && exportSelectedIds.includes(decision.id)),
+    [decisions, exportGroup, exportSelectedIds],
+  );
+  const selectedExportIdsInGroup = useMemo(
+    () => exportGroupDecisions.map((decision) => decision.id).filter((id) => exportSelectedIds.includes(id)),
+    [exportGroupDecisions, exportSelectedIds],
+  );
+  const selectableExportGroupDecisions = exportGroupDecisions.filter(canIncludeInHistoricalOutput);
+  const allExportGroupSelected = selectableExportGroupDecisions.length > 0 && selectableExportGroupDecisions
+    .every((decision) => exportSelectedIds.includes(decision.id));
+  const selectedExportPending = selectedExportDecisions.filter((decision) => !canIncludeInHistoricalOutput(decision));
+  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || employeeValidation.missing.length > 0;
   const completedEmployeeIds = useMemo(
     () => new Set((batchState?.completedEmployeeIds ?? []).map((employeeId) => normalizeText(employeeId).replace(/[.\s]/g, '').toUpperCase())),
     [batchState],
   );
   const eligibleEmployeeIds = useMemo(
-    () => (summary.pending === 0 && employeeValidation.missing.length === 0
+    () => (!hasExportBlockers
       ? getHistoricalEmployeeIds({
           sourceRows: sourceFile.rows,
-          decisions,
+          decisions: selectedExportDecisions,
           employeeCatalog,
           mappingScope,
         })
       : []),
-    [decisions, employeeCatalog, employeeValidation.missing.length, mappingScope, sourceFile.rows, summary.pending],
+    [employeeCatalog, hasExportBlockers, mappingScope, selectedExportDecisions, sourceFile.rows],
   );
   const remainingEmployeeIds = useMemo(
     () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(employeeId)),
@@ -109,7 +132,6 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   );
   const normalizedBatchSize = Math.max(1, Math.min(10000, Number(batchSize) || 1));
   const nextBatchEmployeeIds = remainingEmployeeIds.slice(0, normalizedBatchSize);
-  const hasHistoricalBlockers = summary.pending > 0 || employeeValidation.missing.length > 0;
   const catalog = useMemo(() => model?.catalog ?? [], [model]);
   const catalogOptions = useMemo(
     () =>
@@ -120,6 +142,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       }),
     [catalog],
   );
+  const selectedCreatedCount = selectedExportDecisions.filter((decision) => decision.action === 'create').length;
 
   const visibleDecisions = useMemo(() => {
     const normalizedSearch = normalizeText(search);
@@ -163,6 +186,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         targetConcept: null,
         matchStatus: 'excluded',
       });
+      setExportSelectedIds((current) => current.filter((id) => id !== decisionId));
       return;
     }
 
@@ -182,6 +206,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         targetConcept: null,
         sequence: currentDecision.proposedSequence,
       });
+      setExportSelectedIds((current) => current.filter((id) => id !== decisionId));
       return;
     }
 
@@ -196,6 +221,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         targetConcept: null,
         matchStatus: 'pending',
       });
+      setExportSelectedIds((current) => current.filter((id) => id !== decisionId));
       return;
     }
 
@@ -208,6 +234,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       targetConcept,
       matchStatus: 'assigned',
     });
+    setExportSelectedIds((current) => current.includes(decisionId) ? current : [...current, decisionId]);
   };
 
   const handleBulkApply = () => {
@@ -221,23 +248,33 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   };
 
   const handleApproveExact = () => {
-    setDecisions((current) =>
-      current.map((decision) =>
+    setDecisions((current) => {
+      const next = current.map((decision) =>
         decision.exactMatch && !decision.excluded
           ? { ...decision, approved: true, matchStatus: 'exact' }
           : decision,
-      ),
-    );
+      );
+      setExportSelectedIds((selected) => [...new Set([
+        ...selected,
+        ...next.filter((decision) => decision.exactMatch && !decision.excluded).map((decision) => decision.id),
+      ])]);
+      return next;
+    });
   };
 
   const handleApproveCreations = () => {
-    setDecisions((current) =>
-      current.map((decision) =>
+    setDecisions((current) => {
+      const next = current.map((decision) =>
         decision.action === 'create' && !decision.excluded
           ? { ...decision, approved: true, matchStatus: 'proposal' }
           : decision,
-      ),
-    );
+      );
+      setExportSelectedIds((selected) => [...new Set([
+        ...selected,
+        ...next.filter((decision) => decision.action === 'create' && !decision.excluded).map((decision) => decision.id),
+      ])]);
+      return next;
+    });
   };
 
   const handleSelectAll = () => {
@@ -248,6 +285,23 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     setSelectedIds((current) =>
       current.includes(decisionId) ? current.filter((id) => id !== decisionId) : [...current, decisionId],
     );
+  };
+
+  const handleExportGroupSelectAll = () => {
+    const selectableIds = selectableExportGroupDecisions.map((decision) => decision.id);
+    setExportSelectedIds((current) => allExportGroupSelected
+      ? current.filter((id) => !selectableIds.includes(id))
+      : [...new Set([...current, ...selectableIds])]);
+  };
+
+  const handleExportSelect = (decision) => {
+    if (!canIncludeInHistoricalOutput(decision)) {
+      return;
+    }
+
+    setExportSelectedIds((current) => current.includes(decision.id)
+      ? current.filter((id) => id !== decision.id)
+      : [...current, decision.id]);
   };
 
   const handleMarkBatchCompleted = () => {
@@ -274,8 +328,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const handleDownload = async (kind) => {
     if (
       isPreparing ||
-      (kind === 'output' && hasHistoricalBlockers) ||
-      (kind === 'batch' && (hasHistoricalBlockers || (!preparedBatch && !nextBatchEmployeeIds.length)))
+      (kind === 'output' && hasExportBlockers) ||
+      (kind === 'batch' && (hasExportBlockers || (!preparedBatch && !nextBatchEmployeeIds.length)))
     ) {
       return;
     }
@@ -287,22 +341,22 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       if (kind === 'create') {
         const workbook = buildConceptExportWorkbook({
           resource: conceptsResource,
-          decisions: decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded),
+          decisions: selectedExportDecisions.filter((decision) => decision.action === 'create'),
         });
-        triggerWorkbookDownload(workbook, `REX_altas_conceptos_${todayStamp()}.xlsx`);
+        triggerWorkbookDownload(workbook, `REX_altas_conceptos_${exportGroupSlug(exportGroup)}_${todayStamp()}.xlsx`);
       } else if (kind === 'output') {
-        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions, employeeCatalog, mappingScope });
-        triggerTextDownload(csv, `REX_conceptos_detalle_historicos_${todayStamp()}.csv`);
+        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions: selectedExportDecisions, employeeCatalog, mappingScope });
+        triggerTextDownload(csv, `REX_conceptos_detalle_${exportGroupSlug(exportGroup)}_${todayStamp()}.csv`);
       } else if (kind === 'batch') {
         const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
         const csv = buildHistoricalDetailCsv({
           sourceRows: sourceFile.rows,
-          decisions,
+          decisions: selectedExportDecisions,
           employeeCatalog,
           mappingScope,
           employeeIds,
         });
-        triggerTextDownload(csv, `REX_conceptos_detalle_lote_${todayStamp()}.csv`);
+        triggerTextDownload(csv, `REX_conceptos_detalle_lote_${exportGroupSlug(exportGroup)}_${todayStamp()}.csv`);
         setPreparedBatch({
           employeeIds,
           downloadedAt: new Date().toISOString(),
@@ -420,13 +474,97 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <p className="mt-2 leading-6">Ejemplos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
+            <section className="mt-5 rounded-[28px] border border-indigo-200 bg-indigo-50/70 p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-700">Archivo de carga</p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Elige qué grupo generar</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                    Selecciona Haberes o Descuentos y luego marca los conceptos que quieres incluir en ese CSV. El archivo sólo contendrá el grupo y los conceptos marcados.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
+                  {selectedExportIdsInGroup.length} seleccionados
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['haber', 'Haberes', 'Conceptos pagados o devengados', 'border-emerald-300 bg-emerald-50 text-emerald-800'],
+                  ['descuento', 'Descuentos', 'Descuentos del colaborador', 'border-amber-300 bg-amber-50 text-amber-800'],
+                ].map(([groupId, label, detail, activeClass]) => {
+                  const groupCount = decisions.filter((decision) => getConceptGroup(decision) === groupId).length;
+                  const isActive = exportGroup === groupId;
+
+                  return (
+                    <button
+                      key={groupId}
+                      type="button"
+                      onClick={() => setExportGroup(groupId)}
+                      className={`rounded-2xl border p-4 text-left transition ${isActive ? activeClass : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-semibold">{label}</span>
+                        <span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">{groupCount}</span>
+                      </div>
+                      <p className="mt-2 text-xs opacity-80">{detail}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-indigo-100 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <input type="checkbox" checked={allExportGroupSelected} onChange={handleExportGroupSelectAll} />
+                    Seleccionar todos los {exportGroup === 'haber' ? 'haberes' : 'descuentos disponibles'}
+                  </label>
+                  <span className="text-xs text-slate-500">
+                    {exportGroupDecisions.length} conceptos del grupo · {selectedExportIdsInGroup.length} incluidos
+                  </span>
+                </div>
+
+                <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+                  {exportGroupDecisions.map((decision) => {
+                    const canInclude = canIncludeInHistoricalOutput(decision);
+                    const status = decision.excluded
+                      ? 'Excluido'
+                      : canInclude
+                        ? 'Listo para incluir'
+                        : 'Pendiente de mapeo';
+
+                    return (
+                      <label
+                        key={`export-${decision.id}`}
+                        className={`flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${canInclude ? 'border-slate-200 bg-slate-50' : 'border-slate-100 bg-slate-100/70 text-slate-500'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={exportSelectedIds.includes(decision.id)}
+                          disabled={!canInclude}
+                          onChange={() => handleExportSelect(decision)}
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-slate-900">{decision.sourceName}</span>
+                          <span className="mt-1 block truncate text-xs text-slate-500">
+                            {decision.targetName ? `${decision.targetName} (${decision.targetId})` : 'Sin concepto REX+ asignado'}
+                          </span>
+                          <span className={`mt-1 block text-[11px] font-semibold ${canInclude ? 'text-emerald-700' : 'text-amber-700'}`}>{status}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
             <section className="mt-5 rounded-[28px] border border-brand-200 bg-brand-50 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Carga controlada</p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar siguiente lote para REX+</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Se incluyen todos los conceptos de cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
+                    Se incluyen sólo los conceptos seleccionados de {exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} para cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
@@ -460,9 +598,13 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 ))}
               </div>
 
-              {hasHistoricalBlockers ? (
+              {hasExportBlockers ? (
                 <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  Resuelve primero los {summary.pending} conceptos pendientes y los colaboradores faltantes para habilitar la descarga por lotes.
+                  {employeeValidation.missing.length > 0
+                    ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+.`
+                    : selectedExportDecisions.length === 0
+                      ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
+                      : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
                 </p>
               ) : preparedBatch ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
@@ -497,18 +639,20 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 title="Descargar archivo de carga histórica"
                 detail={employeeValidation.missing.length
                   ? `Bloqueado: faltan ${employeeValidation.missing.length} colaboradores REX+`
-                  : summary.pending
-                    ? `Faltan ${summary.pending} conceptos por resolver`
-                    : 'CSV UTF-8 listo para cargar en REX+'}
+                  : hasExportBlockers
+                    ? selectedExportDecisions.length === 0
+                      ? 'Selecciona conceptos para generar el archivo'
+                      : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
+                    : `CSV UTF-8 de ${exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} listo para cargar en REX+`}
                 onClick={() => handleDownload('output')}
-                disabled={summary.pending > 0 || employeeValidation.missing.length > 0 || isPreparing}
+                disabled={hasExportBlockers || isPreparing}
                 primary
               />
               <DownloadButton
                 title="Descargar altas de conceptos"
-                detail={`${summary.createdApproved} conceptos nuevos aprobados para crear en REX+`}
+                detail={`${selectedCreatedCount} conceptos nuevos seleccionados para crear en REX+`}
                 onClick={() => handleDownload('create')}
-                disabled={summary.createdApproved === 0 || isPreparing}
+                disabled={selectedCreatedCount === 0 || isPreparing}
               />
             </div>
             <div className="mt-5 flex flex-wrap gap-3">
@@ -656,19 +800,21 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <DownloadButton
             title="Descargar altas de conceptos"
-            detail={`${summary.createdApproved} conceptos nuevos aprobados para crear en REX+`}
+            detail={`${selectedCreatedCount} conceptos nuevos seleccionados para crear en REX+`}
             onClick={() => handleDownload('create')}
-            disabled={summary.createdApproved === 0 || isPreparing}
+            disabled={selectedCreatedCount === 0 || isPreparing}
           />
           <DownloadButton
             title="Descargar Concepto Detalle"
             detail={employeeValidation.missing.length
               ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+`
-              : summary.pending
-                ? `Faltan ${summary.pending} conceptos por resolver`
-                : 'CSV UTF-8 listo para cargar en REX+'}
+              : hasExportBlockers
+                ? selectedExportDecisions.length === 0
+                  ? 'Selecciona conceptos para generar el archivo'
+                  : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
+                : `CSV UTF-8 de ${exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} listo para cargar en REX+`}
             onClick={() => handleDownload('output')}
-            disabled={summary.pending > 0 || employeeValidation.missing.length > 0 || isPreparing}
+            disabled={hasExportBlockers || isPreparing}
             primary
           />
           <DownloadButton
@@ -745,6 +891,28 @@ function getReviewGroup(decision) {
   }
 
   return decision.suggestedMatches.length > 0 ? 1 : 2;
+}
+
+function getConceptGroup(decision) {
+  const type = normalizeText(decision.type);
+
+  if (type === '3l' || type === '4d') {
+    return 'descuento';
+  }
+
+  if (type === '1h' || type === '1i' || type === '1r' || type === '2e') {
+    return 'haber';
+  }
+
+  return normalizeText(decision.sourceSection).includes('descuento') ? 'descuento' : 'haber';
+}
+
+function canIncludeInHistoricalOutput(decision) {
+  return Boolean(decision.approved && !decision.excluded && !decision.autoExcluded && decision.targetId);
+}
+
+function exportGroupSlug(group) {
+  return group === 'descuento' ? 'descuentos' : 'haberes';
 }
 
 function Metric({ label, value, tone = 'default' }) {
