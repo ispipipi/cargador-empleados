@@ -957,7 +957,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
   exportedRow['¿Jornada parcial?'] = resolvePartialShift(sourceRow['HORAS JORNADA']);
   exportedRow['Horas de trabajo semanales'] = resolveWeeklyHours(sourceRow['HORAS JORNADA']);
   exportedRow['¿Cotiza seguro de cesantía?'] = resolveUnemploymentInsuranceValue(sourceRow);
-  exportedRow['Fecha de incorporación al seguro de cesantía'] = formatRexDate(sourceRow['FECHA SEGURO CESANTIA']);
+  exportedRow['Fecha de incorporación al seguro de cesantía'] = contractStartDate;
   exportedRow['Id empresa'] = company.value;
   exportedRow['Id plantilla grupal'] = 'GRUPO01';
   exportedRow['Causal de término del contrato'] = terminationCause.value;
