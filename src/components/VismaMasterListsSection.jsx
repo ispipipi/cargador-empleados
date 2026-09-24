@@ -7,7 +7,14 @@ import {
   VISMA_MASTER_LOAD_CONFIG,
 } from '../lib/vismaMasters';
 
-export default function VismaMasterListsSection({ tenantId, companyId, companyTypeId, companyName, onBusyChange }) {
+export default function VismaMasterListsSection({
+  tenantId,
+  companyId,
+  companyTypeId,
+  companyName,
+  connectionName,
+  onBusyChange,
+}) {
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [downloadingKey, setDownloadingKey] = useState('');
@@ -68,7 +75,7 @@ export default function VismaMasterListsSection({ tenantId, companyId, companyTy
         items: master.items,
         template,
       });
-      triggerTextDownload(csv, buildVismaMasterFileName(master.key, companyName));
+      triggerTextDownload(csv, buildVismaMasterFileName(master.key, connectionName));
       setDownloadStatus(`CSV de ${master.label.toLowerCase()} generado con ${master.items.length.toLocaleString('es-CL')} registros.`);
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : `No se pudo generar el archivo de ${master.label.toLowerCase()}.`);

@@ -72,6 +72,7 @@ export default function VismaMastersReview({ onBack, onBusyChange }) {
         companyId={selection.companyId}
         companyTypeId={selection.companyTypeId}
         companyName={companyLabel}
+        connectionName={selectedTenant?.name}
         onBusyChange={(isBusy) => {
           onBusyChange?.(isBusy);
         }}

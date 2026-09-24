@@ -90,10 +90,10 @@ export function normalizeVismaMasterItems(masterKey, items) {
     .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index);
 }
 
-export function buildVismaMasterFileName(masterKey, companyName) {
+export function buildVismaMasterFileName(masterKey, connectionName) {
   const config = getVismaMasterLoadConfig(masterKey);
-  const safeCompanyName = cleanFileNameSegment(companyName || 'Todas las empresas');
-  return `${safeCompanyName} ${config.fileLabel}.csv`;
+  const safeConnectionName = cleanFileNameSegment(connectionName || 'Conexión VISMA');
+  return `${safeConnectionName} ${config.fileLabel}.csv`;
 }
 
 export function getVismaMasterLoadConfig(masterKey) {
