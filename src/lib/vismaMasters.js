@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { cleanCell, sanitizeFilenameSegment } from './utils';
+import { cleanCell } from './utils';
 
 const VISMA_MASTER_TEMPLATE_BASE_PATH = `${import.meta.env.BASE_URL}templates/`;
 
@@ -9,21 +9,21 @@ export const VISMA_MASTER_LOAD_CONFIG = Object.freeze([
     label: 'Cargos',
     description: 'Usa el ID VISMA como Ítem y el nombre como Nombre.',
     templatePath: `${VISMA_MASTER_TEMPLATE_BASE_PATH}visma-cargos-import-template.xlsx`,
-    filePrefix: 'VISMA_CARGOS',
+    fileLabel: 'cargos',
   }),
   Object.freeze({
     key: 'costCenters',
     label: 'Centros de costo',
     description: 'Usa Código y, si falta, el ID VISMA como Ítem.',
     templatePath: `${VISMA_MASTER_TEMPLATE_BASE_PATH}visma-centros-costo-import-template.xlsx`,
-    filePrefix: 'VISMA_CENTROS_DE_COSTO',
+    fileLabel: 'centro de costo',
   }),
   Object.freeze({
     key: 'areas',
     label: 'Áreas',
     description: 'Usa el ID VISMA como Ítem y el nombre como Nombre.',
     templatePath: `${VISMA_MASTER_TEMPLATE_BASE_PATH}visma-areas-import-template.xlsx`,
-    filePrefix: 'VISMA_AREAS',
+    fileLabel: 'areas',
   }),
 ]);
 
@@ -59,22 +59,22 @@ export async function loadVismaMasterLoadTemplate(masterKey) {
 
 export function buildVismaMasterLoadWorkbook({ masterKey, items, template }) {
   const sourceTemplate = template ?? null;
-  const headers = sourceTemplate?.headers ?? ['Ítem', 'Nombre'];
-  const defaultRow = sourceTemplate?.defaultRow ?? Array(headers.length).fill('');
-  const rows = [
-    headers,
-    ...normalizeVismaMasterItems(masterKey, items).map((item) => {
-      const row = [...defaultRow];
-      row[0] = item.id;
-      row[1] = item.name;
-      return row;
-    }),
-  ];
+  const rows = buildVismaMasterLoadRows({ masterKey, items, template: sourceTemplate });
   const workbook = createWorkbook();
   const outputSheet = XLSX.utils.aoa_to_sheet(rows);
   copySheetMeta(sourceTemplate?.sourceSheet, outputSheet);
   XLSX.utils.book_append_sheet(workbook, outputSheet, sourceTemplate?.sheetName || 'Ejemplo');
   return workbook;
+}
+
+export function buildVismaMasterLoadCsv({ masterKey, items, template }) {
+  const rows = buildVismaMasterLoadRows({ masterKey, items, template });
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  return `\uFEFF${XLSX.utils.sheet_to_csv(sheet, {
+    FS: ';',
+    RS: '\r\n',
+    blankrows: false,
+  })}`;
 }
 
 export function normalizeVismaMasterItems(masterKey, items) {
@@ -92,7 +92,8 @@ export function normalizeVismaMasterItems(masterKey, items) {
 
 export function buildVismaMasterFileName(masterKey, companyName) {
   const config = getVismaMasterLoadConfig(masterKey);
-  return `${config.filePrefix}_${sanitizeFilenameSegment(companyName || 'todas-las-empresas')}.xlsx`;
+  const safeCompanyName = cleanFileNameSegment(companyName || 'Todas las empresas');
+  return `${safeCompanyName} ${config.fileLabel}.csv`;
 }
 
 export function getVismaMasterLoadConfig(masterKey) {
@@ -101,6 +102,31 @@ export function getVismaMasterLoadConfig(masterKey) {
 
 function normalizeTemplateRow(row, columnCount) {
   return Array.from({ length: columnCount }, (_, index) => row?.[index] ?? '');
+}
+
+function buildVismaMasterLoadRows({ masterKey, items, template }) {
+  const sourceTemplate = template ?? null;
+  const headers = sourceTemplate?.headers ?? ['Ítem', 'Nombre'];
+  const defaultRow = sourceTemplate?.defaultRow ?? Array(headers.length).fill('');
+  return [
+    headers,
+    ...normalizeVismaMasterItems(masterKey, items).map((item) => {
+      const row = [...defaultRow];
+      row[0] = item.id;
+      row[1] = item.name;
+      return row;
+    }),
+  ];
+}
+
+function cleanFileNameSegment(value) {
+  return Array.from(cleanCell(value), (character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint < 32 ? ' ' : character;
+  }).join('')
+    .replace(/[<>:"/\\|?*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Todas las empresas';
 }
 
 function copySheetMeta(sourceSheet, targetSheet) {

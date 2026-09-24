@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { fetchVismaOrganizationLists } from '../lib/vismaEmployees';
 import {
+  buildVismaMasterLoadCsv,
   buildVismaMasterFileName,
-  buildVismaMasterLoadWorkbook,
   loadVismaMasterLoadTemplate,
   VISMA_MASTER_LOAD_CONFIG,
 } from '../lib/vismaMasters';
@@ -64,13 +63,13 @@ export default function VismaMasterListsSection({ tenantId, companyId, companyTy
 
     try {
       const template = await loadVismaMasterLoadTemplate(master.key);
-      const workbook = buildVismaMasterLoadWorkbook({
+      const csv = buildVismaMasterLoadCsv({
         masterKey: master.key,
         items: master.items,
         template,
       });
-      XLSX.writeFile(workbook, buildVismaMasterFileName(master.key, companyName));
-      setDownloadStatus(`Archivo de ${master.label.toLowerCase()} generado con ${master.items.length.toLocaleString('es-CL')} registros.`);
+      triggerTextDownload(csv, buildVismaMasterFileName(master.key, companyName));
+      setDownloadStatus(`CSV de ${master.label.toLowerCase()} generado con ${master.items.length.toLocaleString('es-CL')} registros.`);
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : `No se pudo generar el archivo de ${master.label.toLowerCase()}.`);
     } finally {
@@ -120,7 +119,7 @@ export default function VismaMasterListsSection({ tenantId, companyId, companyTy
                 disabled={!master.items.length || Boolean(downloadingKey)}
                 className="mt-5 w-full rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {downloadingKey === master.key ? 'Generando archivo...' : `Descargar ${master.label.toLowerCase()}`}
+                {downloadingKey === master.key ? 'Generando CSV...' : `Descargar CSV de ${master.label.toLowerCase()}`}
               </button>
             </article>
           ))}
@@ -138,4 +137,16 @@ export default function VismaMasterListsSection({ tenantId, companyId, companyTy
       ) : null}
     </section>
   );
+}
+
+function triggerTextDownload(contents, fileName) {
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
