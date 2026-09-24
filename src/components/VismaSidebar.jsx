@@ -16,7 +16,23 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
     selectedTenant,
     selection,
   } = useVismaWorkspace();
+  const [tenantSearch, setTenantSearch] = useState('');
   const [companySearch, setCompanySearch] = useState('');
+
+  const visibleTenantOptions = useMemo(() => {
+    const query = tenantSearch.trim().toLowerCase();
+    const sortedTenants = [...(connection?.tenants ?? [])].sort(compareTenants);
+
+    if (!query) {
+      return sortedTenants;
+    }
+
+    return sortedTenants.filter((tenant) =>
+      [tenant.name, tenant.id]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }, [connection?.tenants, tenantSearch]);
 
   const visibleCompanyOptions = useMemo(() => {
     const query = companySearch.trim().toLowerCase();
@@ -35,6 +51,10 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
   useEffect(() => {
     setCompanySearch('');
   }, [selectedOrganizationGroup?.id]);
+
+  useEffect(() => {
+    setTenantSearch('');
+  }, [connection?.tenants]);
 
   return (
     <aside className="self-start lg:sticky lg:top-6">
@@ -64,6 +84,12 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
           {(connection?.tenants ?? []).length > 1 ? (
             <label className="block">
               <span className="text-xs font-semibold text-slate-600">Conexión</span>
+              <input
+                value={tenantSearch}
+                onChange={(event) => setTenantSearch(event.target.value)}
+                placeholder="Buscar conexión"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900"
+              />
               <select
                 value={selection.tenantId}
                 onChange={(event) => {
@@ -73,7 +99,7 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
                 disabled={isLoadingConnection}
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 disabled:bg-slate-100"
               >
-                {(connection?.tenants ?? []).map((tenant) => (
+                {visibleTenantOptions.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
                     {tenant.name || `Tenant ${tenant.id}`}
                   </option>
@@ -150,6 +176,12 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
       </div>
     </aside>
   );
+}
+
+function compareTenants(left, right) {
+  const leftLabel = String(left.name || left.id || '').trim();
+  const rightLabel = String(right.name || right.id || '').trim();
+  return leftLabel.localeCompare(rightLabel, 'es', { numeric: true, sensitivity: 'base' });
 }
 
 function SidebarLink({ active, label, detail, onClick }) {
