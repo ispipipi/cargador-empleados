@@ -278,7 +278,7 @@ export function buildTalanaHistoricalModel({ sourceRows, sourceHeaders }) {
   };
 }
 
-export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, fichaCode = 'F1' }) {
+export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode = 'F1' }) {
   const employeeRows = consolidateTalanaEmployeeRows(sourceRows);
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
   const detailRowsBySheet = new Map(BUK_HISTORICAL_SHEET_NAMES.slice(1, 4).map((sheet) => [sheet, []]));
@@ -332,7 +332,8 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, f
     const noTaxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && !decision.taxable);
     const taxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && decision.taxable);
     const otherDiscounts = parseAmount(row['Otros Descuentos']) + parseAmount(row['Impuestos']);
-    const liquid = imponible + noTaxable + taxable - parseAmount(row['Descuentos Legales']) - otherDiscounts;
+    const saldoSobregiro = resolveBukOverdraftBalance(row);
+    const liquid = imponible + noTaxable + taxable - parseAmount(row['Descuentos Legales']) - otherDiscounts + saldoSobregiro;
 
     return [
       cleanCell(row['Rut del Trabajador']),
@@ -379,7 +380,7 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, period, f
       0,
       0,
       employerContributions,
-      parseAmount(row.Sobregiro),
+      resolveBukOverdraftBalance(row),
     ];
   });
 
@@ -436,7 +437,8 @@ export function buildTalanaHistoricalReconciliation({ sourceRows, decisions, fic
     const bukOtherDiscounts = otherDiscounts + tax;
     const expectedDetailDiscounts = bukOtherDiscounts;
     const sourceLiquid = parseAmount(row['Sueldo Liquido A Pago']);
-    const bukLiquid = imponible + noTaxable + taxable - legalDiscounts - bukOtherDiscounts;
+    const saldoSobregiro = resolveBukOverdraftBalance(row);
+    const bukLiquid = imponible + noTaxable + taxable - legalDiscounts - bukOtherDiscounts + saldoSobregiro;
     const detailTotal = imponible + noTaxable + taxable;
     const sourceTotal = parseAmount(row['Remuneración Total']);
     const loadedDiscounts = discounts + Math.max(0, expectedDetailDiscounts - discounts);
@@ -462,6 +464,8 @@ export function buildTalanaHistoricalReconciliation({ sourceRows, decisions, fic
       'Diferencia haberes': detailTotal - sourceTotal,
       'Descuentos detallados BUK': loadedDiscounts,
       'Otros descuentos BUK a detallar': expectedDetailDiscounts,
+      'Sobregiro Talana como haber': parseAmount(row.Sobregiro),
+      'Saldo Sobregiro BUK': saldoSobregiro,
       'Diferencia descuentos': loadedDiscounts - expectedDetailDiscounts,
       Estado: bukLiquid === sourceLiquid && detailTotal === sourceTotal && loadedDiscounts === expectedDetailDiscounts ? 'Cuadrado' : 'Revisar',
     };
@@ -594,6 +598,14 @@ function sumApprovedDetails(row, decisions, predicate) {
 
 function sumFields(row, fields) {
   return fields.reduce((total, field) => total + parseAmount(row[field]), 0);
+}
+
+function resolveBukOverdraftBalance(row) {
+  // Talana's Sobregiro is a liquidation detail and is exported as a haber.
+  // BUK's Saldo Sobregiro is only the remaining negative balance, which is
+  // zero when the source liquid is already zero or positive.
+  const sourceLiquid = parseAmount(row['Sueldo Liquido A Pago']);
+  return Math.max(0, -sourceLiquid);
 }
 
 function consolidateTalanaEmployeeRows(sourceRows) {

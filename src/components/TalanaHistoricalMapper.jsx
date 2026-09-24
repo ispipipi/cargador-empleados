@@ -181,6 +181,31 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
     );
   };
 
+  const downloadErrorReport = () => {
+    const errorRows = reconciliationRows.filter((row) => row.Estado !== 'Cuadrado');
+    const workbook = XLSX.utils.book_new();
+    const errorsSheet = XLSX.utils.json_to_sheet(errorRows);
+    XLSX.utils.book_append_sheet(workbook, errorsSheet, 'Errores de cuadratura');
+    const summarySheet = XLSX.utils.json_to_sheet([{
+      Período: sourceFile.period || '',
+      'Trabajadores con error': errorRows.length,
+      'Diferencias de líquido': reconciliation.liquidDifferences,
+      'Diferencia líquida total': reconciliation.liquidDifferenceTotal,
+      'Diferencias de haberes': reconciliation.totalDifferences,
+      'Diferencia de haberes total': reconciliation.totalDifferenceTotal,
+      'Diferencias de descuentos': reconciliation.discountDifferences,
+      'Diferencia de descuentos total': reconciliation.discountDifferenceTotal,
+      'Conceptos sin resolver': unresolvedConcepts,
+      Estado: 'Requiere revisión',
+    }]);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen errores');
+    downloadBlob(
+      XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }),
+      `BUK_errores_liquidaciones_${sourceFile.period || todayStamp()}.xlsx`,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+  };
+
   if (isBuilding || !model) {
     return (
       <section className="panel p-8">
@@ -223,6 +248,7 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
                 <li>Se generan las pestañas Liquidaciones, Haberes y Descuentos.</li>
                 <li>Totales, impuestos, AFP, salud, cesantía y aportes patronales no se cargan como detalles.</li>
                 <li>Sobregiro se lleva a Otro Haber No Imponible, según el formato BUK de referencia.</li>
+                <li>El saldo de sobregiro BUK se calcula aparte y no duplica el concepto Sobregiro de Talana.</li>
                 <li>Los mapeos confirmados quedan guardados para la empresa SOSER.</li>
               </ul>
             </div>
@@ -255,7 +281,19 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
           <ReconciliationMetric label="Diferencias de haberes" value={reconciliation.totalDifferences} tone={reconciliation.totalDifferences ? 'amber' : 'green'} />
           <ReconciliationMetric label="Diferencias de descuentos" value={reconciliation.discountDifferences} tone={reconciliation.discountDifferences ? 'amber' : 'green'} />
         </div>
-        {!reconciliation.isBalanced ? <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">La descarga de carga BUK queda bloqueada hasta cuadrar estas diferencias. Descarga el reporte para revisar cada RUT.</p> : null}
+        {!reconciliation.isBalanced ? (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+            <p>La descarga de carga BUK queda bloqueada hasta cuadrar estas diferencias.</p>
+            <button
+              type="button"
+              onClick={downloadErrorReport}
+              disabled={isDownloading}
+              className="shrink-0 rounded-full border border-amber-300 bg-white px-4 py-2 text-xs font-semibold text-amber-800 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Descargar errores
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel p-6 sm:p-8">
