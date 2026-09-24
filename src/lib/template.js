@@ -31,6 +31,7 @@ const REX_COMPANY_MASTER_DEFINITIONS = [
     key: 'Área',
     label: 'Áreas',
     aliases: ['Área', 'Area', 'Áreas', 'Areas'],
+    required: false,
   },
   {
     key: 'Id empresa',
@@ -249,6 +250,12 @@ export function parseRexCompanyMasterWorkbook(arrayBuffer, fileName = '') {
     const catalog = buildRexCompanyMasterCatalog(rows);
 
     if (!sheetName || catalog.length === 0) {
+      if (definition.required === false) {
+        catalogs[definition.key] = [];
+        sheetRowsByName[definition.key] = [];
+        return;
+      }
+
       missingMasters.push(definition.label);
       return;
     }
@@ -267,6 +274,9 @@ export function parseRexCompanyMasterWorkbook(arrayBuffer, fileName = '') {
     fileName,
     catalogs,
     sheetRowsByName,
+    missingOptionalMasters: REX_COMPANY_MASTER_DEFINITIONS
+      .filter((definition) => definition.required === false && !catalogs[definition.key]?.length)
+      .map((definition) => definition.label),
     masters: REX_COMPANY_MASTER_DEFINITIONS.map((definition) => ({
       key: definition.key,
       label: definition.label,
@@ -287,11 +297,11 @@ export function applyRexCompanyMasterResource(templateResource, companyMasterRes
     const catalog = companyMasterResource.catalogs?.[definition.key];
     const rows = companyMasterResource.sheetRowsByName?.[definition.key];
 
-    if (Array.isArray(catalog) && catalog.length > 0) {
+    if (Array.isArray(catalog)) {
       catalogs[definition.key] = catalog;
     }
 
-    if (Array.isArray(rows) && rows.length > 0) {
+    if (Array.isArray(rows)) {
       sheetRowsByName[definition.key] = rows;
     }
   });

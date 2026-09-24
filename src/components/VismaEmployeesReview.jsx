@@ -604,15 +604,22 @@ function RexCompanyMasterUploader({ fileName, resource, error, isReading, disabl
       ) : null}
 
       {resource ? (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          {resource.masters.map((master) => (
-            <div key={master.key} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
-              <p className="text-xs font-semibold text-emerald-800">{master.label}</p>
-              <p className="mt-1 text-lg font-bold text-slate-950">{master.count.toLocaleString('es-CL')}</p>
-              <p className="text-[11px] text-emerald-700">registros disponibles</p>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {resource.masters.map((master) => (
+              <div key={master.key} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                <p className="text-xs font-semibold text-emerald-800">{master.label}</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{master.count.toLocaleString('es-CL')}</p>
+                <p className="text-[11px] text-emerald-700">registros disponibles</p>
+              </div>
+            ))}
+          </div>
+          {resource.missingOptionalMasters?.length ? (
+            <p className="mt-3 text-xs leading-5 text-slate-600">
+              Esta plantilla no incluye una lista separada de {resource.missingOptionalMasters.join(', ').toLowerCase()}. Se utilizará el valor recibido directamente desde VISMA.
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

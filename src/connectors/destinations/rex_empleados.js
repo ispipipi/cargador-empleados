@@ -816,6 +816,7 @@ export function buildRexRow({ sourceRow, templateResource, corrections }) {
     normalizer: normalizeAreaName,
     allowHeuristicMatch: true,
     allowScoredMatch: true,
+    allowDirectValue: true,
   });
   const union = resolveCatalogField({
     key: 'union',
@@ -1054,6 +1055,7 @@ function resolveCatalogField({
   allowBlank = false,
   allowHeuristicMatch = false,
   allowScoredMatch = false,
+  allowDirectValue = false,
 }) {
   if (isIntentionalBlankCorrection(correctionValue)) {
     return { value: '' };
@@ -1088,6 +1090,11 @@ function resolveCatalogField({
   }
 
   const catalog = templateResource.catalogs[catalogName] ?? [];
+
+  if (allowDirectValue && catalog.length === 0) {
+    return { value: candidate };
+  }
+
   const aliasCandidate = aliases[normalizer(candidate)] ?? candidate;
   const exactMatch = findCatalogMatch({
     catalog,
