@@ -358,6 +358,9 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode
     const otherDiscounts = parseAmount(row['Otros Descuentos']) + parseAmount(row['Impuestos']);
     const saldoSobregiro = resolveBukOverdraftBalance(row);
     const liquid = imponible + noTaxable + taxable - parseAmount(row['Descuentos Legales']) - otherDiscounts + saldoSobregiro;
+    // BUK derives taxable discounts as taxable earnings minus taxable base.
+    // Clamp the imported base so that this derived value cannot be negative.
+    const baseTributable = Math.max(0, Math.min(imponible, parseAmount(row['Renta Tributable'])));
 
     return [
       cleanCell(row['Rut del Trabajador']),
@@ -379,7 +382,7 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode
       parseAmount(row['Descuentos Legales']),
       otherDiscounts,
       liquid,
-      parseAmount(row['Renta Tributable']),
+      baseTributable,
       0,
       parseAmount(row['Impuestos']),
       parseAmount(row.AFP) || parseAmount(row.IPS),
