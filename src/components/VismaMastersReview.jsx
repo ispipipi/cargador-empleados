@@ -3,7 +3,6 @@ import VismaMasterListsSection from './VismaMasterListsSection';
 
 export default function VismaMastersReview({ onBack, onBusyChange }) {
   const {
-    connection,
     connectionError,
     isLoadingConnection,
     refreshConnection,
@@ -23,7 +22,7 @@ export default function VismaMastersReview({ onBack, onBusyChange }) {
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-700">VISMA · Paso 1</p>
             <h2 className="mt-3 text-3xl font-extrabold text-slate-950">Prepara los maestros VISMA.</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">
-              Consulta y copia los cargos, sedes, áreas, empresas y centros de costo de la conexión seleccionada antes de generar una carga.
+              Genera los archivos de creación de cargos, centros de costo y áreas de la conexión seleccionada.
             </p>
             <div className="mt-5 rounded-[20px] border border-brand-200 bg-white/80 px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-700">Empresa activa</p>

@@ -128,7 +128,7 @@ export default function VismaSidebar({ selectedModule, onNavigate, onContextChan
             <SidebarLink
               active={selectedModule === 'visma-maestros'}
               label="Extraer maestros"
-              detail="Cargos, sedes y estructuras"
+              detail="Cargos, centros de costo y áreas"
               onClick={() => onNavigate('visma-maestros')}
             />
             <SidebarLink

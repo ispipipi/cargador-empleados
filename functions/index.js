@@ -631,7 +631,11 @@ async function fetchOrganizationMasterLists({ token, tenantId, subscriptionKey }
   });
   const structureTypes = Array.isArray(structureTypesPayload) ? structureTypesPayload : [];
 
-  return mapWithConcurrency(VISMA_REX_MASTER_LISTS, 5, async (definition) => {
+  const loadableDefinitions = VISMA_REX_MASTER_LISTS.filter((definition) => (
+    ['positions', 'costCenters', 'areas'].includes(definition.key)
+  ));
+
+  return mapWithConcurrency(loadableDefinitions, 5, async (definition) => {
     const matchingTypes = selectVismaMasterTypes(structureTypes, definition);
     const typeResults = await mapWithConcurrency(matchingTypes, 5, async (type) => {
       const typeId = cleanValue(type.id ?? type.structureTypeId);
