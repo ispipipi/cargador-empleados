@@ -220,6 +220,7 @@ const SOURCE_ALIASES = new Map([
   ['asignacion familiar retroactiva', 'asignacion_familiar_retroactiva'],
   ['desgaste materiales', 'desgaste_materiales'],
   ['asignacion especial', 'asignacion_especial'],
+  ['asignacion de invierno', 'asignacion_extraordinaria'],
   ['viaticos relatorias', 'viaticos_relatorias'],
   ['viaticos', 'buk_viaticos'],
   ['asignacion extraordinaria', 'asignacion_extraordinaria'],
