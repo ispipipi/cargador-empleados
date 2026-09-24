@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import ConfigManager from './ConfigManager';
 import SessionMemory from './SessionMemory';
 
@@ -137,12 +138,35 @@ export default function FormatSelector({
   onDeleteSession,
 }) {
   const templateReady = templateStatus === 'ready';
-  const canContinue = templateReady && isSupportedPair;
-  const activeModule = MODULE_OPTIONS.find((module) => module.id === selectedModule) || MODULE_OPTIONS[0];
-  const activeGroup = MODULE_GROUPS.find((group) => group.id === activeModule.group) || MODULE_GROUPS[0];
+  const selectedModuleOption = MODULE_OPTIONS.find((module) => module.id === selectedModule);
+  const [activeGroupId, setActiveGroupId] = useState(selectedModuleOption?.group ?? MODULE_GROUPS[0].id);
+  const [pendingModuleId, setPendingModuleId] = useState(selectedModule);
+  const activeGroup = MODULE_GROUPS.find((group) => group.id === activeGroupId) || MODULE_GROUPS[0];
   const groupModules = MODULE_OPTIONS.filter((module) => module.group === activeGroup.id);
-  const needsMappingCompany = CONCEPT_CATALOG_MODULES.includes(selectedModule);
-  const pairLabel = `${selectedOrigin} → ${selectedDestination}`;
+  const selectedModuleInGroup = groupModules.some((module) => module.id === selectedModule)
+    ? selectedModule
+    : null;
+  const activeModuleId = pendingModuleId && groupModules.some((module) => module.id === pendingModuleId)
+    ? pendingModuleId
+    : selectedModuleInGroup;
+  const activeModule = MODULE_OPTIONS.find((module) => module.id === activeModuleId);
+  const hasModuleSelection = Boolean(activeModule);
+  const displayModule = activeModule ?? {
+    name: 'Selecciona una solución',
+    instruction: 'Elige una opción del grupo para continuar. La pantalla no abrirá ningún conector hasta que selecciones el flujo.',
+    actionLabel: 'Selecciona una solución',
+  };
+  const needsMappingCompany = hasModuleSelection && CONCEPT_CATALOG_MODULES.includes(activeModule.id);
+  const pairLabel = hasModuleSelection ? `${selectedOrigin} → ${selectedDestination}` : 'Selecciona una solución';
+  const canContinue = hasModuleSelection && templateReady && isSupportedPair;
+
+  useEffect(() => {
+    const nextModule = MODULE_OPTIONS.find((module) => module.id === selectedModule);
+    if (nextModule) {
+      setActiveGroupId(nextModule.group);
+      setPendingModuleId(nextModule.id);
+    }
+  }, [selectedModule]);
 
   return (
     <div className="space-y-8">
@@ -169,7 +193,10 @@ export default function FormatSelector({
                   <button
                     key={group.id}
                     type="button"
-                    onClick={() => onChangeModule(group.modules[0])}
+                    onClick={() => {
+                      setActiveGroupId(group.id);
+                      setPendingModuleId(group.modules.includes(selectedModule) ? selectedModule : null);
+                    }}
                     aria-pressed={isActive}
                     className={`group rounded-[22px] border p-4 text-left transition focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 ${
                       isActive
@@ -204,12 +231,15 @@ export default function FormatSelector({
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 {groupModules.map((module) => {
-                  const isSelected = module.id === selectedModule;
+                  const isSelected = module.id === activeModuleId;
                   return (
                     <button
                       key={module.id}
                       type="button"
-                      onClick={() => onChangeModule(module.id)}
+                      onClick={() => {
+                        setPendingModuleId(module.id);
+                        onChangeModule(module.id);
+                      }}
                       aria-pressed={isSelected}
                       className={`rounded-2xl border px-4 py-4 text-left transition focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 ${
                         isSelected
@@ -326,15 +356,15 @@ export default function FormatSelector({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Siguiente paso</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">{activeModule.name}</p>
+                  <p className="mt-2 text-xl font-bold text-slate-950">{displayModule.name}</p>
                 </div>
-                <Tooltip text={activeModule.instruction} label={`Instrucciones de ${activeModule.name}`} />
+                <Tooltip text={displayModule.instruction} label={`Instrucciones de ${displayModule.name}`} />
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-700">{activeModule.instruction}</p>
+              <p className="mt-3 text-sm leading-6 text-slate-700">{displayModule.instruction}</p>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold">
                 <span className="rounded-full bg-white px-3 py-1 text-brand-700">{pairLabel}</span>
-                <span className={`rounded-full px-3 py-1 ${isSupportedPair ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                  {isSupportedPair ? 'Par habilitado' : 'Par no habilitado'}
+                <span className={`rounded-full px-3 py-1 ${hasModuleSelection && isSupportedPair ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                  {hasModuleSelection ? (isSupportedPair ? 'Par habilitado' : 'Par no habilitado') : 'Selecciona una solución'}
                 </span>
               </div>
             </div>
@@ -353,7 +383,7 @@ export default function FormatSelector({
               disabled={!canContinue}
               className="mt-auto rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {activeModule.actionLabel}
+              {displayModule.actionLabel}
             </button>
           </div>
         </div>

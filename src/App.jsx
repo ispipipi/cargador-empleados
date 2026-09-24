@@ -99,10 +99,10 @@ const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
 const cloudConfigured = isFirebaseConfigured();
 
 export default function App() {
-  const [step, setStep] = useState(STEPS.vismaMastersReview);
-  const [selectedModule, setSelectedModule] = useState('visma-maestros');
-  const [selectedOrigin, setSelectedOrigin] = useState('visma');
-  const [selectedDestination, setSelectedDestination] = useState('rex');
+  const [step, setStep] = useState(STEPS.format);
+  const [selectedModule, setSelectedModule] = useState('empleados');
+  const [selectedOrigin, setSelectedOrigin] = useState('talana');
+  const [selectedDestination, setSelectedDestination] = useState('buk');
   const [mappingCompany, setMappingCompany] = useState('FINNING');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
   const [configurations, setConfigurations] = useState(() => loadConfigurations());
@@ -713,10 +713,11 @@ export default function App() {
 
   const handleOpenOtherFlows = () => {
     setSelectedModule('empleados');
-    setSelectedOrigin('meta4');
-    setSelectedDestination('rex');
+    setSelectedOrigin('talana');
+    setSelectedDestination('buk');
     setRexCompanyMasterResource(null);
     setStep(STEPS.format);
+    setGlobalError('');
   };
 
   const handleTransform = async () => {
@@ -1210,11 +1211,10 @@ export default function App() {
   };
 
   const resetFlow = () => {
-    const isVismaWorkspaceFlow = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
-    setStep(isVismaWorkspaceFlow ? STEPS.vismaMastersReview : STEPS.format);
-    if (isVismaWorkspaceFlow) {
-      setSelectedModule('visma-maestros');
-    }
+    setStep(STEPS.format);
+    setSelectedModule('empleados');
+    setSelectedOrigin('talana');
+    setSelectedDestination('buk');
     setSessionId(null);
     setSourceFile(null);
     setValidation(null);
