@@ -320,6 +320,27 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode
     }
   });
 
+  // REX+ rejects more than one detail row with the same employee and item code.
+  // Different source concepts can intentionally reuse one REX+ concept, so
+  // consolidate those rows while preserving their combined amount.
+  detailRowsBySheet.forEach((detailRows, sheet) => {
+    const consolidatedRows = new Map();
+
+    detailRows.forEach((detailRow) => {
+      const key = [detailRow[0], detailRow[1], detailRow[2], detailRow[5]].join('|');
+      const existingRow = consolidatedRows.get(key);
+
+      if (existingRow) {
+        existingRow[4] += detailRow[4];
+        return;
+      }
+
+      consolidatedRows.set(key, [...detailRow]);
+    });
+
+    detailRowsBySheet.set(sheet, [...consolidatedRows.values()]);
+  });
+
   const liquidationRows = employeeRows.map((row) => {
     const employerContributions = sumFields(row, [
       'Capitalización Individual AFP',
