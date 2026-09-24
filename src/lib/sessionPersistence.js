@@ -232,6 +232,8 @@ export function applyStoredConceptMapping(namespace, decision, { concepts = [], 
       targetConcept: storedTargetConcept,
       targetId: storedTargetConcept.id,
       targetName: storedTargetConcept.name,
+      sheet: storedTargetConcept.sheet ?? decision.sheet,
+      taxable: storedTargetConcept.taxable ?? decision.taxable,
       excluded: false,
       approved: true,
     };
@@ -310,6 +312,8 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
       targetConcept: storedTargetConcept,
       targetId: storedTargetConcept.id,
       targetName: storedTargetConcept.name,
+      sheet: storedTargetConcept.sheet ?? decision.sheet,
+      taxable: storedTargetConcept.taxable ?? decision.taxable,
       excluded: false,
       approved: true,
     };
