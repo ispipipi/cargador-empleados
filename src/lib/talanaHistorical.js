@@ -355,12 +355,17 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode
     const imponible = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes Imponibles');
     const noTaxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && !decision.taxable);
     const taxable = sumApprovedDetails(row, approvedDecisions, (decision) => decision.sheet === 'Haberes No Imponibles' && decision.taxable);
+    const legalDiscounts = parseAmount(row['Descuentos Legales']);
     const otherDiscounts = parseAmount(row['Otros Descuentos']) + parseAmount(row['Impuestos']);
     const saldoSobregiro = resolveBukOverdraftBalance(row);
-    const liquid = imponible + noTaxable + taxable - parseAmount(row['Descuentos Legales']) - otherDiscounts + saldoSobregiro;
+    const liquid = imponible + noTaxable + taxable - legalDiscounts - otherDiscounts + saldoSobregiro;
     // BUK derives taxable discounts as taxable earnings minus taxable base.
-    // Clamp the imported base so that this derived value cannot be negative.
-    const baseTributable = Math.max(0, Math.min(imponible, parseAmount(row['Renta Tributable'])));
+    // Keep that derived value between zero and total legal discounts.
+    const minimumBaseTributable = Math.max(0, imponible - legalDiscounts);
+    const baseTributable = Math.min(
+      imponible,
+      Math.max(minimumBaseTributable, parseAmount(row['Renta Tributable'])),
+    );
 
     return [
       cleanCell(row['Rut del Trabajador']),
@@ -379,7 +384,7 @@ export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode
       imponible,
       noTaxable,
       taxable,
-      parseAmount(row['Descuentos Legales']),
+      legalDiscounts,
       otherDiscounts,
       liquid,
       baseTributable,
