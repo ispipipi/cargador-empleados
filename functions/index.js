@@ -1562,6 +1562,11 @@ function extractVismaHealthAmount({ employee, phase, healthStructure }) {
     healthStructure?.montoUF,
     healthStructure?.pactadoUf,
     healthStructure?.pactadoUF,
+    healthStructure?.pactadoSaludUf,
+    healthStructure?.pactadoSaludUF,
+    healthStructure?.pactadoSalud,
+    healthStructure?.saludPactadaUf,
+    healthStructure?.saludPactadaUF,
     healthStructure?.planUf,
     healthStructure?.planUF,
     healthStructure?.amount,
@@ -1620,6 +1625,14 @@ function extractVismaHealthAmount({ employee, phase, healthStructure }) {
     }
   }
 
+  const keyBasedAmount = [healthStructure, phase?.health, phase?.healthInsurance, phase?.healthPlan, employee?.health, employee?.healthInsurance, employee?.healthPlan, employee]
+    .map((value) => findVismaHealthAmountByKey(value))
+    .find(Boolean);
+
+  if (keyBasedAmount) {
+    return keyBasedAmount;
+  }
+
   const descriptiveValues = [
     healthStructure?.description,
     healthStructure?.name,
@@ -1651,8 +1664,36 @@ function extractVismaAmount(value) {
 
 function extractUfAmountFromText(value) {
   const cleaned = cleanValue(value).replace(',', '.');
-  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:uf|u\.f\.)?/i);
-  return match ? match[1] : '';
+  const match = cleaned.match(/(?:uf|u\.f\.)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)(?:\s*(?:uf|u\.f\.)?)?/i);
+  return match ? (match[1] || match[2]) : '';
+}
+
+function findVismaHealthAmountByKey(value, depth = 0) {
+  if (!value || depth > 4 || typeof value !== 'object') {
+    return '';
+  }
+
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const normalizedKey = normalizeLookupText(key).replace(/[^a-z0-9]/g, '');
+    const isPactadoHealthKey = normalizedKey.includes('pactadosalud') ||
+      normalizedKey.includes('saludpactada') ||
+      (normalizedKey.includes('pactado') && normalizedKey.includes('salud')) ||
+      normalizedKey.includes('ufpactado');
+
+    if (isPactadoHealthKey) {
+      const amount = extractVismaAmount(nestedValue);
+      if (amount) {
+        return amount;
+      }
+    }
+
+    const nestedAmount = findVismaHealthAmountByKey(nestedValue, depth + 1);
+    if (nestedAmount) {
+      return nestedAmount;
+    }
+  }
+
+  return '';
 }
 
 function extractVismaText(value) {
