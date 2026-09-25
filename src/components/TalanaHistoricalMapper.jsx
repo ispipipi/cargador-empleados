@@ -38,11 +38,19 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, batch
         sourceRows: sourceFile.rows,
         sourceHeaders: sourceFile.headers,
       });
-      const storedDecisions = nextModel.decisions.map((decision) => applyStoredHistoricalMapping(
-        MAPPING_NAMESPACE,
-        decision,
-        { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true },
-      ));
+      const storedDecisions = nextModel.decisions.map((decision) => {
+        const storedDecision = applyStoredHistoricalMapping(
+          MAPPING_NAMESPACE,
+          decision,
+          { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true },
+        );
+
+        // A newly registered BUK code must supersede a stale exclusion saved
+        // before the code was present in the catalog.
+        return decision.targetConcept?.authoritative && storedDecision.excluded
+          ? decision
+          : storedDecision;
+      });
 
       if (!active) {
         return;

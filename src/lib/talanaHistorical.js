@@ -135,6 +135,7 @@ const AUTO_EXCLUDED_PATTERNS = [
 
 const BUK_CONCEPT_CATALOG = [
   ['sueldo_base', 'Sueldo Base', 'Haberes Imponibles', false],
+  ['gratificacion_anual', 'Gratificación Anual', 'Haberes Imponibles', false, true],
   ['gratificacion_mensual_mpa', 'Gratificación Mensual Mpa', 'Haberes Imponibles', false],
   ['bono_mpa_paepap', 'Bono Mpa Pae/Pap', 'Haberes Imponibles', false],
   ['hhee50', 'Horas Extra 50%', 'Haberes Imponibles', false],
@@ -189,10 +190,11 @@ const BUK_CONCEPT_CATALOG = [
   ['dcto_retencion_judicial', 'Retención Judicial', 'Descuentos', false],
   ['dcto_retencion_judicial_2', 'Retención Judicial 2', 'Descuentos', false],
   ['descuento_prestamo_n2', 'Préstamo N°2', 'Descuentos', false],
-].map(([id, name, sheet, taxable]) => ({ id, name, sheet, taxable }));
+].map(([id, name, sheet, taxable, authoritative = false]) => ({ id, name, sheet, taxable, authoritative }));
 
 const SOURCE_ALIASES = new Map([
   ['sueldo base', 'sueldo_base'],
+  ['gratificacion anual', 'gratificacion_anual'],
   ['gratificacion mensual', 'gratificacion_mensual_mpa'],
   ['bono mpa pae/pap', 'bono_mpa_paepap'],
   ['horas extra 50%', 'hhee50'],
