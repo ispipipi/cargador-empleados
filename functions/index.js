@@ -1625,7 +1625,7 @@ function extractVismaHealthAmount({ employee, phase, healthStructure }) {
     }
   }
 
-  const keyBasedAmount = [healthStructure, phase?.health, phase?.healthInsurance, phase?.healthPlan, employee?.health, employee?.healthInsurance, employee?.healthPlan, employee]
+  const keyBasedAmount = [healthStructure, phase, phase?.health, phase?.healthInsurance, phase?.healthPlan, employee?.health, employee?.healthInsurance, employee?.healthPlan, employee]
     .map((value) => findVismaHealthAmountByKey(value))
     .find(Boolean);
 
