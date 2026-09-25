@@ -17,6 +17,7 @@ import ConceptSearchPicker from './ConceptSearchPicker';
 
 const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
+const BATCH_KEY = 'meta4-rex-concepts';
 
 export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
   const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
@@ -119,7 +120,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const selectedExportPending = selectedExportDecisions.filter((decision) => !canIncludeInHistoricalOutput(decision));
   const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || employeeValidation.missing.length > 0;
   const completedEmployeeIds = useMemo(
-    () => new Set((batchState?.completedEmployeeIds ?? []).map((employeeId) => normalizeText(employeeId).replace(/[.\s]/g, '').toUpperCase())),
+    () => new Set(
+      (!batchState?.batchKey || batchState.batchKey === BATCH_KEY
+        ? (batchState.completedEmployeeIds ?? [])
+        : []
+      ).map((employeeId) => normalizeText(employeeId).replace(/[.\s]/g, '').toUpperCase()),
+    ),
     [batchState],
   );
   const eligibleEmployeeIds = useMemo(
@@ -328,7 +334,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       ...preparedBatch.employeeIds,
     ])];
 
-    onBatchStateChange?.({ completedEmployeeIds: nextCompletedEmployeeIds });
+    onBatchStateChange?.({ batchKey: BATCH_KEY, completedEmployeeIds: nextCompletedEmployeeIds });
     setPreparedBatch(null);
   };
 

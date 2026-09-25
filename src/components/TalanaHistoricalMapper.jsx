@@ -3,9 +3,12 @@ import * as XLSX from 'xlsx';
 import ConceptSearchPicker from './ConceptSearchPicker';
 import {
   buildTalanaHistoricalModel,
+  buildTalanaHistoricalAnalysis,
   buildTalanaHistoricalReconciliation,
   buildTalanaHistoricalReportRows,
+  buildTalanaHistoricalRuleReportRows,
   buildTalanaHistoricalWorkbook,
+  getTalanaHistoricalEmployeeIds,
   getTalanaHistoricalCatalog,
   summarizeTalanaHistoricalReconciliation,
   summarizeTalanaHistoricalDecisions,
@@ -15,13 +18,15 @@ import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/se
 
 const MAPPING_NAMESPACE = 'talana-buk-historical';
 
-export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBack, onBusyChange }) {
+export default function TalanaHistoricalMapper({ sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [isBuilding, setIsBuilding] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [batchSize, setBatchSize] = useState(10);
+  const [preparedBatch, setPreparedBatch] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -72,7 +77,36 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
   }), [decisions, sourceFile.rows]);
   const reconciliation = summarizeTalanaHistoricalReconciliation(reconciliationRows);
   const unresolvedConcepts = summary.proposals + summary.pending;
-  const isReadyToDownload = unresolvedConcepts === 0 && reconciliation.isBalanced;
+  const analysis = buildTalanaHistoricalAnalysis({ decisions, reconciliation, mappingScope });
+  const isReadyToDownload = analysis.isReady;
+  const batchKey = useMemo(
+    () => [
+      'talana-buk-historical',
+      mappingScope?.key ?? 'talana:buk',
+      sourceFile.fileName ?? '',
+      sourceFile.period ?? '',
+      sourceFile.rows.length,
+    ].join('|'),
+    [mappingScope?.key, sourceFile.fileName, sourceFile.period, sourceFile.rows.length],
+  );
+  const completedEmployeeIds = useMemo(
+    () => new Set(
+      batchState?.batchKey === batchKey
+        ? (batchState.completedEmployeeIds ?? []).map(normalizeEmployeeId).filter(Boolean)
+        : [],
+    ),
+    [batchKey, batchState],
+  );
+  const eligibleEmployeeIds = useMemo(
+    () => (isReadyToDownload ? getTalanaHistoricalEmployeeIds(sourceFile.rows) : []),
+    [isReadyToDownload, sourceFile.rows],
+  );
+  const remainingEmployeeIds = useMemo(
+    () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(employeeId)),
+    [completedEmployeeIds, eligibleEmployeeIds],
+  );
+  const normalizedBatchSize = Math.max(1, Math.min(10000, Number(batchSize) || 1));
+  const nextBatchEmployeeIds = remainingEmployeeIds.slice(0, normalizedBatchSize);
   const visibleDecisions = useMemo(() => {
     const normalizedSearch = normalizeText(search);
 
@@ -128,8 +162,34 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
     });
   };
 
-  const downloadWorkbook = () => {
-    if (!isReadyToDownload || isDownloading) {
+  useEffect(() => {
+    setPreparedBatch(null);
+  }, [batchKey, decisions, mappingScope]);
+
+  const handleMarkBatchCompleted = () => {
+    if (!preparedBatch?.employeeIds?.length) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `¿Confirmas que el lote de ${preparedBatch.employeeIds.length} trabajadores fue cargado correctamente en BUK?\n\nAl confirmar, no volverá a incluirse en los siguientes lotes.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    onBatchStateChange?.({
+      batchKey,
+      completedEmployeeIds: [...new Set([
+        ...completedEmployeeIds,
+        ...preparedBatch.employeeIds,
+      ])],
+    });
+    setPreparedBatch(null);
+  };
+
+  const downloadWorkbook = (employeeIds, fileLabel = 'carga') => {
+    if (!isReadyToDownload || isDownloading || !employeeIds?.length) {
       return;
     }
 
@@ -139,17 +199,26 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
         const workbook = buildTalanaHistoricalWorkbook({
           sourceRows: sourceFile.rows,
           decisions,
-          period: sourceFile.period,
+          employeeIds,
         });
         downloadBlob(
           XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }),
-          `BUK_liquidaciones_historicas_${sourceFile.period || todayStamp()}.xlsx`,
+          `BUK_liquidaciones_historicas_${fileLabel}_${sourceFile.period || todayStamp()}.xlsx`,
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         );
+        setPreparedBatch({
+          employeeIds,
+          downloadedAt: new Date().toISOString(),
+        });
       } finally {
         setIsDownloading(false);
       }
     }, 40);
+  };
+
+  const handleDownloadBatch = () => {
+    const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
+    downloadWorkbook(employeeIds, 'lote');
   };
 
   const downloadReport = () => {
@@ -174,6 +243,8 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
       Estado: isReadyToDownload ? 'Listo para cargar' : 'Requiere revisión',
     }]);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen conciliación');
+    const rulesSheet = XLSX.utils.json_to_sheet(buildTalanaHistoricalRuleReportRows(analysis));
+    XLSX.utils.book_append_sheet(workbook, rulesSheet, 'Reglas aplicadas');
     downloadBlob(
       XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }),
       `BUK_informe_libro_historico_${sourceFile.period || todayStamp()}.xlsx`,
@@ -199,6 +270,8 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
       Estado: 'Requiere revisión',
     }]);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen errores');
+    const rulesSheet = XLSX.utils.json_to_sheet(buildTalanaHistoricalRuleReportRows(analysis));
+    XLSX.utils.book_append_sheet(workbook, rulesSheet, 'Reglas aplicadas');
     downloadBlob(
       XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }),
       `BUK_errores_liquidaciones_${sourceFile.period || todayStamp()}.xlsx`,
@@ -242,14 +315,12 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
 
           <div className="space-y-4 p-6 sm:p-10">
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
-              <p className="font-semibold text-slate-900">Reglas aplicadas</p>
+              <p className="font-semibold text-slate-900">Reglas registradas</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                {analysis.scopeLabel ? `Contexto: ${analysis.scopeLabel}.` : 'Estas reglas se aplican a este proceso.'}
+              </p>
               <ul className="mt-3 space-y-2">
-                <li>Se usa el RUT del trabajador y el RUT de la empresa del libro Talana.</li>
-                <li>Se generan las pestañas Liquidaciones, Haberes y Descuentos.</li>
-                <li>Totales, impuestos, AFP, salud, cesantía y aportes patronales no se cargan como detalles.</li>
-                <li>Sobregiro se lleva a Otro Haber No Imponible, según el formato BUK de referencia.</li>
-                <li>El saldo de sobregiro BUK se calcula aparte y no duplica el concepto Sobregiro de Talana.</li>
-                <li>Los mapeos confirmados quedan guardados para la empresa SOSER.</li>
+                {analysis.rules.slice(0, 4).map((rule) => <li key={rule.id}>{rule.description}</li>)}
               </ul>
             </div>
             <div className={`rounded-3xl border p-5 text-sm ${isReadyToDownload ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
@@ -259,6 +330,30 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
                   ? 'Todos los conceptos están listos y el líquido a pago cuadra con Talana.'
                   : `Hay ${reconciliation.liquidDifferences} diferencias de líquido, ${reconciliation.totalDifferences} de haberes y ${reconciliation.discountDifferences} de descuentos.`}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel p-6 sm:p-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Análisis previo</p>
+            <h3 className="mt-2 text-2xl font-bold text-slate-950">Reglas y controles antes de descargar</h3>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">Este resumen avisa qué reglas se aplicaron y qué condiciones todavía bloquean el archivo de carga BUK.</p>
+          </div>
+          <span className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] ${analysis.isReady ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+            {analysis.isReady ? 'Listo para descargar' : `${analysis.blockers.length} control(es) bloquean`}
+          </span>
+        </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-2">
+          {analysis.checks.map((check) => <AnalysisCheck key={check.id} check={check} />)}
+        </div>
+
+        <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <p className="font-semibold text-slate-900">Registro de reglas</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {analysis.rules.map((rule) => <RuleItem key={rule.id} rule={rule} />)}
           </div>
         </div>
       </section>
@@ -294,6 +389,79 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
             </button>
           </div>
         ) : null}
+      </section>
+
+      <section className="panel border-brand-200 bg-brand-50/40 p-6 sm:p-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Carga controlada</p>
+            <h3 className="mt-2 text-2xl font-bold text-slate-950">Descargar siguiente lote para BUK</h3>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Cada lote contiene Liquidaciones y todos sus detalles por trabajador. Si BUK rechaza la carga, descarga nuevamente el mismo lote; si fue correcta, márcalo como realizado para descontarlo y no duplicarlo.
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
+            {remainingEmployeeIds.length.toLocaleString('es-CL')} restantes
+          </span>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+            Trabajadores por lote
+            <input
+              type="number"
+              min="1"
+              max="10000"
+              value={batchSize}
+              disabled={Boolean(preparedBatch)}
+              onChange={(event) => setBatchSize(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))}
+              className="mt-2 block w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal tracking-normal text-slate-900 disabled:bg-slate-100"
+            />
+          </label>
+          {[10, 50, 100, 500].map((size) => (
+            <button
+              key={size}
+              type="button"
+              disabled={Boolean(preparedBatch)}
+              onClick={() => setBatchSize(size)}
+              className="rounded-full border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+
+        {!isReadyToDownload ? (
+          <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            La carga por lotes queda bloqueada hasta resolver el mapeo y cuadrar la conciliación.
+          </p>
+        ) : preparedBatch ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} trabajadores.</p>
+            <p className="mt-1">Si la carga falló en BUK, puedes descargar nuevamente este mismo lote. Si fue correcta, márcalo como realizado.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={handleDownloadBatch} disabled={isDownloading} className="rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
+                {isDownloading ? 'Preparando lote…' : 'Descargar este lote nuevamente'}
+              </button>
+              <button type="button" onClick={handleMarkBatchCompleted} disabled={isDownloading} className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60">
+                Marcar lote como realizado
+              </button>
+            </div>
+          </div>
+        ) : remainingEmployeeIds.length > 0 ? (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-brand-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-600">
+              Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} trabajadores</strong>. Se generará un Excel listo para cargar en BUK.
+            </p>
+            <button type="button" onClick={handleDownloadBatch} disabled={isDownloading} className="button-primary shrink-0">
+              {isDownloading ? 'Preparando lote…' : 'Descargar siguiente lote'}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Todos los trabajadores ya fueron marcados como cargados. No quedan registros para volver a descargar.
+          </p>
+        )}
       </section>
 
       <section className="panel p-6 sm:p-8">
@@ -339,14 +507,6 @@ export default function TalanaHistoricalMapper({ sourceFile, mappingScope, onBac
         <div className="mt-8 flex flex-wrap gap-3">
           <button type="button" onClick={onBack} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:border-brand-200 hover:text-brand-700">Volver</button>
           <button type="button" onClick={downloadReport} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:border-brand-200 hover:text-brand-700">Descargar informe de mapeo</button>
-          <button
-            type="button"
-            onClick={downloadWorkbook}
-            disabled={!isReadyToDownload || isDownloading}
-            className="rounded-full bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isDownloading ? 'Preparando archivo BUK…' : isReadyToDownload ? 'Descargar carga BUK' : 'Carga BUK bloqueada'}
-          </button>
         </div>
       </section>
     </div>
@@ -408,6 +568,43 @@ function ReconciliationMetric({ label, value, tone = 'slate' }) {
 
 function LoadingCard({ text }) {
   return <div className="flex items-center gap-3 rounded-3xl border border-sky-200 bg-sky-50 px-5 py-5 text-sm text-sky-700"><div className="flex items-center gap-2"><span className="loader-orb h-2.5 w-2.5 rounded-full bg-sky-500" /><span className="loader-orb h-2.5 w-2.5 rounded-full bg-cyan-500" /><span className="loader-orb h-2.5 w-2.5 rounded-full bg-emerald-500" /></div><span className="font-semibold">{text}</span></div>;
+}
+
+function AnalysisCheck({ check }) {
+  const isBlocked = check.status === 'blocked';
+  const isApplied = check.status === 'applied';
+  const statusLabel = isBlocked ? 'Bloquea' : isApplied ? 'Aplicada' : 'OK';
+  const statusClass = isBlocked
+    ? 'border-amber-200 bg-amber-50 text-amber-800'
+    : isApplied
+      ? 'border-sky-200 bg-sky-50 text-sky-700'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-semibold text-slate-900">{check.title}</p>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusClass}`}>{statusLabel}</span>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{check.detail}</p>
+    </div>
+  );
+}
+
+function RuleItem({ rule }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold text-slate-900">{rule.title}</p>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{rule.scope}</span>
+      </div>
+      <p className="mt-1 text-sm leading-6 text-slate-600">{rule.description}</p>
+    </div>
+  );
+}
+
+function normalizeEmployeeId(value) {
+  return String(value ?? '').replace(/[.\s]/g, '').toUpperCase();
 }
 
 function downloadBlob(content, fileName, type) {

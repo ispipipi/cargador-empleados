@@ -258,8 +258,133 @@ const SOURCE_ALIASES = new Map([
 
 const catalogById = new Map(BUK_CONCEPT_CATALOG.map((concept) => [concept.id, concept]));
 
+export const TALANA_HISTORICAL_RULES = [
+  {
+    id: 'employee-identifiers',
+    title: 'Identificación del trabajador',
+    description: 'Se usa el RUT del trabajador, el RUT de la empresa y el código de ficha del archivo de salida.',
+    scope: 'Identificación',
+  },
+  {
+    id: 'buk-workbook',
+    title: 'Formato BUK',
+    description: 'La salida conserva las cinco pestañas del formato histórico: Liquidaciones, Haberes Imponibles, Haberes No Imponibles, Descuentos y Líneas de Finiquito.',
+    scope: 'Archivo de carga',
+  },
+  {
+    id: 'detail-concepts',
+    title: 'Conceptos que se cargan como detalle',
+    description: 'Solo se generan detalles para haberes y descuentos variables con monto distinto de cero. Totales, impuestos, leyes sociales, previsión, salud, cesantía y aportes patronales quedan fuera del detalle.',
+    scope: 'Haberes y descuentos',
+  },
+  {
+    id: 'overdraft',
+    title: 'Tratamiento del sobregiro',
+    description: 'Sobregiro se lleva a Otro Haber No Imponible y el Saldo Sobregiro se calcula por separado para no duplicar el concepto.',
+    scope: 'Liquidaciones',
+  },
+  {
+    id: 'unique-details',
+    title: 'Sin duplicados en los detalles',
+    description: 'Si varios conceptos de origen usan el mismo código BUK, se consolidan en una sola fila por trabajador, empresa, ficha y concepto.',
+    scope: 'Haberes y descuentos',
+  },
+  {
+    id: 'taxable-discounts',
+    title: 'Descuentos tributables válidos',
+    description: 'La base tributable se mantiene entre Haberes Imponibles menos Descuentos Legales y Haberes Imponibles, para que los Descuentos Tributables queden entre cero y los Descuentos Legales.',
+    scope: 'Liquidaciones',
+  },
+  {
+    id: 'mapping-memory',
+    title: 'Memoria de mapeos',
+    description: 'Los pareos confirmados se guardan por origen, destino y empresa para reutilizarlos en futuras cargas del mismo contexto.',
+    scope: 'Mapeo',
+  },
+  {
+    id: 'controlled-batches',
+    title: 'Carga por paquetes',
+    description: 'La carga BUK se divide por trabajadores. Cada paquete conserva sus liquidaciones y detalles, se puede repetir si falla y solo se descuenta al marcarlo como cargado correctamente.',
+    scope: 'Descarga',
+  },
+];
+
 export function getTalanaHistoricalCatalog() {
   return BUK_CONCEPT_CATALOG;
+}
+
+export function buildTalanaHistoricalAnalysis({ decisions = [], reconciliation, mappingScope } = {}) {
+  const unresolvedConcepts = decisions.filter((decision) => !decision.approved && !decision.excluded).length;
+  const hasReconciliation = Boolean(reconciliation);
+  const reconciliationReady = hasReconciliation && reconciliation.isBalanced;
+  const scopeLabel = [mappingScope?.origin, mappingScope?.destination, mappingScope?.company]
+    .filter(Boolean)
+    .join(' → ');
+  const checks = [
+    {
+      id: 'mapping',
+      title: 'Mapeo de conceptos',
+      status: unresolvedConcepts === 0 ? 'ok' : 'blocked',
+      detail: unresolvedConcepts === 0
+        ? 'Todos los conceptos con monto tienen un pareo o una exclusión confirmada.'
+        : `${unresolvedConcepts.toLocaleString('es-CL')} conceptos requieren una decisión antes de descargar.`,
+    },
+    {
+      id: 'reconciliation',
+      title: 'Cuadratura del líquido',
+      status: reconciliationReady ? 'ok' : 'blocked',
+      detail: !hasReconciliation
+        ? 'Aún no se ha podido calcular la conciliación.'
+        : reconciliationReady
+          ? 'Líquidos, haberes y descuentos cuadran por trabajador.'
+          : `${reconciliation.liquidDifferences} diferencias de líquido, ${reconciliation.totalDifferences} de haberes y ${reconciliation.discountDifferences} de descuentos.`,
+    },
+    {
+      id: 'details',
+      title: 'Detalles de carga',
+      status: 'applied',
+      detail: 'Se excluyen los conceptos automáticos y se consolidan los códigos BUK repetidos por trabajador.',
+    },
+    {
+      id: 'buk-rules',
+      title: 'Validaciones BUK',
+      status: 'applied',
+      detail: 'La base tributable y los descuentos tributables se preparan dentro de los límites aceptados por BUK.',
+    },
+  ];
+
+  return {
+    scopeLabel,
+    rules: TALANA_HISTORICAL_RULES,
+    checks,
+    blockers: checks.filter((check) => check.status === 'blocked'),
+    isReady: unresolvedConcepts === 0 && reconciliationReady,
+  };
+}
+
+export function getTalanaHistoricalEmployeeIds(sourceRows) {
+  return consolidateTalanaEmployeeRows(sourceRows)
+    .map((row) => normalizeTalanaEmployeeId(row['Rut del Trabajador']))
+    .filter(Boolean);
+}
+
+export function buildTalanaHistoricalRuleReportRows(analysis) {
+  const ruleRows = (analysis?.rules ?? TALANA_HISTORICAL_RULES).map((rule) => ({
+    Tipo: 'Regla aplicada',
+    Regla: rule.title,
+    Descripción: rule.description,
+    Ámbito: rule.scope,
+    Estado: 'Aplicada',
+  }));
+  const checkRows = (analysis?.checks ?? []).map((check) => ({
+    Tipo: 'Control antes de descargar',
+    Regla: check.title,
+    Descripción: check.detail,
+    Ámbito: 'Análisis actual',
+    Estado: check.status === 'ok' || check.status === 'applied' ? 'OK' : 'Bloquea descarga',
+  }));
+
+  return [...ruleRows, ...checkRows];
 }
 
 export function buildTalanaHistoricalModel({ sourceRows, sourceHeaders }) {
@@ -281,8 +406,12 @@ export function buildTalanaHistoricalModel({ sourceRows, sourceHeaders }) {
   };
 }
 
-export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode = 'F1' }) {
-  const employeeRows = consolidateTalanaEmployeeRows(sourceRows);
+export function buildTalanaHistoricalWorkbook({ sourceRows, decisions, fichaCode = 'F1', employeeIds = null }) {
+  const selectedEmployeeIds = Array.isArray(employeeIds)
+    ? new Set(employeeIds.map(normalizeTalanaEmployeeId).filter(Boolean))
+    : null;
+  const employeeRows = consolidateTalanaEmployeeRows(sourceRows)
+    .filter((row) => !selectedEmployeeIds || selectedEmployeeIds.has(normalizeTalanaEmployeeId(row['Rut del Trabajador'])));
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
   const detailRowsBySheet = new Map(BUK_HISTORICAL_SHEET_NAMES.slice(1, 4).map((sheet) => [sheet, []]));
 
@@ -670,6 +799,11 @@ function consolidateTalanaEmployeeRows(sourceRows) {
 
     return consolidatedRow;
   });
+}
+
+function normalizeTalanaEmployeeId(value) {
+  const normalized = cleanCell(value).replace(/[.\s]/g, '').toUpperCase();
+  return isValidRut(normalized) ? normalized : '';
 }
 
 function appendSheet(workbook, sheetName, headers, rows) {

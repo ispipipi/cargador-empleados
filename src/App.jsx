@@ -489,7 +489,7 @@ export default function App() {
       isActive = false;
       window.clearTimeout(timerId);
     };
-  }, [step, result, rexTemplateResource]);
+  }, [rexTemplateResource, result, sourceFile, step]);
 
   useEffect(
     () => () => {
@@ -516,6 +516,7 @@ export default function App() {
     setResult(null);
     setSourceFile(null);
     setValidation(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
     setIsReadingFile(true);
 
     try {
@@ -1412,6 +1413,8 @@ export default function App() {
           <TalanaHistoricalMapper
             sourceFile={sourceFile}
             mappingScope={mappingScope}
+            batchState={historicalBatchState}
+            onBatchStateChange={setHistoricalBatchState}
             onBack={() => setStep(STEPS.upload)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />
