@@ -132,6 +132,15 @@ export default function FileUploader({
           </div>
         ) : null}
 
+        {sourceFile?.preparedFromHistoricalMissingEmployees ? (
+          <div className="mt-4 rounded-3xl border border-cyan-200 bg-cyan-50 p-5 text-sm text-cyan-900">
+            <p className="font-semibold">Carga preparada desde un libro histórico</p>
+            <p className="mt-1 text-cyan-800">
+              Se muestran sólo los trabajadores que no estaban en REX+. El archivo original fue {sourceFile.originalFileName}.
+            </p>
+          </div>
+        ) : null}
+
         {validation?.missingColumns?.length ? (
           <div className="mt-4 rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
             Faltan columnas clave: {validation.missingColumns.join(', ')}

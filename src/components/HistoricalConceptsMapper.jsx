@@ -20,7 +20,7 @@ const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 const BATCH_KEY = 'meta4-rex-concepts';
 
-export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
+export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onOpenMissingEmployees, onBusyChange }) {
   const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
   const concepts = useMemo(
     () => (isFinningCatalog ? conceptsResource?.historicalConcepts ?? conceptsResource?.concepts ?? [] : conceptsResource?.concepts ?? []),
@@ -480,10 +480,19 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             {employeeValidation.missing.length > 0 ? (
               <div className="mt-5 rounded-[28px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">
                 <p className="font-semibold">Hay {employeeValidation.missing.length} colaboradores que no están creados en REX+.</p>
-                <p className="mt-2">El CSV final queda bloqueado hasta resolverlos. Puedes descargar el detalle para crearlos o revisarlos.</p>
-                <button type="button" onClick={() => handleDownload('employee-pending')} className="mt-4 rounded-full border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-800 transition hover:bg-rose-100">
-                  Descargar pendientes de colaboradores
-                </button>
+                <p className="mt-2">El archivo histórico queda bloqueado hasta resolverlos. Puedes llevar estos trabajadores directamente a la carga Meta 4 → REX+ o descargar el detalle.</p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onOpenMissingEmployees?.(employeeValidation.missing)}
+                    className="rounded-full bg-rose-700 px-4 py-2 text-xs font-semibold text-white transition hover:bg-rose-800"
+                  >
+                    Cargar faltantes en Empleados Meta 4 → REX+
+                  </button>
+                  <button type="button" onClick={() => handleDownload('employee-pending')} className="rounded-full border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-800 transition hover:bg-rose-100">
+                    Descargar detalle
+                  </button>
+                </div>
               </div>
             ) : null}
             {employeeValidation.excludedCount > 0 ? (

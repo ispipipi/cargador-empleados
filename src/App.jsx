@@ -53,6 +53,7 @@ import {
 import { sanitizeFilenameSegment, todayStamp } from './lib/utils';
 import { loadConceptsResource, parseConceptCatalogWorkbook } from './lib/concepts';
 import { loadVismaHistoricalResource } from './lib/vismaHistorical';
+import { getMeta4MissingColumns } from './connectors/origins/meta4';
 import {
   deleteCloudSession,
   loadCloudConceptCatalog,
@@ -726,6 +727,53 @@ export default function App() {
     setRexCompanyMasterResource(null);
     setStep(STEPS.format);
     setGlobalError('');
+  };
+
+  const handleOpenMissingMeta4Employees = (missingEmployees) => {
+    if (!sourceFile?.rows?.length || !missingEmployees?.length) {
+      return;
+    }
+
+    const missingIds = new Set(
+      missingEmployees
+        .map((employee) => normalizeEmployeeId(employee.id))
+        .filter(Boolean),
+    );
+    const missingRows = sourceFile.rows.filter((row) => missingIds.has(
+      normalizeEmployeeId(row.CI || row['ID EMPLEADO']),
+    ));
+
+    if (!missingRows.length) {
+      setGlobalError('No se pudieron recuperar las filas de los trabajadores faltantes desde el libro cargado.');
+      return;
+    }
+
+    const missingColumns = getMeta4MissingColumns(sourceFile.headers ?? []);
+    const preparedFileName = `Meta4_empleados_pendientes_${todayStamp()}.xlsx`;
+
+    setSelectedModule('empleados');
+    setSelectedOrigin('meta4');
+    setSelectedDestination('rex');
+    setRexCompanyMasterResource(null);
+    setResult(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
+    setSessionId(createSessionId());
+    setSourceFile({
+      ...sourceFile,
+      fileName: preparedFileName,
+      rows: missingRows,
+      previewRows: missingRows.slice(0, 3),
+      preparedFromHistoricalMissingEmployees: true,
+      originalFileName: sourceFile.fileName,
+    });
+    setValidation({
+      isValid: missingColumns.length === 0,
+      missingColumns,
+      formatIssues: [],
+      message: `Se prepararon ${missingRows.length.toLocaleString('es-CL')} trabajadores faltantes desde ${sourceFile.fileName}. Revisa los datos y continúa al wizard de empleados.`,
+    });
+    setGlobalError('');
+    setStep(STEPS.upload);
   };
 
   const handleTransform = async () => {
@@ -1402,6 +1450,7 @@ export default function App() {
             batchState={historicalBatchState}
             onBatchStateChange={setHistoricalBatchState}
             onBack={() => setStep(STEPS.format)}
+            onOpenMissingEmployees={handleOpenMissingMeta4Employees}
             onBusyChange={setIsPreparingHistoricalDownload}
           />
         ) : null}
@@ -1635,6 +1684,10 @@ function normalizeOrigin(originId) {
   }
 
   return originId === 'meta4' ? 'meta4' : 'talana';
+}
+
+function normalizeEmployeeId(value) {
+  return String(value ?? '').replace(/[.\s]/g, '').toUpperCase();
 }
 
 function parseSourceWorkbook(arrayBuffer, originId, password = '') {
