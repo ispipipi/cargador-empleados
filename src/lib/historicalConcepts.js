@@ -24,6 +24,33 @@ export const DETAIL_HEADERS = [
   'Consolidable',
 ];
 
+// The Meta4 -> REX+ historical liquidation template has a different shape
+// from the legacy Concepto Detalle CSV used by the other flows.
+export const REX_LIQUIDATION_HEADERS = [
+  'Fecha de proceso',
+  'Id empleado',
+  'Número de contrato',
+  'Id del concepto',
+  'Monto del concepto',
+  'Afecto',
+  'Id de institución',
+  'Cotización de jubilación',
+  'Días de licencias',
+  'Días trabajados',
+  'Fecha de aplicación',
+  'Empresa',
+  'Total de rebajas por LLSS',
+  'Rentas no gravadas',
+  'Rebaja por zona extrema',
+  'Jornada',
+  'Días de vacaciones',
+  'Monto Init',
+  'Parcial 7',
+  'Parcial 8',
+];
+
+const REX_LIQUIDATION_TEMPLATE_PATH = `${import.meta.env.BASE_URL}templates/ejemplo-importacion-liquidaciones-detalle.xlsx`;
+
 export const HISTORICAL_FUNCTIONS = [
   { id: 'bonoextra', name: 'Bono Extra grupo 01', type: 'OT', detail: 'C$sueldoBase * 0.1' },
   { id: 'colacion', name: 'Colacion mensual', type: 'OT', detail: 'P$diasHabi * 5000' },
@@ -37,7 +64,7 @@ export const HISTORICAL_FUNCTIONS = [
   { id: 'valorUF', name: 'Valor UF', type: 'OT', detail: 'round(P$valorUfMes * D$valor)' },
 ];
 
-const CONCEPT_START_HEADER = 'SUELDO BASE ORIGINAL11/2025';
+const CONCEPT_START_HEADER_PREFIX = 'SUELDO BASE ORIGINAL';
 const EXCLUDED_SOURCE_HEADERS = new Set([
   'BASE TRIBUTABLE',
   'COSTO EMPRESA',
@@ -47,8 +74,6 @@ const EXCLUDED_SOURCE_HEADERS = new Set([
   'TOTAL_HABERES',
   'TOTAL_DESCUENTOS',
   'LIQUIDO',
-  'SUELDO BASE',
-  'SUELDO PAGADO',
   'PROMEDIO REMUNERACION VARIABLE',
 ]);
 
@@ -80,6 +105,8 @@ const HISTORICAL_ALIASES = new Map([
   ['HORAS EXTRAS 50%', 'horasEx50'],
   ['SEMANA CORRIDA', 'semanaCorr'],
   ['GRATIFICACION', 'gratificacion'],
+  ['SUELDO BASE', 'sueldoBase'],
+  ['SUELDO PAGADO', 'sueldoBase'],
   ['IMPUESTO', 'impuesto'],
   ['IMPUESTO RELIQUIDADO', 'reliquidaImpuesto'],
   ['SOBREGIRO LIQUIDACION SUELDO', 'compensaSobre'],
@@ -99,90 +126,10 @@ const FINNING_APPROVED_CREATIONS = new Map([
   ],
 ]);
 
-// These collaborators are present in the January payroll but were explicitly
-// excluded by the client and must not block or enter the historical load.
-const FINNING_TERMINATED_EMPLOYEE_IDS = new Set([
-  '11599484-0',
-  '17133647-3',
-  '10734545-0',
-  '19467522-4',
-  '15025660-7',
-  '16249223-3',
-  '18941561-3',
-  '17861299-9',
-  '8552006-7',
-  '17366676-4',
-  '18456229-4',
-  '17074351-2',
-  '21009521-7',
-  '16468383-4',
-  '20739762-8',
-  '10142183-K',
-  '11719893-6',
-  '10883669-5',
-  '14271970-3',
-  '10632033-0',
-  '18482923-1',
-  '21133098-8',
-  '14058765-6',
-]);
-
 const NON_LOADABLE_HISTORICAL_PATTERNS = [
-  /^IMPUESTO\b/,
-  /^COSTO EMPRESA\b/,
   /^PROVIS/,
   /^PROV\b/,
-  /^PROV CONTABLE\b/,
-  /\b(APORTE|COSTO)\b.*\bEMPRESA\b/,
-  /\bEMPRESA\b.*\b(APORTE|COSTO)\b/,
-  /^APORTE EMPLEADOR\b/,
-  /^CAJA DE COMPENSACI/,
-  /^SEGURO SOBREV/,
-  /^SEGURO CESANT/,
-  /^SEG\. DE CESANT/,
-  /^SEGURO DE CESANT/,
-  /^SEGURO INVALIDEZ/,
-  /^SEGURO DE INVALIDEZ/,
-  /^COTIZACI(?:O|Ó)N FONDO RETIRO\b/,
-  /^COTIZACI(?:O|Ó)N ISAPRE\b/,
-  /^COTIZACI(?:O|Ó)N SALUD\b/,
-  /^COTIZACI(?:O|Ó)N SEGURO\b/,
-  /^COTIZACI(?:O|Ó)NES FONDO SOL/,
-  /^APORTE SEGURO DE CESANT/,
-  /^DIF LEY SANA\b/,
-  /^COMISI(?:O|Ó)N AFP\b/,
-  /^ADICIONAL AL 7%/,
-  /^ISAPRE RELIQ/,
-  /^TRABAJO PESADO\b/,
-  /^TRAB\. PESADO\b/,
-  /^SIS\b/,
-  /^FONDO SOL/,
-  /^MUTUAL\b/,
-  /^LEY SANNA\b/,
-  /^RENTA IMPONIBLE RIMA\b/,
-  /^CAPITALIZACI(?:O|Ó)N INDIVIDUAL\b/,
-  /^EXPECTATIVA DE VIDA\b/,
 ];
-
-const CONTRACTUAL_HISTORICAL_SOURCE_PATTERNS = [
-  /^SUELDO(?: BASE| PAGADO)?\b/,
-  /^GRATIFICACION\b/,
-  /^ASIG\.?\s*COLACION CONTRACTUAL\b/,
-  /^ASIG\.?\s*MOVILIZACION CONTRACTUAL\b/,
-  /^ASIGNACION(?: DE)? COLACION\b/,
-  /^COTIZACI(?:O|Ó)N SALUD OBLIGATORIA\b/,
-  /^COTIZACI(?:O|Ó)N ISAPRE\b/,
-  /^ISAPRE\b/,
-];
-
-const CONTRACTUAL_HISTORICAL_TARGET_IDS = new Set([
-  'sueldobase',
-  'gratificacion',
-  'asigcolacioncontract',
-  'asigmovcontractual',
-  'asignacioncolacion',
-  'isapre',
-]);
 
 const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
 
@@ -250,9 +197,6 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const proposedId = buildConceptId(sourceName, index);
     const lreField = sourceMapping?.lreField ?? configuredDecision?.lreField ?? '';
     const classification = sourceMapping?.classification ?? configuredDecision?.classification ?? '';
-    const targetId = exactMatch?.id ?? approvedCreation?.targetId ?? configuredDecision?.targetId ?? '';
-    const contractualExclusion = isContractualHistoricalConcept(sourceName, targetId);
-
     return {
       id: `${index + 1}-${sourceKey}`,
       sourceKey,
@@ -264,10 +208,10 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       sourceSection: column.index >= 255 ? 'Descuento' : 'Haber / remuneración',
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
-      exactMatch: Boolean(!contractualExclusion && (exactMatch || approvedCreation)),
-      matchStatus: configuredExclusion || contractualExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
-      action: configuredExclusion || contractualExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
-      suggestedMatches: contractualExclusion ? [] : suggestedMatches,
+      exactMatch: Boolean(exactMatch || approvedCreation),
+      matchStatus: configuredExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
+      suggestedMatches,
       targetConcept: exactMatch,
       targetId: exactMatch?.id ?? approvedCreation?.targetId ?? '',
       targetName: exactMatch?.name ?? approvedCreation?.targetName ?? '',
@@ -277,10 +221,10 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
       lreField,
       classification,
-      approved: Boolean(configuredExclusion || contractualExclusion || exactMatch || approvedCreation),
-      excluded: Boolean(configuredExclusion || contractualExclusion),
-      autoExcluded: Boolean(contractualExclusion),
-      exclusionReason: contractualExclusion ? 'Concepto contractual calculado por REX+ desde contrato/días trabajados' : '',
+      approved: Boolean(configuredExclusion || exactMatch || approvedCreation),
+      excluded: Boolean(configuredExclusion),
+      autoExcluded: false,
+      exclusionReason: '',
       matchOrigin: (configuredDecision || configuredCreation) && (configuredExclusion || exactMatch || approvedCreation)
         ? 'concepts-module'
         : undefined,
@@ -304,7 +248,7 @@ export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCa
   const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
 
   decisions
-    .filter((decision) => decision.approved && !decision.excluded && decision.targetId && !isContractualHistoricalConcept(decision.sourceName, decision.targetId))
+    .filter((decision) => decision.approved && !decision.excluded && decision.targetId)
     .forEach((decision) => {
       sourceRows.forEach((sourceRow) => {
         const sourceEmployeeId = getSourceEmployeeId(sourceRow);
@@ -351,11 +295,99 @@ export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalo
   return `\uFEFF${csv}`;
 }
 
+export async function loadHistoricalRexLiquidationTemplate() {
+  const response = await fetch(REX_LIQUIDATION_TEMPLATE_PATH);
+  if (!response.ok) {
+    throw new Error('No se pudo cargar la plantilla de Liquidaciones en Detalle de REX+.');
+  }
+
+  return XLSX.read(await response.arrayBuffer(), { type: 'array' });
+}
+
+export function buildHistoricalRexLiquidationWorkbook({
+  templateWorkbook,
+  sourceRows,
+  decisions,
+  employeeCatalog = [],
+  mappingScope,
+  period = '',
+  employeeIds = null,
+}) {
+  const rows = buildHistoricalRexLiquidationRows({
+    sourceRows,
+    decisions,
+    employeeCatalog,
+    mappingScope,
+    period,
+    employeeIds,
+  });
+  const workbook = {
+    ...templateWorkbook,
+    SheetNames: [...(templateWorkbook?.SheetNames ?? [])],
+    Sheets: { ...(templateWorkbook?.Sheets ?? {}) },
+  };
+  workbook.SheetNames = workbook.SheetNames.filter((name) => name !== 'Ejemplo');
+  workbook.SheetNames.unshift('Ejemplo');
+  workbook.Sheets.Ejemplo = XLSX.utils.aoa_to_sheet([REX_LIQUIDATION_HEADERS, ...rows]);
+
+  return workbook;
+}
+
+export function buildHistoricalRexLiquidationRows({
+  sourceRows,
+  decisions,
+  employeeCatalog = [],
+  mappingScope,
+  period = '',
+  employeeIds = null,
+}) {
+  const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+  const outputByKey = new Map();
+
+  sourceRows.forEach((sourceRow) => {
+    const employeeId = getSourceEmployeeId(sourceRow);
+    const employee = employeeById.get(employeeId);
+    if (!employee || (selectedEmployeeIds && !selectedEmployeeIds.has(employeeId))) {
+      return;
+    }
+
+    approvedDecisions.forEach((decision) => {
+      const taxDecision = isTaxDecision(decision);
+      const parsedAmount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
+      const amount = parsedAmount ?? 0;
+      if (!taxDecision && amount === 0) {
+        return;
+      }
+
+      const key = `${employeeId}::${normalizeText(decision.targetId)}`;
+      const existing = outputByKey.get(key);
+      if (existing) {
+        existing[4] += amount;
+        return;
+      }
+
+      outputByKey.set(key, buildRexLiquidationRow({
+        sourceRow,
+        employee,
+        decision,
+        amount,
+        period,
+        decisions: approvedDecisions,
+        mappingScope,
+      }));
+    });
+  });
+
+  return [...outputByKey.values()];
+}
+
 export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
   const eligibleIds = new Set();
-  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId && !isContractualHistoricalConcept(decision.sourceName, decision.targetId));
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
 
   sourceRows.forEach((sourceRow) => {
     const sourceEmployeeId = getSourceEmployeeId(sourceRow);
@@ -365,7 +397,7 @@ export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalo
 
     const hasLoadableAmount = approvedDecisions.some((decision) => {
       const amount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
-      return amount !== null && amount !== 0;
+      return isTaxDecision(decision) || (amount !== null && amount !== 0);
     });
 
     if (hasLoadableAmount) {
@@ -474,7 +506,7 @@ export function parseHistoricalAmount(value) {
 
 function extractConceptColumns({ sourceRows, sourceHeaders }) {
   const startIndex = Math.max(
-    sourceHeaders.findIndex((header) => stripDuplicateHeaderSuffix(header) === CONCEPT_START_HEADER),
+    sourceHeaders.findIndex((header) => stripDuplicateHeaderSuffix(header).startsWith(CONCEPT_START_HEADER_PREFIX)),
     0,
   );
   const excludedColumns = [];
@@ -499,7 +531,7 @@ function extractConceptColumns({ sourceRows, sourceHeaders }) {
         sampleValue: values[0] ?? '',
       };
     })
-    .filter((column) => column.nonZeroCount > 0)
+    .filter((column) => column.nonZeroCount > 0 || isTaxSourceHeader(column.baseHeader))
     .filter((column) => {
       if (!isNonLoadableHistoricalConcept(column.baseHeader)) {
         return true;
@@ -593,8 +625,11 @@ function isFinningMappingScope(mappingScope) {
   return !mappingScope || mappingScope.key === 'meta4:rex:finning';
 }
 
-function getExcludedHistoricalEmployeeIds(mappingScope) {
-  return isFinningMappingScope(mappingScope) ? FINNING_TERMINATED_EMPLOYEE_IDS : new Set();
+function getExcludedHistoricalEmployeeIds() {
+  // Historical books may legitimately contain people terminated after the
+  // payroll period. Only the current REX+ employee master decides whether a
+  // row can be exported; no hard-coded employee exclusion is applied here.
+  return new Set();
 }
 
 function sourceSectionForColumn(index) {
@@ -664,22 +699,13 @@ function isExcludedSourceHeader(value) {
   );
 }
 
+function isTaxSourceHeader(value) {
+  return /^IMPUESTO(?:\s|$)/i.test(cleanCell(value));
+}
+
 function isNonLoadableHistoricalConcept(value) {
   const normalizedHeader = cleanCell(value).toUpperCase();
   return NON_LOADABLE_HISTORICAL_PATTERNS.some((pattern) => pattern.test(normalizedHeader));
-}
-
-function isContractualHistoricalConcept(sourceName, targetId) {
-  const normalizedSourceName = cleanCell(sourceName)
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
-
-  return (
-    CONTRACTUAL_HISTORICAL_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedSourceName)) ||
-    CONTRACTUAL_HISTORICAL_TARGET_IDS.has(normalizedTargetId)
-  );
 }
 
 function buildDetailRow(sourceRow, targetId, amount, employee) {
@@ -698,6 +724,216 @@ function buildDetailRow(sourceRow, targetId, amount, employee) {
   row[16] = 'C';
 
   return row;
+}
+
+const REX_COMPANY_IDS = [
+  ['finning chile', 1],
+  ['finning capacitacion', 2],
+  ['centro de formacion tecnica finning', 3],
+  ['distribuidora perkins chilena', 4],
+  ['sitech southern cone', 5],
+];
+
+const REX_HEALTH_INSTITUTIONS = [
+  ['cruzblanca', 'cruzblanca'],
+  ['banmedica', 'banmedica'],
+  ['colmena', 'colmena'],
+  ['consalud', 'consalud'],
+  ['isapre nueva masvida', 'nuevamasvida'],
+  ['nueva masvida', 'nuevamasvida'],
+  ['vida tres', 'vidatres'],
+  ['masvida', 'masvida'],
+  ['fonasa', 'fonasa'],
+];
+
+function buildRexLiquidationRow({ sourceRow, employee, decision, amount, period, decisions, mappingScope }) {
+  const targetId = decision.targetId;
+  const row = Array(REX_LIQUIDATION_HEADERS.length).fill(0);
+  const isTax = isTaxDecision(decision);
+
+  row[0] = period || inferHistoricalPeriod(sourceRow);
+  row[1] = employee.id || getSourceEmployeeId(sourceRow);
+  row[2] = employee.contract || '1';
+  row[3] = targetId;
+  row[4] = amount;
+  row[5] = resolveAfecto(targetId, sourceRow);
+  row[6] = resolveRexInstitutionId(targetId, sourceRow, employee);
+  row[7] = resolveCotizacionJubilacion(targetId, sourceRow, employee);
+  row[8] = resolveSourceAmount(sourceRow, [/DIAS .*LICEN/, /LICENCIAS/]);
+  row[9] = resolveSourceAmount(sourceRow, [/^DIAS TRABAJADOS$/]);
+  row[10] = 'x';
+  row[11] = resolveRexCompanyId(sourceRow, mappingScope);
+  row[12] = isTax ? resolveLegalDiscountTotal(sourceRow, decisions) : 0;
+  row[13] = isTax ? resolveNonTaxableTotal(sourceRow, decisions) : 0;
+  row[14] = resolveSourceAmount(sourceRow, [/REBAJA .*ZONA/, /ZONA EXTREMA/]);
+  row[15] = resolveRexJornada(sourceRow);
+  row[16] = resolveSourceAmount(sourceRow, [/DIAS .*VACACIONES/, /DIAS CORRIDOS VACACIONES/]);
+  row[17] = isSalaryBaseDecision(targetId) ? resolveSourceAmount(sourceRow, [/^SUELDO BASE$/]) : 0;
+  row[18] = 0;
+  row[19] = 0;
+
+  return row;
+}
+
+function isTaxDecision(decision) {
+  return normalizeText(decision?.targetId).replace(/[^a-z0-9]+/g, '').includes('impuesto');
+}
+
+function isSalaryBaseDecision(targetId) {
+  return normalizeText(targetId).replace(/[^a-z0-9]+/g, '') === 'sueldobase';
+}
+
+function resolveAfecto(targetId, sourceRow) {
+  const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
+  if (normalizedTargetId.includes('impuesto')) {
+    return resolveSourceAmount(sourceRow, [/^BASE TRIBUTABLE$/]);
+  }
+
+  const usesImponible = [
+    'afp',
+    'comisionafp',
+    'reliquidaafp',
+    'isapre',
+    'reliquidaisapre',
+    'cesempleado',
+    'reliquidacesempleado',
+    'sis',
+    'sispago',
+    'mutual',
+    'reliquidamutual',
+    'trabajopesa',
+    'trabajopesaempl',
+  ].includes(normalizedTargetId);
+
+  return usesImponible
+    ? resolveSourceAmount(sourceRow, [/^TOTAL IMPONIBLE TOPADO$/, /^TOTAL IMPONIBLE$/])
+    : 0;
+}
+
+function resolveCotizacionJubilacion(targetId, sourceRow, employee) {
+  const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
+  const explicit = resolveSourceAmount(sourceRow, [/PORCENTAJE.*AFP/, /COTIZACION.*AFP.*%/, /AFP COTI/]);
+  if (explicit) {
+    return explicit;
+  }
+
+  if (['afp', 'comisionafp', 'reliquidaafp'].includes(normalizedTargetId)) {
+    return Number(employee.afpCoti) || 10;
+  }
+
+  if (['cesempleado', 'reliquidacesempleado'].includes(normalizedTargetId)) {
+    return normalizeText(employee.tipoCont).includes('indef') ? 0.6 : 0;
+  }
+
+  if (['sis', 'sispago'].includes(normalizedTargetId)) {
+    return 1.54;
+  }
+
+  if (normalizedTargetId.includes('trabajopesa')) {
+    return 2;
+  }
+
+  if (normalizedTargetId.includes('mutual')) {
+    return 2.1;
+  }
+
+  return 0;
+}
+
+function resolveRexInstitutionId(targetId, sourceRow, employee) {
+  const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
+  if (LOS_ANDES_CONCEPT_IDS.has(normalizedTargetId)) {
+    return 'losandes';
+  }
+
+  if (['afp', 'comisionafp', 'reliquidaafp', 'sis', 'sispago', 'cesempleado', 'reliquidacesempleado'].includes(normalizedTargetId)) {
+    return resolveAfpInstitutionId(employee.afp || firstSourceValue(sourceRow, ['AFP', 'CODIGO AFP']));
+  }
+
+  if (normalizedTargetId.includes('isapre') || normalizedTargetId === 'salud') {
+    return resolveHealthInstitutionId(firstSourceValue(sourceRow, ['ISAPRE', 'CODIGO ISAPRE']));
+  }
+
+  if (normalizedTargetId === 'apvi' || normalizedTargetId.includes('apv')) {
+    const sourceInstitution = firstSourceValue(sourceRow, ['INSTITUCION APV', 'ID APV', 'APV INSTITUCION']);
+    return sourceInstitution || (employee.afp ? `apv${normalizeText(employee.afp).replace(/[^a-z0-9]/g, '')}` : '');
+  }
+
+  if (normalizedTargetId.includes('mutual') || normalizedTargetId.includes('sanna')) {
+    return 'mutseg';
+  }
+
+  return '';
+}
+
+function resolveHealthInstitutionId(value) {
+  const normalizedValue = normalizeText(value);
+  const match = REX_HEALTH_INSTITUTIONS.find(([label]) => normalizedValue.includes(label));
+  return match?.[1] ?? cleanCell(value);
+}
+
+function resolveRexCompanyId(sourceRow, mappingScope) {
+  const value = normalizeText(firstSourceValue(sourceRow, ['EMPRESA']));
+  const match = REX_COMPANY_IDS.find(([label]) => value.includes(label));
+  if (match) {
+    return match[1];
+  }
+
+  return mappingScope?.company === 'finning' ? 1 : 0;
+}
+
+function resolveRexJornada(sourceRow) {
+  const directValue = normalizeText(firstSourceValue(sourceRow, ['JORNADA', 'MODALIDAD DEL CONTRATO']));
+  if (directValue === 'c' || directValue.includes('completa')) {
+    return 'C';
+  }
+  if (directValue === 'p' || directValue.includes('parcial')) {
+    return 'P';
+  }
+
+  const hours = resolveSourceAmount(sourceRow, [/^HORAS JORNADA$/, /^FACTOR HORAS$/]);
+  return hours >= 160 ? 'C' : 'P';
+}
+
+function resolveLegalDiscountTotal(sourceRow, decisions) {
+  const legalTargets = new Set(['afp', 'isapre', 'cesempleado', 'apvi', 'trabajopesaempl']);
+  return decisions.reduce((total, decision) => {
+    const targetId = normalizeText(decision.targetId).replace(/[^a-z0-9]+/g, '');
+    if (!legalTargets.has(targetId)) {
+      return total;
+    }
+    return total + Math.max(0, parseHistoricalAmount(sourceRow[decision.sourceKey]) ?? 0);
+  }, 0);
+}
+
+function resolveNonTaxableTotal(sourceRow, decisions) {
+  return decisions.reduce((total, decision) => {
+    const type = normalizeText(decision.targetConcept?.type || decision.type);
+    const name = normalizeText(decision.targetName);
+    const isNonTaxable = type === '2e' || name.includes('exento') || name.includes('no gravad');
+    if (!isNonTaxable || name.includes('sobregiro')) {
+      return total;
+    }
+    return total + Math.max(0, parseHistoricalAmount(sourceRow[decision.sourceKey]) ?? 0);
+  }, 0);
+}
+
+function resolveSourceAmount(sourceRow, patterns) {
+  const entries = Object.entries(sourceRow ?? {});
+  for (const pattern of patterns) {
+    const entry = entries.find(([header, value]) => pattern.test(stripDuplicateHeaderSuffix(header)) && parseHistoricalAmount(value) !== null);
+    if (entry) {
+      return parseHistoricalAmount(entry[1]) ?? 0;
+    }
+  }
+
+  return 0;
+}
+
+function inferHistoricalPeriod(sourceRow) {
+  const sourceHeader = Object.keys(sourceRow ?? {}).find((header) => /SUELDO BASE ORIGINAL\d{2}\/\d{4}/i.test(header));
+  const match = sourceHeader?.match(/(\d{2})\/(\d{4})/);
+  return match ? `${match[2]}-${match[1]}` : '';
 }
 
 function resolveInstitutionId(conceptId, sourceRow) {

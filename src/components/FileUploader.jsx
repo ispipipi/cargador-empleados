@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 export default function FileUploader({
   originLabel,
   sourceFile,
@@ -10,13 +12,30 @@ export default function FileUploader({
 }) {
   const canContinue = !isReadingFile && validation?.isValid && sourceFile?.rows?.length > 0;
   const visibleHeaders = sourceFile?.headers?.slice(0, 8) ?? [];
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePassword, setFilePassword] = useState('');
+
+  useEffect(() => {
+    if (validation?.isValid) {
+      setFilePassword('');
+    }
+  }, [validation?.isValid]);
+
+  const handleFileSelected = (file) => {
+    if (!file) {
+      return;
+    }
+
+    setSelectedFile(file);
+    onFileSelected(file, filePassword);
+  };
 
   const handleDrop = (event) => {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
 
     if (file) {
-      onFileSelected(file);
+      handleFileSelected(file);
     }
   };
 
@@ -47,16 +66,43 @@ export default function FileUploader({
           </span>
           <p className="mt-6 text-xl font-bold text-slate-900">Arrastra tu Excel {originLabel} aquí</p>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
-            También puedes hacer clic para buscar el archivo. El sistema no sube datos a ningún servidor.
+            También puedes hacer clic para buscar el archivo. Si está protegido, la aplicación te pedirá la clave antes de procesarlo.
           </p>
           <input
             type="file"
             accept=".xls,.xlsx"
             className="hidden"
             disabled={isReadingFile}
-            onChange={(event) => onFileSelected(event.target.files?.[0])}
+            onChange={(event) => handleFileSelected(event.target.files?.[0])}
           />
         </label>
+
+        {validation?.requiresPassword || validation?.invalidPassword ? (
+          <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+            <p className="font-semibold">Este Excel está protegido con clave</p>
+            <p className="mt-1 text-amber-800">
+              La clave se usa solo en la memoria del navegador y no se guarda ni se envía a un servidor.
+            </p>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <input
+                type="password"
+                value={filePassword}
+                onChange={(event) => setFilePassword(event.target.value)}
+                placeholder="Ingresa la clave del Excel"
+                autoComplete="off"
+                className="min-w-0 flex-1 rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-amber-400 transition focus:ring-2"
+              />
+              <button
+                type="button"
+                onClick={() => selectedFile && onFileSelected(selectedFile, filePassword)}
+                disabled={isReadingFile || !filePassword.trim()}
+                className="rounded-2xl bg-amber-600 px-5 py-3 font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+              >
+                Reintentar lectura
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {isReadingFile ? (
           <div className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-700">

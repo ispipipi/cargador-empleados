@@ -35,21 +35,34 @@ export default function ConceptsMapper({
   onCatalogUpdated,
 }) {
   const [catalogError, setCatalogError] = useState('');
+  const [catalogPassword, setCatalogPassword] = useState('');
+  const [catalogFile, setCatalogFile] = useState(null);
+  const [catalogNeedsPassword, setCatalogNeedsPassword] = useState(false);
+  const [monthlyBookPassword, setMonthlyBookPassword] = useState('');
   const mappingCount = resource?.mappingRows?.length ?? 0;
   const conceptCount = resource?.concepts?.length ?? 0;
+
+  const readCatalog = async (file, password) => {
+    setCatalogError('');
+    try {
+      const catalog = await parseConceptCatalogWorkbook(await file.arrayBuffer(), password);
+      setCatalogNeedsPassword(false);
+      setCatalogPassword('');
+      onCatalogUpdated(catalog);
+    } catch (error) {
+      const needsPassword = error?.code === 'PASSWORD_REQUIRED' || error?.code === 'INVALID_PASSWORD';
+      setCatalogNeedsPassword(needsPassword);
+      setCatalogError(needsPassword ? error.message : error instanceof Error ? error.message : 'No fue posible leer el listado de conceptos.');
+    }
+  };
 
   const handleCatalogChange = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
 
-    setCatalogError('');
-    try {
-      const catalog = await parseConceptCatalogWorkbook(file);
-      onCatalogUpdated(catalog);
-    } catch (error) {
-      setCatalogError(error instanceof Error ? error.message : 'No fue posible leer el listado de conceptos.');
-    }
+    setCatalogFile(file);
+    await readCatalog(file, catalogPassword);
   };
 
   return (
@@ -101,6 +114,24 @@ export default function ConceptsMapper({
                 <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">Elegir archivo</span>
                 <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={handleCatalogChange} disabled={isUpdatingCatalog} />
               </label>
+              <input
+                type="password"
+                value={catalogPassword}
+                onChange={(event) => setCatalogPassword(event.target.value)}
+                placeholder="Clave opcional del catálogo REX+"
+                autoComplete="off"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-blue-400 transition focus:ring-2"
+              />
+              {catalogNeedsPassword && catalogFile ? (
+                <button
+                  type="button"
+                  onClick={() => readCatalog(catalogFile, catalogPassword)}
+                  disabled={isUpdatingCatalog || !catalogPassword.trim()}
+                  className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Reintentar catálogo protegido
+                </button>
+              ) : null}
 
               <label className="group flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 transition hover:border-blue-500 hover:bg-blue-100/70">
                 <span className="flex items-center gap-3">
@@ -111,8 +142,16 @@ export default function ConceptsMapper({
                   </span>
                 </span>
                 <span className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">Comenzar</span>
-                <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={(event) => onMonthlyBookSelected(event.target.files?.[0])} disabled={isReadingMonthlyBook} />
+                <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={(event) => onMonthlyBookSelected(event.target.files?.[0], monthlyBookPassword)} disabled={isReadingMonthlyBook} />
               </label>
+              <input
+                type="password"
+                value={monthlyBookPassword}
+                onChange={(event) => setMonthlyBookPassword(event.target.value)}
+                placeholder="Clave opcional del libro mensual"
+                autoComplete="off"
+                className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-blue-400 transition focus:ring-2"
+              />
             </div>
 
             {(isUpdatingCatalog || isReadingMonthlyBook) && (

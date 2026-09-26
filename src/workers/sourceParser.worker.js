@@ -3,11 +3,20 @@ import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } f
 import { extractVismaPeriod, getVismaHeaderRow, getVismaHistoricalFormatIssues } from '../connectors/origins/visma';
 import { getTalanaFormatIssues, getTalanaHistoricalMissingColumns, getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
+import { Buffer } from 'buffer';
+import process from 'process';
 
-self.onmessage = (event) => {
+globalThis.Buffer = Buffer;
+globalThis.process = process;
+
+const workbookCryptoPromise = import('../lib/workbookCrypto');
+
+self.onmessage = async (event) => {
   try {
-    const { arrayBuffer, originId = 'talana' } = event.data;
-    const workbook = XLSX.read(arrayBuffer, {
+    const { arrayBuffer, originId = 'talana', password = '' } = event.data;
+    const { decryptWorkbook } = await workbookCryptoPromise;
+    const readableArrayBuffer = await decryptWorkbook(arrayBuffer, password);
+    const workbook = XLSX.read(readableArrayBuffer, {
       type: 'array',
       raw: false,
     });
@@ -36,6 +45,7 @@ self.onmessage = (event) => {
   } catch (error) {
     self.postMessage({
       ok: false,
+      code: error?.code || '',
       error: error instanceof Error ? error.message : 'No se pudo leer el archivo.',
     });
   }
@@ -216,8 +226,53 @@ function parseMeta4Workbook(workbook, { preserveDuplicateHeaders = false } = {})
     missingColumns,
     formatIssues,
     formatName: preserveDuplicateHeaders ? 'Meta 4 Finning' : 'Meta 4',
+    period: preserveDuplicateHeaders ? buildMeta4Period(rows, headerRowIndex, rawHeaders) : '',
     rows: dataRows,
   };
+}
+
+function buildMeta4Period(rows, headerRowIndex, headers) {
+  for (let rowIndex = 0; rowIndex < headerRowIndex; rowIndex += 1) {
+    const row = rows[rowIndex] ?? [];
+    const dateColumn = row.findIndex((value) => cleanCell(value).toUpperCase() === 'FECHA PAGO');
+    if (dateColumn < 0) {
+      continue;
+    }
+
+    const value = row[dateColumn + 1];
+    const period = parsePeriodValue(value);
+    if (period) {
+      return period;
+    }
+  }
+
+  const sourceHeader = headers.find((header) => /SUELDO BASE ORIGINAL\d{2}\/\d{4}/i.test(header));
+  const headerMatch = sourceHeader?.match(/(\d{2})\/(\d{4})/);
+  return headerMatch ? `${headerMatch[2]}-${headerMatch[1]}` : '';
+}
+
+function parsePeriodValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed?.y && parsed?.m) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}`;
+    }
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  const rawValue = cleanCell(value);
+  const slashMatch = rawValue.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (slashMatch) {
+    const month = slashMatch[1].padStart(2, '0');
+    const year = slashMatch[3].length === 2 ? `20${slashMatch[3]}` : slashMatch[3];
+    return `${year}-${month}`;
+  }
+
+  const isoMatch = rawValue.match(/^(\d{4})[/-](\d{1,2})/);
+  return isoMatch ? `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}` : '';
 }
 
 function findMeta4HeaderRow(rows, preserveDuplicateHeaders) {

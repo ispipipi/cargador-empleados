@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { cleanCell, normalizeText } from './utils';
 import { loadConceptCatalogMemory } from './sessionPersistence';
+import { decryptWorkbook } from './workbookCrypto';
 
 const LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos.xlsx`;
 const FINNING_LISTS_ASSET_PATH = `${import.meta.env.BASE_URL}concepts/lista-conceptos-finning.xlsx`;
@@ -150,8 +151,8 @@ export async function loadConceptsResource() {
   };
 }
 
-export function parseConceptCatalogWorkbook(arrayBuffer) {
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+export async function parseConceptCatalogWorkbook(arrayBuffer, password = '') {
+  const workbook = XLSX.read(await decryptWorkbook(arrayBuffer, password), { type: 'array' });
   const sheetName = workbook.SheetNames.find((name) => normalizeText(name) === normalizeText('Lista de conceptos')) ?? workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
@@ -402,9 +403,11 @@ function parseEmployeeTemplate(workbook) {
       name: cleanCell(get(row, ['Nombre colaborador', 'nombre_completo'])),
       contract: cleanCell(get(row, ['Contrato', 'contrato'])) || '1',
       contractName: cleanCell(get(row, ['Nombre de contrato', 'tipoCont'])) || 'Contrato Indefinido',
+      tipoCont: cleanCell(get(row, ['tipoCont', 'Tipo de contrato', 'Nombre de contrato'])),
       status: cleanCell(get(row, ['estado'])),
       afp: cleanCell(get(row, ['afp'])),
       afpName: cleanCell(get(row, ['nombre_afp'])),
+      afpCoti: cleanCell(get(row, ['afpCoti', 'Cotización AFP'])),
     }))
     .filter((employee) => employee.id);
 }

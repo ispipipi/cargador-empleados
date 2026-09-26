@@ -94,9 +94,9 @@ const MODULE_OPTIONS = [
     id: 'conceptos-historicos',
     group: 'historicos',
     number: '03',
-    name: 'Concepto detalle histórico',
-    detail: 'Meta 4 → REX+ Concepto Detalle',
-    instruction: 'Lee la remuneración mensual de Meta 4, reutiliza los mapeos guardados y prepara un CSV de Concepto Detalle.',
+    name: 'Carga de libros históricos',
+    detail: 'Meta 4 → REX+ Liquidaciones en Detalle',
+    instruction: 'Lee un libro mensual de Meta 4, reutiliza los mapeos guardados y prepara el Excel oficial de Liquidaciones en Detalle.',
     actionLabel: 'Continuar a carga de archivo',
   },
   {
@@ -137,6 +137,7 @@ export default function FormatSelector({
   onResumeSession,
   onDeleteSession,
 }) {
+  const [catalogPassword, setCatalogPassword] = useState('');
   const templateReady = templateStatus === 'ready';
   const selectedModuleOption = MODULE_OPTIONS.find((module) => module.id === selectedModule);
   const [activeGroupId, setActiveGroupId] = useState(selectedModuleOption?.group ?? MODULE_GROUPS[0].id);
@@ -322,19 +323,29 @@ export default function FormatSelector({
                     </p>
                   </div>
                 </div>
-                <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:border-brand-400 hover:bg-brand-100">
-                  {isUpdatingConceptCatalog ? 'Actualizando…' : 'Cargar catálogo'}
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
                   <input
-                    type="file"
-                    accept=".xls,.xlsx"
-                    className="sr-only"
-                    onChange={(event) => {
-                      onCatalogSelected(event.target.files?.[0]);
-                      event.target.value = '';
-                    }}
-                    disabled={isUpdatingConceptCatalog}
+                    type="password"
+                    value={catalogPassword}
+                    onChange={(event) => setCatalogPassword(event.target.value)}
+                    placeholder="Clave opcional"
+                    autoComplete="off"
+                    className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-xs text-slate-900 outline-none ring-brand-400 transition focus:ring-2 sm:w-44"
                   />
-                </label>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:border-brand-400 hover:bg-brand-100">
+                    {isUpdatingConceptCatalog ? 'Actualizando…' : 'Cargar catálogo'}
+                    <input
+                      type="file"
+                      accept=".xls,.xlsx"
+                      className="sr-only"
+                      onChange={(event) => {
+                        onCatalogSelected(event.target.files?.[0], catalogPassword);
+                        event.target.value = '';
+                      }}
+                      disabled={isUpdatingConceptCatalog}
+                    />
+                  </label>
+                </div>
               </div>
             ) : null}
           </div>

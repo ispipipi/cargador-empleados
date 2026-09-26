@@ -8,6 +8,20 @@ const projectRoot = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   base: '/cargador-empleados/',
   plugins: [react()],
+  worker: {
+    format: 'es',
+  },
+  resolve: {
+    alias: {
+      buffer: 'buffer',
+      crypto: 'crypto-browserify',
+      events: 'events',
+      process: 'process/browser',
+      stream: 'stream-browserify',
+      timers: 'timers-browserify',
+      util: 'util',
+    },
+  },
   server: {
     proxy: {
       '/api/geovictoria': {

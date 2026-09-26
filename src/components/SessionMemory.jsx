@@ -1,7 +1,7 @@
 const MODULE_LABELS = {
   empleados: 'Empleados',
   conceptos: 'Conceptos',
-  'conceptos-historicos': 'Conceptos históricos',
+  'conceptos-historicos': 'Carga de libros históricos',
 };
 
 export default function SessionMemory({ sessions, onResume, onDelete }) {

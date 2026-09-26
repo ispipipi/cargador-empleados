@@ -5,10 +5,11 @@ import {
 } from '../lib/concepts';
 import {
   buildHistoricalConceptModel,
-  buildHistoricalDetailCsv,
+  buildHistoricalRexLiquidationWorkbook,
   buildHistoricalReportRows,
   getHistoricalEmployeeIds,
   HISTORICAL_FUNCTIONS,
+  loadHistoricalRexLiquidationTemplate,
   summarizeHistoricalDecisions,
 } from '../lib/historicalConcepts';
 import { normalizeText } from '../lib/utils';
@@ -33,7 +34,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
-  const [exportGroup, setExportGroup] = useState('haber');
+  const [exportGroup, setExportGroup] = useState('all');
   const [exportSelectedIds, setExportSelectedIds] = useState([]);
   const [bulkTarget, setBulkTarget] = useState('');
   const [batchSize, setBatchSize] = useState(10);
@@ -70,9 +71,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
 
       setModel(nextModel);
       setDecisions(storedDecisions);
-      setExportGroup('haber');
+      setExportGroup('all');
       setExportSelectedIds(storedDecisions
-        .filter((decision) => getConceptGroup(decision) === 'haber' && canIncludeInHistoricalOutput(decision))
+        .filter(canIncludeInHistoricalOutput)
         .map((decision) => decision.id));
       setIsBuilding(false);
       onBusyChange?.(false);
@@ -102,13 +103,13 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const excludedConcepts = model?.excludedConcepts ?? [];
   const exportGroupDecisions = useMemo(
     () => decisions
-      .filter((decision) => getConceptGroup(decision) === exportGroup)
+      .filter((decision) => exportGroup === 'all' || getConceptGroup(decision) === exportGroup)
       .sort((left, right) => (left.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER) - (right.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER)),
     [decisions, exportGroup],
   );
   const selectedExportDecisions = useMemo(
-    () => exportGroupDecisions.filter((decision) => exportSelectedIds.includes(decision.id)),
-    [exportGroupDecisions, exportSelectedIds],
+    () => decisions.filter((decision) => exportSelectedIds.includes(decision.id)),
+    [decisions, exportSelectedIds],
   );
   const selectedExportIdsInGroup = useMemo(
     () => exportGroupDecisions.map((decision) => decision.id).filter((id) => exportSelectedIds.includes(id)),
@@ -118,7 +119,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const allExportGroupSelected = selectableExportGroupDecisions.length > 0 && selectableExportGroupDecisions
     .every((decision) => exportSelectedIds.includes(decision.id));
   const selectedExportPending = selectedExportDecisions.filter((decision) => !canIncludeInHistoricalOutput(decision));
-  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || employeeValidation.missing.length > 0;
+  const unresolvedDecisions = decisions.filter((decision) => !decision.excluded && !canIncludeInHistoricalOutput(decision));
+  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0;
   const completedEmployeeIds = useMemo(
     () => new Set(
       (!batchState?.batchKey || batchState.batchKey === BATCH_KEY
@@ -358,18 +360,27 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         });
         triggerWorkbookDownload(workbook, `REX_altas_conceptos_${exportGroupSlug(exportGroup)}_${todayStamp()}.xlsx`);
       } else if (kind === 'output') {
-        const csv = buildHistoricalDetailCsv({ sourceRows: sourceFile.rows, decisions: selectedExportDecisions, employeeCatalog, mappingScope });
-        triggerTextDownload(csv, `REX_conceptos_detalle_${exportGroupSlug(exportGroup)}_${todayStamp()}.csv`);
-      } else if (kind === 'batch') {
-        const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
-        const csv = buildHistoricalDetailCsv({
+        const workbook = buildHistoricalRexLiquidationWorkbook({
+          templateWorkbook: await loadHistoricalRexLiquidationTemplate(),
           sourceRows: sourceFile.rows,
           decisions: selectedExportDecisions,
           employeeCatalog,
           mappingScope,
+          period: sourceFile.period,
+        });
+        triggerWorkbookDownload(workbook, `REX_liquidaciones_detalle_${todayStamp()}.xlsx`);
+      } else if (kind === 'batch') {
+        const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
+        const workbook = buildHistoricalRexLiquidationWorkbook({
+          templateWorkbook: await loadHistoricalRexLiquidationTemplate(),
+          sourceRows: sourceFile.rows,
+          decisions: selectedExportDecisions,
+          employeeCatalog,
+          mappingScope,
+          period: sourceFile.period,
           employeeIds,
         });
-        triggerTextDownload(csv, `REX_conceptos_detalle_lote_${exportGroupSlug(exportGroup)}_${todayStamp()}.csv`);
+        triggerWorkbookDownload(workbook, `REX_liquidaciones_detalle_lote_${todayStamp()}.xlsx`);
         setPreparedBatch({
           employeeIds,
           downloadedAt: new Date().toISOString(),
@@ -409,7 +420,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     return (
       <section className="panel p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Paso 3</p>
-        <h2 className="mt-3 text-3xl font-extrabold text-slate-950">Analizando conceptos históricos</h2>
+        <h2 className="mt-3 text-3xl font-extrabold text-slate-950">Analizando libro histórico</h2>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
           Estamos leyendo las columnas monetarias, detectando montos y preparando las propuestas de match contra REX+.
         </p>
@@ -430,8 +441,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           <div className="relative overflow-hidden bg-[#07101f] px-6 py-8 text-white sm:px-8">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_30%),radial-gradient(circle_at_80%_20%,_rgba(16,185,129,0.2),_transparent_30%),linear-gradient(180deg,_rgba(8,15,28,1),_rgba(3,7,18,1))]" />
             <div className="relative">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Transformator · Conceptos históricos</p>
-              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Meta 4 → REX+ Concepto Detalle</h2>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-300">Transformator · Carga de libros históricos</p>
+              <h2 className="mt-3 text-3xl font-extrabold sm:text-4xl">Meta 4 → REX+ Liquidaciones en Detalle</h2>
               <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
                 Los mapeos guardados son matches perfectos. Las propuestas quedan destacadas y las altas aprobadas se muestran antes de descargar.
               </p>
@@ -455,11 +466,11 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos del listado FINNING V2, todos haberes o descuentos.`
                   : `Catálogo REX+ activo: ${concepts.length.toLocaleString('es-CL')} conceptos disponibles.`}</li>
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
-                <li>La salida usa `M` como origen y `M` como período de pago mensual.</li>
+                <li>La salida conserva la plantilla oficial de REX+: cinco hojas y 20 columnas en `Ejemplo`.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
                 <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
-                <li>Se excluyen leyes sociales, aportes patronales, provisiones, bases de cálculo e impuestos.</li>
-                <li>El CSV se genera con encabezados, UTF-8 y separador punto y coma.</li>
+                <li>Las reglas de Afecto, instituciones, impuesto, jornada y monto inicial se aplican según las notas de la plantilla.</li>
+                <li>Los lotes se descargan en Excel y se descuentan sólo al marcarlos como cargados en REX+.</li>
               </ul>
             </div>
             <div className="mt-5 rounded-[28px] border border-cyan-100 bg-cyan-50 p-5 text-sm text-cyan-900">
@@ -491,9 +502,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-700">Archivo de carga</p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">Elige qué grupo generar</h3>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Elige qué conceptos incluir</h3>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                    Selecciona Haberes o Descuentos y luego marca los conceptos que quieres incluir en ese CSV. El archivo sólo contendrá el grupo y los conceptos marcados.
+                    El archivo puede contener haberes y descuentos. Puedes revisar por grupo y marcar los conceptos que quieres incluir en el Excel de Liquidaciones en Detalle.
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
@@ -502,6 +513,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setExportGroup('all')}
+                  className={`rounded-2xl border p-4 text-left transition ${exportGroup === 'all' ? 'border-indigo-300 bg-indigo-50 text-indigo-800' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
+                >
+                  <div className="flex items-center justify-between gap-3"><span className="font-semibold">Todos</span><span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">{decisions.length}</span></div>
+                  <p className="mt-2 text-xs opacity-80">Haberes, descuentos y leyes del libro</p>
+                </button>
                 {[
                   ['haber', 'Haberes', 'Conceptos pagados o devengados', 'border-emerald-300 bg-emerald-50 text-emerald-800'],
                   ['descuento', 'Descuentos', 'Descuentos del colaborador', 'border-amber-300 bg-amber-50 text-amber-800'],
@@ -530,7 +549,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                     <input type="checkbox" checked={allExportGroupSelected} onChange={handleExportGroupSelectAll} />
-                    Seleccionar todos los {exportGroup === 'haber' ? 'haberes' : 'descuentos disponibles'}
+                    Seleccionar todos los {exportGroup === 'all' ? 'conceptos disponibles' : exportGroup === 'haber' ? 'haberes' : 'descuentos disponibles'}
                   </label>
                   <span className="text-xs text-slate-500">
                     {exportGroupDecisions.length} conceptos del grupo · {selectedExportIdsInGroup.length} incluidos
@@ -580,7 +599,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Carga controlada</p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar siguiente lote para REX+</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Se incluyen sólo los conceptos seleccionados de {exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} para cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
+                    Se incluyen los conceptos seleccionados de todo el libro para cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
@@ -638,7 +657,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               ) : remainingEmployeeIds.length > 0 ? (
                 <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-brand-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-slate-600">
-                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. La descarga generará un CSV UTF-8 para Concepto Detalle.
+                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. La descarga conservará las cinco hojas del Excel oficial de REX+.
                   </p>
                   <button type="button" onClick={() => handleDownload('batch')} className="button-primary shrink-0" disabled={isPreparing}>
                     Descargar siguiente lote
@@ -652,14 +671,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             </section>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <DownloadButton
-                title="Descargar archivo de carga histórica"
+                title="Descargar archivo de carga a REX+"
                 detail={employeeValidation.missing.length
                   ? `Bloqueado: faltan ${employeeValidation.missing.length} colaboradores REX+`
                   : hasExportBlockers
                     ? selectedExportDecisions.length === 0
                       ? 'Selecciona conceptos para generar el archivo'
                       : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                    : `CSV UTF-8 de ${exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} listo para cargar en REX+`}
+                    : 'Excel de Liquidaciones en Detalle listo para cargar en REX+'}
                 onClick={() => handleDownload('output')}
                 disabled={hasExportBlockers || isPreparing}
                 primary
@@ -821,14 +840,14 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             disabled={selectedCreatedCount === 0 || isPreparing}
           />
           <DownloadButton
-            title="Descargar Concepto Detalle"
+            title="Descargar archivo de carga a REX+"
             detail={employeeValidation.missing.length
               ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+`
               : hasExportBlockers
                 ? selectedExportDecisions.length === 0
                   ? 'Selecciona conceptos para generar el archivo'
                   : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                : `CSV UTF-8 de ${exportGroup === 'haber' ? 'Haberes' : 'Descuentos'} listo para cargar en REX+`}
+                : 'Excel de Liquidaciones en Detalle listo para cargar en REX+'}
             onClick={() => handleDownload('output')}
             disabled={hasExportBlockers || isPreparing}
             primary
@@ -927,14 +946,20 @@ function canIncludeInHistoricalOutput(decision) {
   return Boolean(
     decision.approved
       && !decision.excluded
-      && !decision.autoExcluded
       && decision.targetId
-      && Number(decision.nonZeroCount) > 0,
+      && (Number(decision.nonZeroCount) > 0 || isTaxDecision(decision)),
   );
 }
 
 function exportGroupSlug(group) {
+  if (group === 'all') {
+    return 'liquidaciones';
+  }
   return group === 'descuento' ? 'descuentos' : 'haberes';
+}
+
+function isTaxDecision(decision) {
+  return normalizeText(decision?.targetId || decision?.sourceName).includes('impuesto');
 }
 
 function Metric({ label, value, tone = 'default' }) {
@@ -944,18 +969,6 @@ function Metric({ label, value, tone = 'default' }) {
 
 function DownloadButton({ title, detail, onClick, disabled, primary = false }) {
   return <button type="button" onClick={onClick} disabled={disabled} className={`rounded-[24px] border p-5 text-left transition ${primary ? 'border-brand-200 bg-brand-50 hover:border-brand-400' : 'border-slate-200 bg-white hover:border-brand-200'} disabled:cursor-not-allowed disabled:opacity-50`}><p className="font-semibold text-slate-900">{title}</p><p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p></button>;
-}
-
-function triggerTextDownload(contents, fileName) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 function triggerWorkbookDownload(workbook, fileName) {

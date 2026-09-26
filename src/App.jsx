@@ -428,12 +428,12 @@ export default function App() {
               }
             : isPreparingHistoricalDownload
               ? {
-              title: isVismaHistoricalFlow || isTalanaHistoricalFlow ? 'Preparando libro histórico' : 'Preparando conceptos históricos',
+              title: isVismaHistoricalFlow || isTalanaHistoricalFlow || isHistoricalConceptsFlow ? 'Preparando libro histórico' : 'Preparando conceptos históricos',
               detail: isVismaHistoricalFlow
                 ? 'Estamos armando el CSV de Liquidaciones Detalle y validando sus filas antes de descargar.'
                 : isTalanaHistoricalFlow
                   ? 'Estamos armando el libro histórico de BUK y validando sus pestañas antes de descargar.'
-                  : 'Estamos armando el CSV de Concepto Detalle y validando sus filas antes de descargar.',
+                  : 'Estamos armando el Excel de Liquidaciones en Detalle y validando sus filas antes de descargar.',
                 }
               : exportState
                 ? exportState
@@ -498,7 +498,7 @@ export default function App() {
     [preparedRexDownload],
   );
 
-  const handleFileSelected = async (file) => {
+  const handleFileSelected = async (file, password = '') => {
     if (!file) {
       return;
     }
@@ -529,7 +529,7 @@ export default function App() {
           : isHistoricalConceptsFlow
             ? 'meta4-historico'
             : selectedOrigin;
-      const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin);
+      const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin, password);
       const validationMessage = buildValidationMessage({
         originId: parserOrigin,
         parsedSource,
@@ -559,14 +559,18 @@ export default function App() {
       setValidation({
         isValid: false,
         missingColumns: [],
-        message: `No se pudo leer el archivo: ${error.message}`,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el archivo: ${error.message}`,
       });
     } finally {
       setIsReadingFile(false);
     }
   };
 
-  const handleMonthlyBookSelected = async (file) => {
+  const handleMonthlyBookSelected = async (file, password = '') => {
     if (!file) {
       return;
     }
@@ -584,7 +588,7 @@ export default function App() {
 
     try {
       await waitForUiToPaint();
-      const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico');
+      const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico', password);
 
       if (parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0 || parsedSource.rows.length === 0) {
         throw new Error(
@@ -600,6 +604,7 @@ export default function App() {
         headers: parsedSource.headers,
         rows: parsedSource.rows,
         previewRows: parsedSource.previewRows,
+        period: parsedSource.period,
       };
 
       setSessionId(createSessionId());
@@ -613,7 +618,9 @@ export default function App() {
       setStep(STEPS.historicalReview);
     } catch (error) {
       setSourceFile(null);
-      setGlobalError(`No se pudo leer el libro mensual: ${error.message}`);
+      setGlobalError(error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+        ? error.message
+        : `No se pudo leer el libro mensual: ${error.message}`);
     } finally {
       setIsReadingFile(false);
     }
@@ -635,7 +642,7 @@ export default function App() {
     }
   };
 
-  const handleConceptCatalogFileSelected = async (file) => {
+  const handleConceptCatalogFileSelected = async (file, password = '') => {
     if (!file) {
       return;
     }
@@ -643,7 +650,7 @@ export default function App() {
     setGlobalError('');
 
     try {
-      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer());
+      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer(), password);
       await handleConceptCatalogUpdated(concepts);
     } catch (error) {
       setGlobalError(error instanceof Error ? error.message : 'No fue posible leer el catálogo REX+.');
@@ -1358,7 +1365,7 @@ export default function App() {
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
-            continueLabel={isVismaHistoricalFlow || isTalanaHistoricalFlow ? 'Analizar libro histórico' : isHistoricalConceptsFlow ? 'Analizar conceptos históricos' : 'Continuar al wizard'}
+            continueLabel={isVismaHistoricalFlow || isTalanaHistoricalFlow || isHistoricalConceptsFlow ? 'Analizar libro histórico' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(showVismaSidebar ? STEPS.vismaEmployeesReview : STEPS.format)}
             onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isTalanaHistoricalFlow ? STEPS.talanaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
@@ -1630,7 +1637,7 @@ function normalizeOrigin(originId) {
   return originId === 'meta4' ? 'meta4' : 'talana';
 }
 
-function parseSourceWorkbook(arrayBuffer, originId) {
+function parseSourceWorkbook(arrayBuffer, originId, password = '') {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./workers/sourceParser.worker.js', import.meta.url), {
       type: 'module',
@@ -1644,7 +1651,9 @@ function parseSourceWorkbook(arrayBuffer, originId) {
         return;
       }
 
-      reject(new Error(event.data?.error || 'No se pudo leer el archivo.'));
+      const error = new Error(event.data?.error || 'No se pudo leer el archivo.');
+      error.code = event.data?.code || '';
+      reject(error);
     };
 
     worker.onerror = () => {
@@ -1652,7 +1661,7 @@ function parseSourceWorkbook(arrayBuffer, originId) {
       reject(new Error('No se pudo procesar el archivo en segundo plano.'));
     };
 
-    worker.postMessage({ arrayBuffer, originId }, [arrayBuffer]);
+    worker.postMessage({ arrayBuffer, originId, password }, [arrayBuffer]);
   });
 }
 
