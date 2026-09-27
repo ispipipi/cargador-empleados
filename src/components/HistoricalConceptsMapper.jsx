@@ -20,7 +20,7 @@ const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 const BATCH_KEY = 'meta4-rex-concepts';
 
-export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, mappingScope, batchState, onBatchStateChange, onBack, onOpenMissingEmployees, onBusyChange }) {
+export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, employeeCatalogOverride, employeeMasterFileName, mappingScope, batchState, onBatchStateChange, onBack, onOpenMissingEmployees, onBusyChange }) {
   const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
   const concepts = useMemo(
     () => (isFinningCatalog ? conceptsResource?.historicalConcepts ?? conceptsResource?.concepts ?? [] : conceptsResource?.concepts ?? []),
@@ -40,10 +40,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   const [batchSize, setBatchSize] = useState(10);
   const [preparedBatch, setPreparedBatch] = useState(null);
   const employeeCatalog = useMemo(
-    () => (isFinningCatalog
+    () => employeeCatalogOverride ?? (isFinningCatalog
       ? conceptsResource?.finningEmployeeCatalog ?? conceptsResource?.employeeCatalog ?? []
       : conceptsResource?.employeeCatalog ?? []),
-    [conceptsResource, isFinningCatalog],
+    [conceptsResource, employeeCatalogOverride, isFinningCatalog],
   );
 
   useEffect(() => {
@@ -469,6 +469,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <li>La salida conserva la plantilla oficial de REX+: cinco hojas y 20 columnas en `Ejemplo`.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
                 <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
+                <li>Los trabajadores se comparan contra el maestro cargado: {employeeMasterFileName || 'maestro REX+ embebido'}.</li>
                 <li>Las reglas de Afecto, instituciones, impuesto, jornada y monto inicial se aplican según las notas de la plantilla.</li>
                 <li>Los lotes se descargan en Excel y se descuentan sólo al marcarlos como cargados en REX+.</li>
               </ul>

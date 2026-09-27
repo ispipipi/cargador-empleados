@@ -168,6 +168,17 @@ export async function parseConceptCatalogWorkbook(arrayBuffer, password = '') {
   return concepts;
 }
 
+export async function parseEmployeeMasterWorkbook(arrayBuffer, password = '') {
+  const workbook = XLSX.read(await decryptWorkbook(arrayBuffer, password), { type: 'array' });
+  const employeeCatalog = parseEmployeeTemplate(workbook);
+
+  if (employeeCatalog.length === 0) {
+    throw new Error('No se encontraron trabajadores en el maestro REX+. Revisa que exista la columna empleado.');
+  }
+
+  return employeeCatalog;
+}
+
 export function buildConceptDecisions(resource) {
   const conceptsCatalog = [...resource.concepts, ...VIRTUAL_EXISTING_CONCEPTS];
   const conceptByName = new Map();
@@ -391,6 +402,9 @@ function parseEmployeeTemplate(workbook) {
     return normalizedHeaders.has('plantilla') || normalizedHeaders.has('empleado');
   });
   const headers = rows[headerRowIndex] ?? [];
+  if (headerRowIndex < 0) {
+    throw new Error('El maestro REX+ no contiene una fila de encabezados con la columna empleado.');
+  }
   const headerIndexes = new Map(headers.map((header, index) => [normalizeText(header), index]));
   const get = (row, names) => {
     const index = names.map((name) => headerIndexes.get(normalizeText(name))).find((value) => value !== undefined);

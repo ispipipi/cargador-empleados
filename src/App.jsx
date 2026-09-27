@@ -51,7 +51,7 @@ import {
   validateConfigurationShape,
 } from './lib/storage';
 import { sanitizeFilenameSegment, todayStamp } from './lib/utils';
-import { loadConceptsResource, parseConceptCatalogWorkbook } from './lib/concepts';
+import { loadConceptsResource, parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './lib/concepts';
 import { loadVismaHistoricalResource } from './lib/vismaHistorical';
 import { getMeta4MissingColumns } from './connectors/origins/meta4';
 import {
@@ -115,6 +115,10 @@ export default function App() {
   const [rexCompanyMasterResource, setRexCompanyMasterResource] = useState(null);
   const [conceptsResource, setConceptsResource] = useState(null);
   const [vismaHistoricalResource, setVismaHistoricalResource] = useState(null);
+  const [historicalEmployeeCatalog, setHistoricalEmployeeCatalog] = useState(null);
+  const [historicalEmployeeMasterFile, setHistoricalEmployeeMasterFile] = useState(null);
+  const [historicalEmployeeMasterValidation, setHistoricalEmployeeMasterValidation] = useState(null);
+  const [isReadingHistoricalEmployeeMaster, setIsReadingHistoricalEmployeeMaster] = useState(false);
   const [sourceFile, setSourceFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [result, setResult] = useState(null);
@@ -627,6 +631,43 @@ export default function App() {
     }
   };
 
+  const handleHistoricalEmployeeMasterSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setHistoricalEmployeeMasterValidation({ isValid: false, message: 'El maestro debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setHistoricalEmployeeMasterFile(file);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterValidation(null);
+    setIsReadingHistoricalEmployeeMaster(true);
+
+    try {
+      const employeeCatalog = await parseEmployeeMasterWorkbook(await file.arrayBuffer(), password);
+      setHistoricalEmployeeCatalog(employeeCatalog);
+      setHistoricalEmployeeMasterValidation({
+        isValid: true,
+        message: `Maestro listo. Se encontraron ${employeeCatalog.length.toLocaleString('es-CL')} trabajadores para comparar.`,
+      });
+    } catch (error) {
+      setHistoricalEmployeeCatalog(null);
+      setHistoricalEmployeeMasterValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el maestro: ${error.message}`,
+      });
+    } finally {
+      setIsReadingHistoricalEmployeeMaster(false);
+    }
+  };
+
   const handleConceptCatalogUpdated = async (concepts) => {
     setIsUpdatingConceptCatalog(true);
     saveConceptCatalogMemory(concepts);
@@ -682,6 +723,11 @@ export default function App() {
     if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
       setSelectedOrigin('meta4');
       setSelectedDestination('rex');
+      if (moduleId === 'conceptos-historicos') {
+        setHistoricalEmployeeCatalog(null);
+        setHistoricalEmployeeMasterFile(null);
+        setHistoricalEmployeeMasterValidation(null);
+      }
       return;
     }
 
@@ -716,6 +762,9 @@ export default function App() {
     setValidation(null);
     setResult(null);
     setSessionId(null);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterFile(null);
+    setHistoricalEmployeeMasterValidation(null);
     setGlobalError('');
     setStep(isVismaMastersFlow ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
   };
@@ -725,6 +774,9 @@ export default function App() {
     setSelectedOrigin('talana');
     setSelectedDestination('buk');
     setRexCompanyMasterResource(null);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterFile(null);
+    setHistoricalEmployeeMasterValidation(null);
     setStep(STEPS.format);
     setGlobalError('');
   };
@@ -1276,6 +1328,9 @@ export default function App() {
     setValidation(null);
     setResult(null);
     setRexCompanyMasterResource(null);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterFile(null);
+    setHistoricalEmployeeMasterValidation(null);
     setHistoricalBatchState({ completedEmployeeIds: [] });
     setGlobalError('');
   };
@@ -1413,10 +1468,25 @@ export default function App() {
             sourceFile={sourceFile}
             validation={validation}
             isReadingFile={isReadingFile}
+            secondaryUpload={isHistoricalConceptsFlow ? {
+              title: 'Maestro REX+ de empleados',
+              description: 'Carga el maestro actualizado de REX+. Se usará sólo para comprobar qué trabajadores del libro ya existen.',
+              fileName: historicalEmployeeMasterFile?.name,
+              validation: historicalEmployeeMasterValidation,
+              isReadingFile: isReadingHistoricalEmployeeMaster,
+              onFileSelected: handleHistoricalEmployeeMasterSelected,
+            } : null}
             continueLabel={isVismaHistoricalFlow || isTalanaHistoricalFlow || isHistoricalConceptsFlow ? 'Analizar libro histórico' : 'Continuar al wizard'}
             onFileSelected={handleFileSelected}
             onBack={() => setStep(showVismaSidebar ? STEPS.vismaEmployeesReview : STEPS.format)}
-            onContinue={() => setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isTalanaHistoricalFlow ? STEPS.talanaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params)}
+            onContinue={() => {
+              if (isHistoricalConceptsFlow && !historicalEmployeeCatalog) {
+                setGlobalError('Carga el maestro REX+ de empleados antes de analizar el libro histórico.');
+                return;
+              }
+
+              setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isTalanaHistoricalFlow ? STEPS.talanaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params);
+            }}
           />
         ) : null}
 
@@ -1446,6 +1516,8 @@ export default function App() {
           <HistoricalConceptsMapper
             sourceFile={sourceFile}
             conceptsResource={conceptsResource}
+            employeeCatalogOverride={historicalEmployeeCatalog}
+            employeeMasterFileName={historicalEmployeeMasterFile?.name}
             mappingScope={mappingScope}
             batchState={historicalBatchState}
             onBatchStateChange={setHistoricalBatchState}

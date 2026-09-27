@@ -9,17 +9,29 @@ export default function FileUploader({
   onFileSelected,
   onBack,
   onContinue,
+  secondaryUpload = null,
 }) {
-  const canContinue = !isReadingFile && validation?.isValid && sourceFile?.rows?.length > 0;
+  const canContinue = !isReadingFile
+    && validation?.isValid
+    && sourceFile?.rows?.length > 0
+    && (!secondaryUpload || (!secondaryUpload.isReadingFile && secondaryUpload.validation?.isValid));
   const visibleHeaders = sourceFile?.headers?.slice(0, 8) ?? [];
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePassword, setFilePassword] = useState('');
+  const [secondarySelectedFile, setSecondarySelectedFile] = useState(null);
+  const [secondaryPassword, setSecondaryPassword] = useState('');
 
   useEffect(() => {
     if (validation?.isValid) {
       setFilePassword('');
     }
   }, [validation?.isValid]);
+
+  useEffect(() => {
+    if (secondaryUpload?.validation?.isValid) {
+      setSecondaryPassword('');
+    }
+  }, [secondaryUpload?.validation?.isValid]);
 
   const handleFileSelected = (file) => {
     if (!file) {
@@ -37,6 +49,15 @@ export default function FileUploader({
     if (file) {
       handleFileSelected(file);
     }
+  };
+
+  const handleSecondaryFileSelected = (file) => {
+    if (!file || !secondaryUpload?.onFileSelected) {
+      return;
+    }
+
+    setSecondarySelectedFile(file);
+    secondaryUpload.onFileSelected(file, secondaryPassword);
   };
 
   return (
@@ -139,6 +160,64 @@ export default function FileUploader({
               Se muestran sólo los trabajadores que no estaban en REX+. El archivo original fue {sourceFile.originalFileName}.
             </p>
           </div>
+        ) : null}
+
+        {secondaryUpload ? (
+          <section className="mt-6 rounded-3xl border border-cyan-200 bg-cyan-50/70 p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">Archivo requerido</p>
+                <h3 className="mt-2 text-lg font-bold text-slate-950">{secondaryUpload.title}</h3>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-cyan-900">{secondaryUpload.description}</p>
+              </div>
+              {secondaryUpload.fileName ? (
+                <span className="rounded-full border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-cyan-800">
+                  {secondaryUpload.fileName}
+                </span>
+              ) : null}
+            </div>
+
+            <label className="mt-4 inline-flex cursor-pointer items-center rounded-full border border-cyan-300 bg-white px-4 py-2 text-sm font-semibold text-cyan-800 transition hover:bg-cyan-100">
+              {secondaryUpload.isReadingFile ? 'Leyendo maestro…' : 'Cargar maestro REX+'}
+              <input
+                type="file"
+                accept=".xls,.xlsx"
+                className="sr-only"
+                disabled={secondaryUpload.isReadingFile}
+                onChange={(event) => handleSecondaryFileSelected(event.target.files?.[0])}
+              />
+            </label>
+
+            {secondaryUpload.validation?.requiresPassword || secondaryUpload.validation?.invalidPassword ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <p className="font-semibold">El maestro está protegido con clave</p>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="password"
+                    value={secondaryPassword}
+                    onChange={(event) => setSecondaryPassword(event.target.value)}
+                    placeholder="Ingresa la clave del maestro"
+                    autoComplete="off"
+                    className="min-w-0 flex-1 rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-amber-400 transition focus:ring-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => secondarySelectedFile && secondaryUpload.onFileSelected(secondarySelectedFile, secondaryPassword)}
+                    disabled={secondaryUpload.isReadingFile || !secondaryPassword.trim()}
+                    className="rounded-2xl bg-amber-600 px-5 py-3 font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+                  >
+                    Reintentar lectura
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {secondaryUpload.validation?.message ? (
+              <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${secondaryUpload.validation.isValid ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                {secondaryUpload.validation.message}
+              </div>
+            ) : null}
+          </section>
         ) : null}
 
         {validation?.missingColumns?.length ? (
