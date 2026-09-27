@@ -5,6 +5,8 @@ import {
 } from '../lib/concepts';
 import {
   buildHistoricalConceptModel,
+  buildHistoricalReconciliation,
+  buildHistoricalReconciliationRows,
   buildHistoricalRexLiquidationWorkbook,
   buildHistoricalReportRows,
   getHistoricalEmployeeIds,
@@ -120,7 +122,18 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     .every((decision) => exportSelectedIds.includes(decision.id));
   const selectedExportPending = selectedExportDecisions.filter((decision) => !canIncludeInHistoricalOutput(decision));
   const unresolvedDecisions = decisions.filter((decision) => !decision.excluded && !canIncludeInHistoricalOutput(decision));
-  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0;
+  const reconciliation = useMemo(
+    () => buildHistoricalReconciliation({
+      sourceRows: sourceFile.rows,
+      sourceHeaders: sourceFile.headers,
+      decisions: selectedExportDecisions,
+      employeeCatalog,
+      mappingScope,
+    }),
+    [employeeCatalog, mappingScope, selectedExportDecisions, sourceFile.headers, sourceFile.rows],
+  );
+  const hasReconciliationBlockers = reconciliation.source.status !== 'ok';
+  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0 || hasReconciliationBlockers;
   const completedEmployeeIds = useMemo(
     () => new Set(
       (!batchState?.batchKey || batchState.batchKey === BATCH_KEY
@@ -158,6 +171,16 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     [catalog],
   );
   const selectedCreatedCount = selectedExportDecisions.filter((decision) => decision.action === 'create').length;
+  const reconciliationStatusLabel = reconciliation.source.status === 'ok'
+    ? 'Cuadrado'
+    : reconciliation.source.status === 'blocked'
+      ? 'Diferencias encontradas'
+      : reconciliation.source.status === 'incomplete'
+        ? 'Faltan totales'
+        : 'No disponible';
+  const reconciliationStatusClass = reconciliation.source.status === 'ok'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : 'border-amber-200 bg-amber-50 text-amber-800';
 
   const visibleDecisions = useMemo(() => {
     const normalizedSearch = normalizeText(search);
@@ -395,6 +418,36 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(reportRows), 'Colaboradores pendientes');
         triggerWorkbookDownload(workbook, `REX_pendientes_colaboradores_historicos_${todayStamp()}.xlsx`);
+      } else if (kind === 'reconciliation') {
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+          {
+            Control: 'Estado del libro Meta4',
+            Valor: reconciliation.source.status,
+          },
+          {
+            Control: 'Filas revisadas',
+            Valor: reconciliation.source.totalRows,
+          },
+          {
+            Control: 'Filas con diferencias de líquido',
+            Valor: reconciliation.source.differenceRows,
+          },
+          {
+            Control: 'Diferencia total de líquido',
+            Valor: reconciliation.source.differenceTotal,
+          },
+          {
+            Control: 'Filas incompletas sin los tres totales',
+            Valor: reconciliation.source.incompleteRows,
+          },
+          {
+            Control: 'Nota',
+            Valor: 'La cobertura de conceptos seleccionados es referencial. REX+ puede recalcular conceptos automáticos al procesar la carga.',
+          },
+        ]), 'Resumen');
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(buildHistoricalReconciliationRows(reconciliation)), 'Cuadratura líquido');
+        triggerWorkbookDownload(workbook, `REX_informe_cuadratura_liquido_${todayStamp()}.xlsx`);
       } else {
         const reportRows = buildHistoricalReportRows(
           kind === 'pending'
@@ -404,6 +457,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         const workbook = XLSX.utils.book_new();
         const sheet = XLSX.utils.json_to_sheet(reportRows);
         XLSX.utils.book_append_sheet(workbook, sheet, 'Informe');
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(buildHistoricalReconciliationRows(reconciliation)), 'Cuadratura líquido');
         triggerWorkbookDownload(
           workbook,
           kind === 'pending'
@@ -508,6 +562,63 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <p className="mt-2 leading-6">Ejemplos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
+            <section className="mt-5 rounded-[28px] border border-sky-200 bg-sky-50/70 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Comprobaciones previas</p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">Cuadratura del líquido</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                    Primero se verifica el libro Meta4 por trabajador: total de haberes menos total de descuentos debe ser igual al líquido informado.
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${reconciliationStatusClass}`}>
+                  {reconciliationStatusLabel}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <ReconciliationMetric
+                  label="Filas revisadas"
+                  value={reconciliation.source.totalRows.toLocaleString('es-CL')}
+                  detail={`${reconciliation.source.rowsWithTotals.toLocaleString('es-CL')} con los 3 totales`}
+                />
+                <ReconciliationMetric
+                  label="Diferencias de líquido"
+                  value={reconciliation.source.differenceRows.toLocaleString('es-CL')}
+                  detail={reconciliation.source.differenceRows ? `Máxima: ${formatHistoricalMoney(reconciliation.source.maxDifference)}` : 'Todas cuadran'}
+                  tone={reconciliation.source.differenceRows ? 'warning' : 'success'}
+                />
+                <ReconciliationMetric
+                  label="Cobertura seleccionada"
+                  value={reconciliation.coverage.differenceRows.toLocaleString('es-CL')}
+                  detail="Control referencial; REX+ recalcula automáticos"
+                  tone="neutral"
+                />
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-sky-200 bg-white px-4 py-3 text-sm text-slate-700">
+                {reconciliation.source.status === 'ok' ? (
+                  <p><strong className="text-emerald-700">El libro Meta4 cuadra.</strong> La cobertura de conceptos seleccionados es referencial y no reemplaza el cálculo final de REX+.</p>
+                ) : reconciliation.source.status === 'blocked' ? (
+                  <p><strong className="text-amber-800">La descarga está bloqueada.</strong> Hay {reconciliation.source.differenceRows.toLocaleString('es-CL')} filas donde haberes menos descuentos no coincide con el líquido informado.</p>
+                ) : reconciliation.source.status === 'incomplete' ? (
+                  <p><strong className="text-amber-800">La descarga está bloqueada.</strong> Hay {reconciliation.source.incompleteRows.toLocaleString('es-CL')} filas sin `TOTAL_HABERES`, `TOTAL_DESCUENTOS` o `LIQUIDO`.</p>
+                ) : (
+                  <p><strong className="text-amber-800">La descarga está bloqueada.</strong> No se encontraron los tres totales necesarios para comprobar el líquido.</p>
+                )}
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Si el control referencial no coincide, puede deberse a conceptos contractuales, previsión, salud o impuestos que REX+ calcula automáticamente. El informe detallado permite revisar cada trabajador antes de continuar.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleDownload('reconciliation')}
+                  disabled={isPreparing}
+                  className="mt-3 rounded-full border border-sky-300 bg-white px-4 py-2 text-xs font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Descargar informe de cuadratura
+                </button>
+              </div>
+            </section>
             <section className="mt-5 rounded-[28px] border border-indigo-200 bg-indigo-50/70 p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
@@ -647,6 +758,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                   {employeeValidation.missing.length > 0
                     ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+.`
+                    : hasReconciliationBlockers
+                      ? reconciliation.source.status === 'blocked'
+                        ? `El libro Meta4 tiene ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido.`
+                        : 'No se puede comprobar el líquido porque faltan totales en el libro Meta4.'
                     : selectedExportDecisions.length === 0
                       ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
                       : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
@@ -684,6 +799,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 title="Descargar archivo de carga a REX+"
                 detail={employeeValidation.missing.length
                   ? `Bloqueado: faltan ${employeeValidation.missing.length} colaboradores REX+`
+                  : hasReconciliationBlockers
+                    ? reconciliation.source.status === 'blocked'
+                      ? `Bloqueado: ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido`
+                      : 'Bloqueado: no se pudo comprobar el líquido del libro'
                   : hasExportBlockers
                     ? selectedExportDecisions.length === 0
                       ? 'Selecciona conceptos para generar el archivo'
@@ -853,6 +972,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             title="Descargar archivo de carga a REX+"
             detail={employeeValidation.missing.length
               ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+`
+              : hasReconciliationBlockers
+                ? reconciliation.source.status === 'blocked'
+                  ? `Hay ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido en Meta4`
+                  : 'Faltan totales para comprobar el líquido'
               : hasExportBlockers
                 ? selectedExportDecisions.length === 0
                   ? 'Selecciona conceptos para generar el archivo'
@@ -975,6 +1098,26 @@ function isTaxDecision(decision) {
 function Metric({ label, value, tone = 'default' }) {
   const toneClass = tone === 'success' ? 'bg-emerald-400/10 text-emerald-100' : tone === 'warning' ? 'bg-amber-400/15 text-amber-100' : 'bg-white/10 text-white';
   return <div className={`rounded-2xl px-4 py-4 ${toneClass}`}><p className="text-xs text-white/60">{label}</p><p className="mt-1 text-2xl font-extrabold">{value}</p></div>;
+}
+
+function ReconciliationMetric({ label, value, detail, tone = 'neutral' }) {
+  const toneClass = tone === 'success'
+    ? 'border-emerald-200 bg-emerald-50'
+    : tone === 'warning'
+      ? 'border-amber-200 bg-amber-50'
+      : 'border-slate-200 bg-white';
+
+  return (
+    <div className={`rounded-2xl border px-4 py-4 ${toneClass}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-extrabold text-slate-950">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
+    </div>
+  );
+}
+
+function formatHistoricalMoney(value) {
+  return Number(value || 0).toLocaleString('es-CL');
 }
 
 function DownloadButton({ title, detail, onClick, disabled, primary = false }) {

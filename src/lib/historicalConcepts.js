@@ -231,6 +231,14 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     };
   });
 
+  const reconciliation = buildHistoricalReconciliation({
+    sourceRows,
+    sourceHeaders,
+    decisions,
+    employeeCatalog,
+    mappingScope,
+  });
+
   return {
     decisions,
     catalog,
@@ -238,7 +246,138 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     sourceRows: sourceRows.length,
     excludedConcepts: excludedColumns,
     employeeValidation,
+    reconciliation,
   };
+}
+
+/**
+ * Validates the arithmetic already present in the source book. This is not a
+ * prediction of REX+'s final payroll calculation: REX+ may recalculate
+ * contractual, statutory and tax concepts from the employee contract.
+ */
+export function buildHistoricalReconciliation({ sourceRows = [], sourceHeaders = [], decisions = [], employeeCatalog = [], mappingScope, selectedDecisionIds = null }) {
+  const sourceHeadersByKey = new Map((sourceHeaders ?? []).map((header) => [historicalHeaderKey(header), header]));
+  const totalHaberesHeader = resolveHistoricalHeader(sourceHeadersByKey, ['TOTAL_HABERES', 'TOTAL HABERES', 'TOTAL DE HABERES']);
+  const totalDescuentosHeader = resolveHistoricalHeader(sourceHeadersByKey, ['TOTAL_DESCUENTOS', 'TOTAL DESCUENTOS']);
+  const liquidoHeader = resolveHistoricalHeader(sourceHeadersByKey, ['LIQUIDO', 'LIQUIDO A PAGO', 'SUELDO LIQUIDO']);
+  const selectedIds = selectedDecisionIds ? new Set(selectedDecisionIds) : null;
+  const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
+  const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const includedDecisions = decisions.filter((decision) =>
+    decision.approved && !decision.excluded && decision.targetId && (!selectedIds || selectedIds.has(decision.id)),
+  );
+
+  const rows = sourceRows
+    .map((sourceRow, index) => {
+      const employeeId = getSourceEmployeeId(sourceRow);
+      const totalHaberes = parseHistoricalTotal(sourceRow[totalHaberesHeader]);
+      const totalDescuentos = parseHistoricalTotal(sourceRow[totalDescuentosHeader]);
+      const liquido = parseHistoricalTotal(sourceRow[liquidoHeader]);
+      const hasAllTotals = [totalHaberes, totalDescuentos, liquido].every((value) => value !== null);
+      let includedHaberes = 0;
+      let includedDescuentos = 0;
+
+      includedDecisions.forEach((decision) => {
+        const amount = parseHistoricalAmount(sourceRow[decision.sourceKey]);
+        if (amount === null || amount === 0) {
+          return;
+        }
+
+        if (decision.sourceSection === 'Descuento') {
+          includedDescuentos += amount;
+        } else {
+          includedHaberes += amount;
+        }
+      });
+
+      const sourceCalculatedLiquid = hasAllTotals ? totalHaberes - totalDescuentos : null;
+      const sourceLiquidDifference = hasAllTotals ? sourceCalculatedLiquid - liquido : null;
+      const includedCalculatedLiquid = hasAllTotals ? includedHaberes - includedDescuentos : null;
+      const includedLiquidDifference = hasAllTotals ? includedCalculatedLiquid - liquido : null;
+
+      return {
+        sourceRowNumber: sourceRow.__sourceRowNumber ?? index + 2,
+        employeeId,
+        employeeName: cleanCell(sourceRow.NOMBRE),
+        employeeExists: employeeById.has(employeeId),
+        excluded: excludedEmployeeIds.has(employeeId),
+        totalHaberes,
+        totalDescuentos,
+        liquido,
+        sourceCalculatedLiquid,
+        sourceLiquidDifference,
+        includedHaberes,
+        includedDescuentos,
+        includedCalculatedLiquid,
+        includedLiquidDifference,
+        hasAllTotals,
+      };
+    })
+    .filter((row) => row.employeeId || row.hasAllTotals);
+
+  const rowsWithTotals = rows.filter((row) => row.hasAllTotals);
+  const incompleteRows = rows.filter((row) => !row.hasAllTotals);
+  const sourceDifferenceRows = rowsWithTotals.filter((row) => row.sourceLiquidDifference !== 0);
+  const coverageDifferenceRows = rowsWithTotals.filter((row) => row.includedLiquidDifference !== 0);
+  const sum = (field) => rowsWithTotals.reduce((total, row) => total + (Number(row[field]) || 0), 0);
+  const sourceStatus = rows.length === 0 || rowsWithTotals.length === 0
+    ? 'unavailable'
+    : incompleteRows.length > 0
+      ? 'incomplete'
+      : sourceDifferenceRows.length > 0
+        ? 'blocked'
+        : 'ok';
+
+  return {
+    headers: {
+      totalHaberes: totalHaberesHeader,
+      totalDescuentos: totalDescuentosHeader,
+      liquido: liquidoHeader,
+    },
+    rows,
+    source: {
+      status: sourceStatus,
+      totalRows: rows.length,
+      rowsWithTotals: rowsWithTotals.length,
+      incompleteRows: incompleteRows.length,
+      differenceRows: sourceDifferenceRows.length,
+      differenceTotal: sum('sourceLiquidDifference'),
+      maxDifference: sourceDifferenceRows.reduce((max, row) => Math.max(max, Math.abs(row.sourceLiquidDifference)), 0),
+      totalHaberes: sum('totalHaberes'),
+      totalDescuentos: sum('totalDescuentos'),
+      totalLiquido: sum('liquido'),
+      calculatedLiquido: sum('sourceCalculatedLiquid'),
+    },
+    coverage: {
+      differenceRows: coverageDifferenceRows.length,
+      differenceTotal: sum('includedLiquidDifference'),
+      includedHaberes: sum('includedHaberes'),
+      includedDescuentos: sum('includedDescuentos'),
+      includedLiquido: sum('includedCalculatedLiquid'),
+    },
+  };
+}
+
+export function buildHistoricalReconciliationRows(reconciliation) {
+  return (reconciliation?.rows ?? []).map((row) => ({
+    Fila: row.sourceRowNumber,
+    CI: row.employeeId,
+    Nombre: row.employeeName,
+    'Total haberes Meta4': row.totalHaberes ?? '',
+    'Total descuentos Meta4': row.totalDescuentos ?? '',
+    'Líquido Meta4': row.liquido ?? '',
+    'Líquido calculado Meta4': row.sourceCalculatedLiquid ?? '',
+    'Diferencia líquido libro': row.sourceLiquidDifference ?? '',
+    'Haberes seleccionados': row.includedHaberes,
+    'Descuentos seleccionados': row.includedDescuentos,
+    'Líquido referencial seleccionado': row.includedCalculatedLiquid ?? '',
+    'Diferencia referencial': row.includedLiquidDifference ?? '',
+    Estado: !row.hasAllTotals
+      ? 'Faltan totales'
+      : row.sourceLiquidDifference === 0
+        ? row.includedLiquidDifference === 0 ? 'Cuadrado' : 'Libro cuadrado; revisar cobertura'
+        : 'Diferencia en libro Meta4',
+  }));
 }
 
 export function buildHistoricalDetailRecords({ sourceRows, decisions, employeeCatalog = [], mappingScope, employeeIds = null }) {
@@ -502,6 +641,34 @@ export function parseHistoricalAmount(value) {
 
   const amount = Number(digits);
   return Number.isFinite(amount) ? (isNegative ? -amount : amount) : null;
+}
+
+function parseHistoricalTotal(value) {
+  const rawValue = cleanCell(value);
+  if (!rawValue) {
+    return null;
+  }
+
+  if (/^-?(?:0+)(?:[.,]0+)?$/.test(rawValue)) {
+    return 0;
+  }
+
+  return parseHistoricalAmount(value);
+}
+
+function historicalHeaderKey(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function resolveHistoricalHeader(headersByKey, aliases) {
+  for (const alias of aliases) {
+    const header = headersByKey.get(historicalHeaderKey(alias));
+    if (header) {
+      return header;
+    }
+  }
+
+  return '';
 }
 
 function extractConceptColumns({ sourceRows, sourceHeaders }) {
