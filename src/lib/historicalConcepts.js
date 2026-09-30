@@ -491,6 +491,32 @@ export function buildHistoricalRexLiquidationWorkbook({
   return workbook;
 }
 
+export function buildHistoricalRexLiquidationCsv({
+  sourceRows,
+  decisions,
+  employeeCatalog = [],
+  mappingScope,
+  period = '',
+  employeeIds = null,
+}) {
+  const rows = buildHistoricalRexLiquidationRows({
+    sourceRows,
+    decisions,
+    employeeCatalog,
+    mappingScope,
+    period,
+    employeeIds,
+  });
+  const sheet = XLSX.utils.aoa_to_sheet([REX_LIQUIDATION_HEADERS, ...rows]);
+  const csv = XLSX.utils.sheet_to_csv(sheet, {
+    FS: ';',
+    RS: '\r\n',
+    blankrows: false,
+  });
+
+  return `\uFEFF${csv}`;
+}
+
 export function buildHistoricalRexLiquidationRows({
   sourceRows,
   decisions,

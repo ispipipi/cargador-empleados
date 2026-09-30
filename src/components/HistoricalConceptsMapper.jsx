@@ -7,11 +7,10 @@ import {
   buildHistoricalConceptModel,
   buildHistoricalReconciliation,
   buildHistoricalReconciliationRows,
-  buildHistoricalRexLiquidationWorkbook,
+  buildHistoricalRexLiquidationCsv,
   buildHistoricalReportRows,
   getHistoricalEmployeeIds,
   HISTORICAL_FUNCTIONS,
-  loadHistoricalRexLiquidationTemplate,
   summarizeHistoricalDecisions,
   validateHistoricalRexLiquidationRows,
 } from '../lib/historicalConcepts';
@@ -394,19 +393,17 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         });
         triggerWorkbookDownload(workbook, `REX_altas_conceptos_${exportGroupSlug(exportGroup)}_${todayStamp()}.xlsx`);
       } else if (kind === 'output') {
-        const workbook = buildHistoricalRexLiquidationWorkbook({
-          templateWorkbook: await loadHistoricalRexLiquidationTemplate(),
+        const csv = buildHistoricalRexLiquidationCsv({
           sourceRows: sourceFile.rows,
           decisions: selectedExportDecisions,
           employeeCatalog,
           mappingScope,
           period: sourceFile.period,
         });
-        triggerWorkbookDownload(workbook, `REX_liquidaciones_detalle_${todayStamp()}.xlsx`);
+        triggerTextDownload(csv, buildHistoricalLoadFileName(eligibleEmployeeIds.length, sourceFile.period));
       } else if (kind === 'batch') {
         const employeeIds = preparedBatch?.employeeIds ?? nextBatchEmployeeIds;
-        const workbook = buildHistoricalRexLiquidationWorkbook({
-          templateWorkbook: await loadHistoricalRexLiquidationTemplate(),
+        const csv = buildHistoricalRexLiquidationCsv({
           sourceRows: sourceFile.rows,
           decisions: selectedExportDecisions,
           employeeCatalog,
@@ -414,9 +411,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           period: sourceFile.period,
           employeeIds,
         });
-        triggerWorkbookDownload(workbook, `REX_liquidaciones_detalle_lote_${todayStamp()}.xlsx`);
+        const cumulativeEmployeeCount = completedEmployeeIds.size + employeeIds.length;
+        const fileName = buildHistoricalLoadFileName(cumulativeEmployeeCount, sourceFile.period);
+        triggerTextDownload(csv, fileName);
         setPreparedBatch({
           employeeIds,
+          fileName,
           downloadedAt: new Date().toISOString(),
         });
       } else if (kind === 'employee-pending') {
@@ -531,7 +531,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos del listado FINNING V2, todos haberes o descuentos.`
                   : `Catálogo REX+ activo: ${concepts.length.toLocaleString('es-CL')} conceptos disponibles.`}</li>
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
-                <li>La salida conserva la plantilla oficial de REX+: cinco hojas y 20 columnas en `Ejemplo`.</li>
+                <li>El archivo de carga histórico se descarga como CSV UTF-8, separado por punto y coma, con las 20 columnas de `Ejemplo`.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
                 <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
                 <li>Los trabajadores se comparan contra el maestro cargado: {employeeMasterFileName || 'maestro REX+ embebido'}.</li>
@@ -636,7 +636,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-700">Archivo de carga</p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">Elige qué conceptos incluir</h3>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                    El archivo puede contener haberes y descuentos. Puedes revisar por grupo y marcar los conceptos que quieres incluir en el Excel de Liquidaciones en Detalle.
+                    El archivo puede contener haberes y descuentos. Puedes revisar por grupo y marcar los conceptos que quieres incluir en el CSV de Liquidaciones en Detalle.
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
@@ -731,7 +731,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Carga controlada</p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar siguiente lote para REX+</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Se incluyen los conceptos seleccionados de todo el libro para cada colaborador del lote. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
+                    Se incluyen los conceptos seleccionados de todo el libro para cada colaborador del lote. El archivo se descarga como CSV y usa el acumulado de trabajadores cargados en el nombre. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
@@ -797,7 +797,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               ) : preparedBatch ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                   <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} colaboradores.</p>
-                  <p className="mt-1">Si la carga falló en REX+, puedes descargar nuevamente el mismo lote. Si fue correcta, márcalo como realizado.</p>
+                  <p className="mt-1">Archivo: <strong>{preparedBatch.fileName}</strong>. Si la carga falló en REX+, puedes descargar nuevamente el mismo lote. Si fue correcta, márcalo como realizado.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" onClick={() => handleDownload('batch')} className="button-secondary border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100">
                       Descargar este lote nuevamente
@@ -810,7 +810,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               ) : remainingEmployeeIds.length > 0 ? (
                 <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-brand-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-slate-600">
-                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. La descarga conservará las cinco hojas del Excel oficial de REX+.
+                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. Archivo: <strong className="text-slate-900">{buildHistoricalLoadFileName(completedEmployeeIds.size + nextBatchEmployeeIds.length, sourceFile.period)}</strong>.
                   </p>
                   <button type="button" onClick={() => handleDownload('batch')} className="button-primary shrink-0" disabled={isPreparing}>
                     Descargar siguiente lote
@@ -837,7 +837,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                     ? selectedExportDecisions.length === 0
                       ? 'Selecciona conceptos para generar el archivo'
                       : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                    : 'Excel de Liquidaciones en Detalle listo para cargar en REX+'}
+                    : 'CSV de Liquidaciones en Detalle listo para cargar en REX+'}
                 onClick={() => handleDownload('output')}
                 disabled={hasExportBlockers || isPreparing}
                 primary
@@ -1012,7 +1012,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   : selectedExportDecisions.length === 0
                   ? 'Selecciona conceptos para generar el archivo'
                   : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                : 'Excel de Liquidaciones en Detalle listo para cargar en REX+'}
+                : 'CSV de Liquidaciones en Detalle listo para cargar en REX+'}
             onClick={() => handleDownload('output')}
             disabled={hasExportBlockers || isPreparing}
             primary
@@ -1169,6 +1169,29 @@ function triggerWorkbookDownload(workbook, fileName) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function triggerTextDownload(contents, fileName) {
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function buildHistoricalLoadFileName(employeeCount, period) {
+  const match = String(period ?? '').match(/^(\d{4})-(\d{2})$/);
+  const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const monthIndex = match ? Number(match[2]) - 1 : -1;
+  const periodLabel = match && monthNames[monthIndex]
+    ? `${monthNames[monthIndex]} ${match[1].slice(-2)}`
+    : 'periodo';
+
+  return `${Number(employeeCount) || 0} ${periodLabel}.csv`;
 }
 
 function todayStamp() {
