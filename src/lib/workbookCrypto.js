@@ -1,5 +1,4 @@
 import { Buffer } from 'buffer';
-import officeCryptoModule from 'officecrypto-tool';
 import process from 'process';
 
 // officecrypto-tool is also usable in browsers, but it expects the Buffer global.
@@ -13,8 +12,11 @@ if (!globalThis.process) {
   globalThis.process = process;
 }
 
-function loadOfficeCrypto() {
-  return officeCryptoModule.default ?? officeCryptoModule;
+let officeCryptoPromise;
+
+async function loadOfficeCrypto() {
+  officeCryptoPromise ??= import('officecrypto-tool').then((module) => module.default ?? module);
+  return officeCryptoPromise;
 }
 
 export async function isEncryptedWorkbook(arrayBuffer) {
@@ -23,7 +25,20 @@ export async function isEncryptedWorkbook(arrayBuffer) {
 }
 
 export async function decryptWorkbook(arrayBuffer, password) {
-  if (!(await isEncryptedWorkbook(arrayBuffer))) {
+  let officeCrypto;
+  try {
+    officeCrypto = await loadOfficeCrypto();
+  } catch (error) {
+    // A normal workbook does not need the optional crypto chunk. This fallback
+    // keeps cached deployments usable while the browser refreshes its assets.
+    if (!String(password ?? '').trim()) {
+      return arrayBuffer;
+    }
+
+    throw createWorkbookPasswordError('UNSUPPORTED_ENCRYPTION', 'No se pudo cargar el lector de archivos protegidos. Recarga la página e inténtalo nuevamente.');
+  }
+
+  if (!officeCrypto.isEncrypted(arrayBuffer)) {
     return arrayBuffer;
   }
 
@@ -33,7 +48,6 @@ export async function decryptWorkbook(arrayBuffer, password) {
   }
 
   try {
-    const officeCrypto = await loadOfficeCrypto();
     const decrypted = await officeCrypto.decrypt(arrayBuffer, { password: normalizedPassword });
     const bytes = decrypted instanceof Uint8Array ? decrypted : new Uint8Array(decrypted);
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
