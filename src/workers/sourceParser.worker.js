@@ -3,18 +3,16 @@ import { getMeta4HistoricalFormatIssues, getMeta4MissingColumns, meta4Origin } f
 import { extractVismaPeriod, getVismaHeaderRow, getVismaHistoricalFormatIssues } from '../connectors/origins/visma';
 import { getTalanaFormatIssues, getTalanaHistoricalMissingColumns, getTalanaMissingColumns } from '../connectors/origins/talana';
 import { cleanCell } from '../lib/utils';
+import { decryptWorkbook } from '../lib/workbookCrypto';
 import { Buffer } from 'buffer';
 import process from 'process';
 
 globalThis.Buffer = Buffer;
 globalThis.process = process;
 
-const workbookCryptoPromise = import('../lib/workbookCrypto');
-
 self.onmessage = async (event) => {
   try {
     const { arrayBuffer, originId = 'talana', password = '' } = event.data;
-    const { decryptWorkbook } = await workbookCryptoPromise;
     const readableArrayBuffer = await decryptWorkbook(arrayBuffer, password);
     const workbook = XLSX.read(readableArrayBuffer, {
       type: 'array',

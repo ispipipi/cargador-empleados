@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer';
+import officeCryptoModule from 'officecrypto-tool';
 import process from 'process';
 
 // officecrypto-tool is also usable in browsers, but it expects the Buffer global.
@@ -12,12 +13,8 @@ if (!globalThis.process) {
   globalThis.process = process;
 }
 
-let officeCryptoPromise;
-
-async function loadOfficeCrypto() {
-  officeCryptoPromise ??= import('officecrypto-tool');
-  const module = await officeCryptoPromise;
-  return module.default ?? module;
+function loadOfficeCrypto() {
+  return officeCryptoModule.default ?? officeCryptoModule;
 }
 
 export async function isEncryptedWorkbook(arrayBuffer) {
