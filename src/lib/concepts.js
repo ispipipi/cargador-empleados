@@ -30,6 +30,9 @@ const TYPE_BY_CLASSIFICATION = [
 ];
 
 const EXISTING_CONCEPT_OVERRIDES = new Map([
+  ['SOBRETIEMPO RETROACTIVO', 'sobretiempoRetrG1KVT'],
+  ['RETROACTIVO SOBRETIEMPO', 'sobretiempoRetrG1KVT'],
+  ['PAGO ANTICIPADO PRESTAMO TASA CERO', 'solidarioremu'],
   ['COTIZACION VOLUNTARIA AFP', 'apvi'],
   ['AHORRO VOLUNTARIO', 'apvi'],
   ['DESCUENTO ANTICIPO QUINCENAL', 'anticipo'],
@@ -44,13 +47,14 @@ const EXISTING_CONCEPT_OVERRIDES = new Map([
   ['IMPUESTO RELIQUIDADO', 'reliquidaImpuesto'],
   ['COTIZACION FONDO RETIRO', 'afp'],
   ['COTIZACION FONDO RETIRO RELIQUIDADA', 'reliquidaAfp'],
-  ['COMISION AFP', 'comisionAfp'],
+  ['COMISION AFP', 'afp'],
   ['COMISION AFP RELIQUIDADA', 'reliquidaAfp'],
   ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
   ['ISAPRE RELIQUIDADA', 'reliquidaIsapre'],
   ['TRABAJO PESADO RELIQUIDADO', 'reliquidaTrabPesa'],
   ['TRABAJO PESADO DESC. TRABAJADOR', 'trabajoPesaEmpl'],
   ['SEGURO CESANTIA', 'cesEmpleado'],
+  ['SEGURO EMPRESA APORTE EMPLEADOR', 'cesAporteCi'],
   ['SEGURO SOBREV. E INVALIDEZ', 'sis'],
   ['APORTE EMPRESA MUTUAL', 'mutual'],
   ['APORTE EMPRESA TRABAJO PESADO', 'trabajoPesa'],
@@ -168,6 +172,93 @@ export async function parseConceptCatalogWorkbook(arrayBuffer, password = '') {
   return concepts;
 }
 
+export async function parseConceptMatrixWorkbook(arrayBuffer, password = '') {
+  const workbook = XLSX.read(await decryptWorkbook(arrayBuffer, password), { type: 'array' });
+  const sheetName = findConceptMatrixSheetName(workbook);
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  const headerRowIndex = findConceptMatrixHeaderRow(rows);
+
+  if (headerRowIndex < 0) {
+    throw new Error('La matriz no contiene una fila de encabezados VISMA válida.');
+  }
+
+  const headers = rows[headerRowIndex] ?? [];
+  const attributeHeaders = rows[headerRowIndex - 1] ?? [];
+  const getIndex = (header, occurrence = 0) => {
+    let matches = 0;
+    const findInRow = (row) => row.findIndex((value) => {
+      if (normalizeText(value) !== normalizeText(header)) {
+        return false;
+      }
+
+      const isRequestedMatch = matches === occurrence;
+      matches += 1;
+      return isRequestedMatch;
+    });
+
+    const headerIndex = findInRow(headers);
+    return headerIndex >= 0 ? headerIndex : findInRow(attributeHeaders);
+  };
+  const indexes = {
+    sourceCode: getIndex('CONCEPTO'),
+    sourceName: getIndex('NOMBRE'),
+    classification: getIndex('TIPO'),
+    formulation: getIndex('FOMULACION'),
+    lreField: getIndex('LRE- NOMBRE'),
+    targetId: getIndex('ID-CARGA'),
+    targetName: getIndex('NOMBRE', 1),
+    rebase: getIndex('Se Rebaja por Dias No Trabajados'),
+    baseIas: getIndex('Suma Base Para IAS'),
+    vacationProvision: getIndex('Suma Base Provision de Vacaciones'),
+    baseVpp: getIndex('Suma Base Vacaciones Proporcionales'),
+    baseSil: getIndex('Suma Base de Calculo SIL'),
+    bonusFixed: getIndex('Es Bono Fijo'),
+  };
+
+  if (indexes.sourceCode < 0 || indexes.sourceName < 0 || indexes.classification < 0) {
+    throw new Error('La matriz debe incluir las columnas CONCEPTO, NOMBRE y TIPO.');
+  }
+
+  const concepts = rows.slice(headerRowIndex + 1)
+    .map((row, index) => {
+      const sourceCode = cleanCell(row[indexes.sourceCode]);
+      const sourceName = cleanCell(row[indexes.sourceName]);
+      const targetId = cleanCell(indexes.targetId >= 0 ? row[indexes.targetId] : '') || sourceCode || buildConceptId(sourceName, index);
+      const targetName = cleanCell(indexes.targetName >= 0 ? row[indexes.targetName] : '') || sourceName;
+
+      return {
+        sourceCode,
+        sourceName,
+        classification: cleanCell(row[indexes.classification]),
+        formulation: cleanCell(indexes.formulation >= 0 ? row[indexes.formulation] : ''),
+        lreField: cleanCell(indexes.lreField >= 0 ? row[indexes.lreField] : ''),
+        targetId,
+        targetName,
+        type: matrixTypeId(row[indexes.classification]),
+        sequence: resolveNewSequence(sourceCode, index),
+        behavior: matrixBehaviorId(indexes.formulation >= 0 ? row[indexes.formulation] : ''),
+        rebase: matrixBoolean(indexes.rebase >= 0 ? row[indexes.rebase] : ''),
+        baseIas: matrixBoolean(indexes.baseIas >= 0 ? row[indexes.baseIas] : ''),
+        baseVpp: matrixBoolean(indexes.baseVpp >= 0 ? row[indexes.baseVpp] : ''),
+        baseSil: matrixBoolean(indexes.baseSil >= 0 ? row[indexes.baseSil] : ''),
+        vacationProvision: matrixBoolean(indexes.vacationProvision >= 0 ? row[indexes.vacationProvision] : ''),
+        bonusFixed: matrixBoolean(indexes.bonusFixed >= 0 ? row[indexes.bonusFixed] : ''),
+      };
+    })
+    .filter((concept) => concept.sourceCode || concept.sourceName);
+
+  if (concepts.length === 0) {
+    throw new Error('No se encontraron conceptos en la matriz seleccionada.');
+  }
+
+  return {
+    sheetName,
+    sourceLabel: sheetName.replace(/^MatrizConceptos[-_ ]*/i, '').trim() || 'matriz',
+    concepts,
+  };
+}
+
 export async function parseEmployeeMasterWorkbook(arrayBuffer, password = '') {
   const workbook = XLSX.read(await decryptWorkbook(arrayBuffer, password), { type: 'array' });
   const employeeCatalog = parseEmployeeTemplate(workbook);
@@ -252,6 +343,19 @@ export function buildConceptExportWorkbook({ resource, decisions }) {
   const workbook = XLSX.utils.book_new();
   const exportedDecisions = uniqueCreateDecisions(decisions);
   const rows = exportedDecisions.map((decision) => buildConceptOutputRow(resource.outputTemplate, decision));
+  const sheet = XLSX.utils.aoa_to_sheet([resource.outputTemplate.headers, ...rows]);
+
+  XLSX.utils.book_append_sheet(workbook, sheet, resource.outputTemplate.sheetName);
+  resource.outputTemplate.optionSheets.forEach((optionSheet) => {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(optionSheet.rows), optionSheet.name);
+  });
+
+  return workbook;
+}
+
+export function buildConceptMatrixExportWorkbook({ resource, matrix }) {
+  const workbook = XLSX.utils.book_new();
+  const rows = matrix.concepts.map((concept) => buildConceptMatrixOutputRow(resource.outputTemplate, concept));
   const sheet = XLSX.utils.aoa_to_sheet([resource.outputTemplate.headers, ...rows]);
 
   XLSX.utils.book_append_sheet(workbook, sheet, resource.outputTemplate.sheetName);
@@ -359,6 +463,82 @@ function parseConceptsList(workbook) {
     vacationProvision: booleanId(row[indexes.vacationProvision]),
     noOverdraft: booleanId(row[indexes.noOverdraft]),
   }));
+}
+
+function findConceptMatrixSheetName(workbook) {
+  const preferredName = workbook.SheetNames.find((name) => normalizeText(name).includes('matrizconceptos') && normalizeText(name).includes('icon'));
+  if (preferredName) {
+    return preferredName;
+  }
+
+  const matchingName = workbook.SheetNames.find((name) => {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: '' });
+    return findConceptMatrixHeaderRow(rows) >= 0;
+  });
+
+  if (!matchingName) {
+    throw new Error('No se encontró una hoja MatrizConceptos en el archivo.');
+  }
+
+  return matchingName;
+}
+
+function findConceptMatrixHeaderRow(rows) {
+  return rows.findIndex((row) => {
+    const normalizedHeaders = new Set(row.map((value) => normalizeText(value)));
+    return ['concepto', 'nombre', 'tipo'].every((header) => normalizedHeaders.has(header));
+  });
+}
+
+function buildConceptMatrixOutputRow(template, concept) {
+  const values = [...template.defaults];
+  const columnIndex = new Map(template.headers.map((header, index) => [normalizeText(header), index]));
+  const set = (header, value) => {
+    const index = columnIndex.get(normalizeText(header));
+    if (index !== undefined) {
+      values[index] = value ?? '';
+    }
+  };
+
+  set('concepto_id', compactConceptId(concept.targetId, concept.sourceCode || concept.sourceName));
+  set('Nombre', sanitizeConceptName(concept.targetName));
+  set('Tipo', concept.type);
+  set('Secuencia', concept.sequence);
+  set('¿Rebaja días no trabajados?', concept.rebase);
+  set('Comportamiento', concept.behavior);
+  set('¿Es base de cálculo para IAS?', concept.baseIas);
+  set('¿Es base de cálculo para Base VPP?', concept.baseVpp);
+  set('¿Es base de cálculo para Base SIL?', concept.baseSil);
+  set('Código LRE', normalizeLreOutput(concept.lreField));
+  set('Afecto para Prov. Vacaciones', concept.vacationProvision);
+
+  return values;
+}
+
+function matrixTypeId(value) {
+  const normalized = normalizeText(value);
+
+  if (normalized.includes('dato')) return '0D';
+  if (normalized.includes('vacacion')) return '9V';
+  if (normalized.includes('aporte empleador')) return '5A';
+  if (normalized.includes('descuento legal')) return '3L';
+  if (normalized.includes('descuento')) return '4D';
+  if (normalized.includes('haber solo imponible')) return '1I';
+  if (normalized.includes('haber solo tributable')) return '1R';
+  if (normalized.includes('haber exento')) return '2E';
+  if (normalized.includes('haber imponible') || normalized.includes('haber afecto') || normalized.includes('haber')) return '1H';
+
+  return '1H';
+}
+
+function matrixBehaviorId(value) {
+  const normalized = normalizeText(value);
+  return normalized.includes('variable') ? 'V' : 'F';
+}
+
+function matrixBoolean(value) {
+  const normalized = normalizeText(value);
+  return ['si', 's', 'v', 'verdadero', 'true'].includes(normalized) ? 'V' : 'F';
 }
 
 function findConceptHeaderRow(rows) {

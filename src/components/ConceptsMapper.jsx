@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { parseConceptCatalogWorkbook } from '../lib/concepts';
+import * as XLSX from 'xlsx';
+import {
+  buildConceptMatrixExportWorkbook,
+  parseConceptCatalogWorkbook,
+  parseConceptMatrixWorkbook,
+} from '../lib/concepts';
+import { sanitizeFilenameSegment, todayStamp } from '../lib/utils';
 
 function Metric({ label, value, tone = 'light' }) {
   return (
@@ -39,6 +45,10 @@ export default function ConceptsMapper({
   const [catalogFile, setCatalogFile] = useState(null);
   const [catalogNeedsPassword, setCatalogNeedsPassword] = useState(false);
   const [monthlyBookPassword, setMonthlyBookPassword] = useState('');
+  const [matrixFileName, setMatrixFileName] = useState('');
+  const [matrix, setMatrix] = useState(null);
+  const [matrixError, setMatrixError] = useState('');
+  const [isReadingMatrix, setIsReadingMatrix] = useState(false);
   const mappingCount = resource?.mappingRows?.length ?? 0;
   const conceptCount = resource?.concepts?.length ?? 0;
 
@@ -63,6 +73,39 @@ export default function ConceptsMapper({
 
     setCatalogFile(file);
     await readCatalog(file, catalogPassword);
+  };
+
+  const handleMatrixChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setMatrixError('');
+    setMatrix(null);
+    setMatrixFileName(file.name);
+    setIsReadingMatrix(true);
+
+    try {
+      const parsedMatrix = await parseConceptMatrixWorkbook(await file.arrayBuffer());
+      setMatrix(parsedMatrix);
+    } catch (error) {
+      setMatrixFileName('');
+      setMatrixError(error instanceof Error ? error.message : 'No fue posible leer la matriz de conceptos.');
+    } finally {
+      setIsReadingMatrix(false);
+    }
+  };
+
+  const handleMatrixDownload = () => {
+    if (!matrix) return;
+
+    try {
+      const workbook = buildConceptMatrixExportWorkbook({ resource, matrix });
+      const filename = `REX_conceptos_${sanitizeFilenameSegment(matrix.sourceLabel)}_${todayStamp()}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+    } catch (error) {
+      setMatrixError(error instanceof Error ? error.message : 'No fue posible generar el archivo de carga masiva.');
+    }
   };
 
   return (
@@ -132,6 +175,42 @@ export default function ConceptsMapper({
                   Reintentar catálogo protegido
                 </button>
               ) : null}
+
+              <div className="rounded-2xl border border-violet-200 bg-violet-50/70 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <span className="flex items-start gap-3">
+                    <span className="rounded-xl bg-white p-2 text-violet-700 shadow-sm"><UploadIcon /></span>
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-950">Cargar matriz de conceptos</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-600">Usa la matriz de ICON para preparar el archivo masivo oficial de REX+.</span>
+                    </span>
+                  </span>
+                  <label className="shrink-0 cursor-pointer rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm transition hover:bg-violet-100">
+                    Elegir archivo
+                    <input type="file" accept=".xls,.xlsx" className="sr-only" onChange={handleMatrixChange} disabled={isReadingMatrix} />
+                  </label>
+                </div>
+                {isReadingMatrix ? (
+                  <div className="mt-3 flex items-center gap-2 text-xs font-medium text-violet-800" role="status">
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-700" />
+                    Leyendo matriz…
+                  </div>
+                ) : null}
+                {matrix ? (
+                  <div className="mt-3 rounded-xl border border-violet-100 bg-white/80 px-3 py-3 text-xs text-slate-700">
+                    <p className="font-semibold text-slate-950">{matrixFileName}</p>
+                    <p className="mt-1">{matrix.concepts.length.toLocaleString('es-CL')} conceptos detectados. Si falta ID-CARGA, se usará el código VISMA.</p>
+                    <button
+                      type="button"
+                      onClick={handleMatrixDownload}
+                      className="mt-3 rounded-full bg-violet-700 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-800"
+                    >
+                      Descargar carga masiva
+                    </button>
+                  </div>
+                ) : null}
+                {matrixError ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{matrixError}</p> : null}
+              </div>
 
               <label className="group flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 transition hover:border-blue-500 hover:bg-blue-100/70">
                 <span className="flex items-center gap-3">

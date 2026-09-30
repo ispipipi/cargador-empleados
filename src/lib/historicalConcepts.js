@@ -78,6 +78,9 @@ const EXCLUDED_SOURCE_HEADERS = new Set([
 ]);
 
 const HISTORICAL_ALIASES = new Map([
+  ['RETROACTIVO SOBRETIEMPO', 'sobretiempoRetrG1KVT'],
+  ['SOBRETIEMPO RETROACTIVO', 'sobretiempoRetrG1KVT'],
+  ['PAGO ANTICIPADO PRESTAMO TASA CERO', 'solidarioremu'],
   ['ASIGNACION DE ALIMENTACION ORIG.', 'asignacionAlimeXOWDI'],
   ['BONO PROD/SEG LOS BRONCES', 'bonoProduccion'],
   ['BONO PERMANENCIA', 'bonoPermanenciaHaber'],
@@ -88,9 +91,10 @@ const HISTORICAL_ALIASES = new Map([
   ['ASIGNACION SALA CUNA', 'salaCMi'],
   ['ASIGNACION TELETRABAJO', 'AsigTeletrabajoMi'],
   ['COTIZACION FONDO RETIRO', 'afp'],
-  ['COMISION AFP', 'comisionAfp'],
+  ['COMISION AFP', 'afp'],
   ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
   ['SEGURO CESANTIA', 'cesEmpleado'],
+  ['SEGURO EMPRESA APORTE EMPLEADOR', 'cesAporteCi'],
   ['APORTE EMPRESA MUTUAL', 'mutual'],
   ['APORTE EMPRESA BIENESTAR', 'aporteBienestar'],
   ['COTIZACION VOLUNTARIA AFP', 'apvi'],
