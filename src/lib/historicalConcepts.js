@@ -140,6 +140,10 @@ const NON_LOADABLE_HISTORICAL_PATTERNS = [
   /^PROV\b/,
 ];
 
+// Historical liquidation detail only accepts employee earnings and discounts.
+// Employer contributions are calculated outside the employee's detail load.
+const NON_LOADABLE_REX_TYPES = new Set(['5a']);
+
 const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
 
 const AFP_INSTITUTION_IDS = [
@@ -206,6 +210,8 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
     const proposedId = buildConceptId(sourceName, index);
     const lreField = sourceMapping?.lreField ?? configuredDecision?.lreField ?? '';
     const classification = sourceMapping?.classification ?? configuredDecision?.classification ?? '';
+    const autoExcluded = isNonLoadableHistoricalTarget(exactMatch);
+    const excluded = Boolean(configuredExclusion || autoExcluded);
     return {
       id: `${index + 1}-${sourceKey}`,
       sourceKey,
@@ -218,8 +224,8 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       nonZeroCount: column.nonZeroCount,
       sampleValue: column.sampleValue,
       exactMatch: Boolean(exactMatch || approvedCreation),
-      matchStatus: configuredExclusion ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
-      action: configuredExclusion ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
+      matchStatus: excluded ? 'excluded' : exactMatch || approvedCreation ? 'exact' : suggestedConcept ? 'proposal' : 'pending',
+      action: excluded ? 'exclude' : exactMatch ? 'reuse' : approvedCreation ? 'create' : 'pending',
       suggestedMatches,
       targetConcept: exactMatch,
       targetId: exactMatch?.id ?? approvedCreation?.targetId ?? '',
@@ -230,11 +236,15 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       type: inferConceptType(classification || sourceSectionForColumn(column.index), lreField),
       lreField,
       classification,
-      approved: Boolean(configuredExclusion || exactMatch || approvedCreation),
-      excluded: Boolean(configuredExclusion),
-      autoExcluded: false,
-      exclusionReason: '',
-      matchOrigin: (configuredDecision || configuredCreation) && (configuredExclusion || exactMatch || approvedCreation)
+      approved: Boolean(excluded || exactMatch || approvedCreation),
+      excluded,
+      autoExcluded,
+      exclusionReason: configuredExclusion
+        ? 'Exclusión confirmada en el mapeo.'
+        : autoExcluded
+          ? 'Aporte empleador: REX+ lo calcula fuera del detalle histórico.'
+          : '',
+      matchOrigin: (configuredDecision || configuredCreation) && (excluded || exactMatch || approvedCreation)
         ? 'concepts-module'
         : undefined,
     };
@@ -529,6 +539,78 @@ export function buildHistoricalRexLiquidationRows({
   });
 
   return [...outputByKey.values()];
+}
+
+export function validateHistoricalRexLiquidationRows({
+  sourceRows,
+  decisions,
+  employeeCatalog = [],
+  mappingScope,
+  period = '',
+  employeeIds = null,
+}) {
+  const rows = buildHistoricalRexLiquidationRows({
+    sourceRows,
+    decisions,
+    employeeCatalog,
+    mappingScope,
+    period,
+    employeeIds,
+  });
+  const institutionRequired = new Set([
+    'afp',
+    'comisionafp',
+    'reliquidaafp',
+    'isapre',
+    'reliquidaisapre',
+    'apvi',
+    'cesempleado',
+    'reliquidacesempleado',
+    'sis',
+    'sispago',
+    'mutual',
+    'reliquidamutual',
+    'trabajopesa',
+    'trabajopesaempl',
+    'cajaahor',
+    'cajacred',
+    'cajasegu',
+  ]);
+  const issues = [];
+
+  rows.forEach((row, index) => {
+    const conceptId = normalizeText(row[3]).replace(/[^a-z0-9]+/g, '');
+    const institutionId = cleanCell(row[6]);
+    if (!institutionRequired.has(conceptId)) {
+      return;
+    }
+
+    if (!institutionId) {
+      issues.push({
+        row: index + 2,
+        employeeId: row[1],
+        conceptId: row[3],
+        message: 'Falta el Id de institución requerido por el concepto.',
+      });
+      return;
+    }
+
+    if (!/^[a-z0-9]+$/i.test(institutionId)) {
+      issues.push({
+        row: index + 2,
+        employeeId: row[1],
+        conceptId: row[3],
+        institutionId,
+        message: 'El Id de institución debe ser el código REX+ sin espacios ni nombre visible.',
+      });
+    }
+  });
+
+  return {
+    valid: issues.length === 0,
+    rows,
+    issues,
+  };
 }
 
 export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
@@ -917,7 +999,11 @@ const REX_HEALTH_INSTITUTIONS = [
   ['banmedica', 'banmedica'],
   ['colmena', 'colmena'],
   ['consalud', 'consalud'],
+  ['esencialsa', 'esencial'],
+  ['esencial', 'esencial'],
+  ['isapre nueva mas vida', 'nuevamasvida'],
   ['isapre nueva masvida', 'nuevamasvida'],
+  ['nueva mas vida', 'nuevamasvida'],
   ['nueva masvida', 'nuevamasvida'],
   ['vida tres', 'vidatres'],
   ['masvida', 'masvida'],
@@ -1046,8 +1132,18 @@ function resolveRexInstitutionId(targetId, sourceRow, employee) {
 
 function resolveHealthInstitutionId(value) {
   const normalizedValue = normalizeText(value);
-  const match = REX_HEALTH_INSTITUTIONS.find(([label]) => normalizedValue.includes(label));
+  const compactValue = normalizedValue.replace(/[^a-z0-9]+/g, '');
+  const match = REX_HEALTH_INSTITUTIONS.find(([label]) => {
+    const compactLabel = label.replace(/[^a-z0-9]+/g, '');
+    return compactValue.includes(compactLabel);
+  });
   return match?.[1] ?? cleanCell(value);
+}
+
+function isNonLoadableHistoricalTarget(concept) {
+  return NON_LOADABLE_REX_TYPES.has(
+    normalizeText(concept?.type).replace(/[^a-z0-9]+/g, ''),
+  );
 }
 
 function resolveRexCompanyId(sourceRow, mappingScope) {

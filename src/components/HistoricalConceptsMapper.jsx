@@ -13,6 +13,7 @@ import {
   HISTORICAL_FUNCTIONS,
   loadHistoricalRexLiquidationTemplate,
   summarizeHistoricalDecisions,
+  validateHistoricalRexLiquidationRows,
 } from '../lib/historicalConcepts';
 import { normalizeText } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
@@ -132,8 +133,18 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     }),
     [employeeCatalog, mappingScope, selectedExportDecisions, sourceFile.headers, sourceFile.rows],
   );
+  const rexValidation = useMemo(
+    () => validateHistoricalRexLiquidationRows({
+      sourceRows: sourceFile.rows,
+      decisions: selectedExportDecisions,
+      employeeCatalog,
+      mappingScope,
+      period: sourceFile.period,
+    }),
+    [employeeCatalog, mappingScope, selectedExportDecisions, sourceFile.period, sourceFile.rows],
+  );
   const hasReconciliationBlockers = reconciliation.source.status !== 'ok';
-  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0 || hasReconciliationBlockers;
+  const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0 || hasReconciliationBlockers || !rexValidation.valid;
   const completedEmployeeIds = useMemo(
     () => new Set(
       (!batchState?.batchKey || batchState.batchKey === BATCH_KEY
@@ -755,17 +766,34 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               </div>
 
               {hasExportBlockers ? (
-                <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {employeeValidation.missing.length > 0
-                    ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+.`
-                    : hasReconciliationBlockers
-                      ? reconciliation.source.status === 'blocked'
-                        ? `El libro Meta4 tiene ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido.`
-                        : 'No se puede comprobar el líquido porque faltan totales en el libro Meta4.'
-                    : selectedExportDecisions.length === 0
-                      ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
-                      : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
-                </p>
+                <>
+                  <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {employeeValidation.missing.length > 0
+                      ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+.`
+                      : hasReconciliationBlockers
+                        ? reconciliation.source.status === 'blocked'
+                          ? `El libro Meta4 tiene ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido.`
+                          : 'No se puede comprobar el líquido porque faltan totales en el libro Meta4.'
+                      : !rexValidation.valid
+                        ? `Hay ${rexValidation.issues.length} filas con Id de institución inválido o vacío. Corrígelo antes de descargar.`
+                      : selectedExportDecisions.length === 0
+                        ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
+                        : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
+                  </p>
+                  {!rexValidation.valid ? (
+                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                      <p className="font-semibold">Detalle de validación REX+</p>
+                      <ul className="mt-2 space-y-1 text-xs leading-5">
+                        {rexValidation.issues.slice(0, 5).map((issue) => (
+                          <li key={`${issue.row}-${issue.employeeId}-${issue.conceptId}`}>
+                            Fila {issue.row} · {issue.employeeId} · {issue.conceptId}: {issue.institutionId || 'vacío'}
+                          </li>
+                        ))}
+                      </ul>
+                      {rexValidation.issues.length > 5 ? <p className="mt-2 text-xs">Se muestran 5 de {rexValidation.issues.length} observaciones.</p> : null}
+                    </div>
+                  ) : null}
+                </>
               ) : preparedBatch ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                   <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} colaboradores.</p>
@@ -803,6 +831,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                     ? reconciliation.source.status === 'blocked'
                       ? `Bloqueado: ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido`
                       : 'Bloqueado: no se pudo comprobar el líquido del libro'
+                  : !rexValidation.valid
+                    ? `Bloqueado: ${rexValidation.issues.length} instituciones inválidas o vacías`
                   : hasExportBlockers
                     ? selectedExportDecisions.length === 0
                       ? 'Selecciona conceptos para generar el archivo'
@@ -977,7 +1007,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   ? `Hay ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido en Meta4`
                   : 'Faltan totales para comprobar el líquido'
               : hasExportBlockers
-                ? selectedExportDecisions.length === 0
+                ? !rexValidation.valid
+                  ? `Hay ${rexValidation.issues.length} instituciones inválidas o vacías`
+                  : selectedExportDecisions.length === 0
                   ? 'Selecciona conceptos para generar el archivo'
                   : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
                 : 'Excel de Liquidaciones en Detalle listo para cargar en REX+'}
@@ -1025,6 +1057,7 @@ function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign 
       <td className="px-4 py-4">
         <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>{statusLabel}</span>
         {!decision.exactMatch && !decision.excluded ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-800">Revisa esta propuesta antes de aprobarla.</p> : null}
+        {decision.excluded && decision.exclusionReason ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-slate-600">{decision.exclusionReason}</p> : null}
       </td>
       <td className="max-w-[360px] px-4 py-4">
         <p className="font-semibold text-slate-900">{decision.sourceName}</p>
@@ -1080,6 +1113,7 @@ function canIncludeInHistoricalOutput(decision) {
     decision.approved
       && !decision.excluded
       && decision.targetId
+      && normalizeText(decision.targetConcept?.type).replace(/[^a-z0-9]+/g, '') !== '5a'
       && (Number(decision.nonZeroCount) > 0 || isTaxDecision(decision)),
   );
 }
