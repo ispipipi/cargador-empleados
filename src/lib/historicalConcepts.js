@@ -598,6 +598,7 @@ export function validateHistoricalRexLiquidationRows({
     'reliquidamutual',
     'trabajopesa',
     'trabajopesaempl',
+    'reliquidatrabpesa',
     'cajaahor',
     'cajacred',
     'cajasegu',
@@ -616,7 +617,9 @@ export function validateHistoricalRexLiquidationRows({
         row: index + 2,
         employeeId: row[1],
         conceptId: row[3],
-        message: 'Falta el Id de institución requerido por el concepto.',
+        message: conceptId.includes('trabajopesa')
+          ? 'Falta el código de AFP del trabajador para el descuento de trabajo pesado.'
+          : 'Falta el Id de institución requerido por el concepto.',
       });
       return;
     }
@@ -1136,7 +1139,9 @@ function resolveRexInstitutionId(targetId, sourceRow, employee) {
     return 'losandes';
   }
 
-  if (['afp', 'comisionafp', 'reliquidaafp', 'sis', 'sispago', 'cesempleado', 'reliquidacesempleado'].includes(normalizedTargetId)) {
+  // The employee portion of heavy work is a legal discount and uses the AFP;
+  // the employer portion is a separate contribution and is excluded upstream.
+  if (['afp', 'comisionafp', 'reliquidaafp', 'sis', 'sispago', 'cesempleado', 'reliquidacesempleado', 'trabajopesaempl', 'reliquidatrabpesa'].includes(normalizedTargetId)) {
     return resolveAfpInstitutionId(employee.afp || firstSourceValue(sourceRow, ['AFP', 'CODIGO AFP']));
   }
 
