@@ -716,7 +716,9 @@ function extractConceptColumns({ sourceRows, sourceHeaders }) {
 }
 
 function findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) {
-  const aliasId = HISTORICAL_ALIASES.get(sourceName.toUpperCase());
+  const aliasId =
+    HISTORICAL_ALIASES.get(sourceName.toUpperCase()) ??
+    HISTORICAL_ALIASES.get(historicalConceptKey(sourceName).toUpperCase());
   return (
     (aliasId && catalogById.get(normalizeText(aliasId))) ||
     catalogByName.get(conceptKey(sourceName)) ||
