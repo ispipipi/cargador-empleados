@@ -81,6 +81,7 @@ const HISTORICAL_ALIASES = new Map([
   ['RETROACTIVO SOBRETIEMPO', 'sobretiempoRetrG1KVT'],
   ['SOBRETIEMPO RETROACTIVO', 'sobretiempoRetrG1KVT'],
   ['PAGO ANTICIPADO PRESTAMO TASA CERO', 'solidarioremu'],
+  ['CUOTA MORTUORIA S6', 'cuotaMortuoriaSJK2N6'],
   ['ASIGNACION DE ALIMENTACION ORIG.', 'asignacionAlimeXOWDI'],
   ['BONO PROD/SEG LOS BRONCES', 'bonoProduccion'],
   ['BONO PERMANENCIA', 'bonoPermanenciaHaber'],
@@ -131,6 +132,10 @@ const FINNING_APPROVED_CREATIONS = new Map([
 ]);
 
 const NON_LOADABLE_HISTORICAL_PATTERNS = [
+  /^CAPITALIZACION INDIVIDUAL/,
+  /^EXPECTATIVA DE VIDA/,
+  /^RENTA IMPONIBLE RIMA/,
+  /^LEY SANNA/,
   /^PROVIS/,
   /^PROV\b/,
 ];
@@ -877,7 +882,7 @@ function isTaxSourceHeader(value) {
 }
 
 function isNonLoadableHistoricalConcept(value) {
-  const normalizedHeader = cleanCell(value).toUpperCase();
+  const normalizedHeader = normalizeText(value).toUpperCase();
   return NON_LOADABLE_HISTORICAL_PATTERNS.some((pattern) => pattern.test(normalizedHeader));
 }
 
