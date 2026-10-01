@@ -77,6 +77,12 @@ const EXCLUDED_SOURCE_HEADERS = new Set([
   'PROMEDIO REMUNERACION VARIABLE',
 ]);
 
+const HISTORICAL_LIQUIDO_PATTERNS = [
+  /^LIQUIDO$/i,
+  /^LIQUIDO A PAGO$/i,
+  /^SUELDO LIQUIDO$/i,
+];
+
 const HISTORICAL_ALIASES = new Map([
   ['RETROACTIVO SOBRETIEMPO', 'sobretiempoRetrG1KVT'],
   ['SOBRETIEMPO RETROACTIVO', 'sobretiempoRetrG1KVT'],
@@ -562,6 +568,32 @@ export function buildHistoricalRexLiquidationRows({
         mappingScope,
       }));
     });
+
+    // REX+ requires the technical liquid concept for every historical
+    // liquidation, even though it is not a selectable earning or discount.
+    const liquidEntry = Object.entries(sourceRow ?? {}).find(([header, value]) => (
+      HISTORICAL_LIQUIDO_PATTERNS.some((pattern) => pattern.test(stripDuplicateHeaderSuffix(header))) &&
+      parseHistoricalAmount(value) !== null
+    ));
+    if (liquidEntry) {
+      const liquidKey = `${employeeId}::totalesempl`;
+      const existingLiquidRow = outputByKey.get(liquidKey);
+      const liquidAmount = parseHistoricalAmount(liquidEntry[1]) ?? 0;
+      if (existingLiquidRow) {
+        existingLiquidRow[4] = liquidAmount;
+        return;
+      }
+
+      outputByKey.set(liquidKey, buildRexLiquidationRow({
+        sourceRow,
+        employee,
+        decision: { targetId: 'totalesEmpl' },
+        amount: liquidAmount,
+        period,
+        decisions: approvedDecisions,
+        mappingScope,
+      }));
+    }
   });
 
   return [...outputByKey.values()];
