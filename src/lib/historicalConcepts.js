@@ -640,6 +640,17 @@ export function validateHistoricalRexLiquidationRows({
   rows.forEach((row, index) => {
     const conceptId = normalizeText(row[3]).replace(/[^a-z0-9]+/g, '');
     const institutionId = cleanCell(row[6]);
+    const amount = Number(row[4]);
+    if (Number.isFinite(amount) && amount < 0) {
+      issues.push({
+        row: index + 2,
+        employeeId: row[1],
+        conceptId: row[3],
+        amount,
+        message: 'El monto del concepto no puede ser negativo para la carga histórica REX+.',
+      });
+    }
+
     if (!institutionRequired.has(conceptId)) {
       return;
     }

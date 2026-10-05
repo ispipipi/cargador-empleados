@@ -775,7 +775,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                           ? `El libro Meta4 tiene ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido.`
                           : 'No se puede comprobar el líquido porque faltan totales en el libro Meta4.'
                       : !rexValidation.valid
-                        ? `Hay ${rexValidation.issues.length} filas con Id de institución inválido o vacío. Corrígelo antes de descargar.`
+                        ? `Hay ${rexValidation.issues.length} filas que no cumplen las validaciones de REX+. Corrígelas antes de descargar.`
                       : selectedExportDecisions.length === 0
                         ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
                         : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
@@ -786,7 +786,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                       <ul className="mt-2 space-y-1 text-xs leading-5">
                         {rexValidation.issues.slice(0, 5).map((issue) => (
                           <li key={`${issue.row}-${issue.employeeId}-${issue.conceptId}`}>
-                            Fila {issue.row} · {issue.employeeId} · {issue.conceptId}: {issue.institutionId || 'vacío'}
+                            Fila {issue.row} · {issue.employeeId} · {issue.conceptId}: {issue.message || issue.institutionId || 'vacío'}
+                            {issue.amount !== undefined ? ` (${formatHistoricalMoney(issue.amount)})` : ''}
                           </li>
                         ))}
                       </ul>
@@ -832,7 +833,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                       ? `Bloqueado: ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido`
                       : 'Bloqueado: no se pudo comprobar el líquido del libro'
                   : !rexValidation.valid
-                    ? `Bloqueado: ${rexValidation.issues.length} instituciones inválidas o vacías`
+                    ? `Bloqueado: ${rexValidation.issues.length} validaciones REX+ pendientes`
                   : hasExportBlockers
                     ? selectedExportDecisions.length === 0
                       ? 'Selecciona conceptos para generar el archivo'
@@ -1008,7 +1009,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   : 'Faltan totales para comprobar el líquido'
               : hasExportBlockers
                 ? !rexValidation.valid
-                  ? `Hay ${rexValidation.issues.length} instituciones inválidas o vacías`
+                  ? `Hay ${rexValidation.issues.length} validaciones REX+ pendientes`
                   : selectedExportDecisions.length === 0
                   ? 'Selecciona conceptos para generar el archivo'
                   : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
