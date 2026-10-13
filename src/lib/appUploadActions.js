@@ -7,6 +7,7 @@ import {
 import { parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './concepts';
 import { getMeta4MissingColumns } from '../connectors/origins/meta4';
 import { parseVismaHistoricalTemplate } from './vismaHistorical';
+import { parseVismaHistoricalEmployeeMaster } from './vismaHistoricalEmployeeMaster';
 import { saveCloudConceptCatalog, saveCloudVismaConceptCatalog } from './cloudMemory';
 import {
   createSessionId,
@@ -54,6 +55,10 @@ export function createAppUploadActions(context) {
     setVismaHistoricalCatalog,
     setVismaHistoricalCatalogFileName,
     setVismaHistoricalCatalogValidation,
+    setVismaHistoricalEmployeeCatalog,
+    setVismaEmployeeMasterFileName,
+    setVismaEmployeeMasterValidation,
+    setIsReadingVismaEmployeeMaster,
     setVismaHistoricalTemplateFileName,
     setVismaHistoricalTemplateResource,
     setVismaHistoricalTemplateValidation,
@@ -337,6 +342,128 @@ export function createAppUploadActions(context) {
     }
   };
 
+  const handleVismaHistoricalEmployeeMasterSelected = async (file, password = '') => {
+    if (!file) return;
+
+    setVismaHistoricalEmployeeCatalog(null);
+    setVismaEmployeeMasterFileName(file.name);
+    setVismaEmployeeMasterValidation(null);
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setVismaEmployeeMasterValidation({ isValid: false, message: 'El maestro debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setGlobalError('');
+    setIsReadingVismaEmployeeMaster(true);
+    try {
+      const employees = await parseVismaHistoricalEmployeeMaster(await file.arrayBuffer(), password);
+      setVismaHistoricalEmployeeCatalog(employees);
+      setVismaEmployeeMasterValidation({
+        isValid: true,
+        message: `Maestro listo: ${employees.length.toLocaleString('es-CL')} trabajadores con contratoActi.`,
+      });
+      setHistoricalBatchState({ completedEmployeeIds: [] });
+    } catch (error) {
+      setVismaEmployeeMasterValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el maestro de trabajadores: ${error.message}`,
+      });
+    } finally {
+      setIsReadingVismaEmployeeMaster(false);
+    }
+  };
+
+  const handleVismaHistoricalBooksSelected = async (files, password = '') => {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return;
+
+    if (selectedFiles.some((file) => !/\.(xls|xlsx)$/i.test(file.name))) {
+      setValidation({ isValid: false, missingColumns: [], formatIssues: [], message: 'Los libros Visma deben ser .xls o .xlsx.' });
+      return;
+    }
+
+    setGlobalError('');
+    setSourceFile(null);
+    setValidation(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
+    setIsReadingFile(true);
+
+    try {
+      await waitForUiToPaint();
+      const books = [];
+      for (const file of selectedFiles) {
+        const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'visma-historico', password);
+        if (parsedSource.missingColumns.length || parsedSource.formatIssues?.length || !parsedSource.rows.length) {
+          const issues = [
+            ...parsedSource.missingColumns.map((column) => `Falta la columna ${column}.`),
+            ...(parsedSource.formatIssues ?? []),
+          ];
+          throw new Error(`${file.name}: ${issues.join(' ') || 'no contiene filas de trabajadores.'}`);
+        }
+        books.push({ file, parsedSource });
+      }
+
+      const periods = new Set(books.map(({ parsedSource }) => parsedSource.period).filter(Boolean));
+      if (periods.size !== 1 || books.some(({ parsedSource }) => !parsedSource.period)) {
+        throw new Error('Selecciona libros del mismo período; no se pudo confirmar el período de todos los archivos.');
+      }
+
+      const baseHeaders = books[0].parsedSource.headers;
+      if (books.some(({ parsedSource }) => JSON.stringify(parsedSource.headers) !== JSON.stringify(baseHeaders))) {
+        throw new Error('Los libros seleccionados no tienen las mismas columnas y orden.');
+      }
+
+      const rows = books.flatMap(({ file, parsedSource }) => parsedSource.rows.map((row) => ({
+        ...row,
+        __sourceFileName: file.name,
+      })));
+      const employeeIds = rows.map((row) => normalizeHistoricalRut(row.RUT)).filter(Boolean);
+      const duplicates = employeeIds.length - new Set(employeeIds).size;
+      if (duplicates > 0) {
+        throw new Error(`Hay ${duplicates.toLocaleString('es-CL')} RUT repetidos entre los libros. Corrige la selección para evitar duplicar montos.`);
+      }
+
+      const fileNames = books.map(({ file }) => file.name);
+      const period = [...periods][0];
+      const uploadId = createSessionId();
+      setSessionId(uploadId);
+      setSourceFile({
+        uploadId,
+        fileName: fileNames.join(' + '),
+        fileNames,
+        workbookName: books.map(({ parsedSource }) => parsedSource.workbookName).join(' + '),
+        headers: baseHeaders,
+        rows,
+        previewRows: rows.slice(0, 3),
+        period,
+      });
+      setValidation({
+        isValid: true,
+        missingColumns: [],
+        formatIssues: [],
+        message: `${books.length} libro(s) listos para ${period}. Se detectaron ${new Set(employeeIds).size.toLocaleString('es-CL')} trabajadores sin RUT duplicado.`,
+      });
+    } catch (error) {
+      setSourceFile(null);
+      setValidation({
+        isValid: false,
+        missingColumns: [],
+        formatIssues: [],
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudieron combinar los libros: ${error.message}`,
+      });
+    } finally {
+      setIsReadingFile(false);
+    }
+  };
+
   const handleVismaCatalogScopeChange = (scope) => {
     const localCatalog = loadVismaConceptCatalogMemory(scope);
     setVismaCatalogScope(scope);
@@ -492,6 +619,8 @@ export function createAppUploadActions(context) {
     handleConceptCatalogFileSelected,
     handleVismaHistoricalCatalogSelected,
     handleVismaHistoricalTemplateSelected,
+    handleVismaHistoricalEmployeeMasterSelected,
+    handleVismaHistoricalBooksSelected,
     handleVismaCatalogScopeChange,
     handleModuleChange,
     handleVismaNavigation,
@@ -499,4 +628,8 @@ export function createAppUploadActions(context) {
     handleOpenOtherFlows,
     handleOpenMissingMeta4Employees,
   };
+}
+
+function normalizeHistoricalRut(value) {
+  return String(value ?? '').replace(/[.\s-]/g, '').toUpperCase();
 }

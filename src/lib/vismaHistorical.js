@@ -21,7 +21,10 @@ export const LIQUIDATION_HEADERS = [
   'Jornada',
   'Días de vacaciones',
   'Monto Init',
+  'Parcial 7',
+  'Parcial 8',
 ];
+const LEGACY_LIQUIDATION_HEADERS = LIQUIDATION_HEADERS.slice(0, 18);
 
 const VISMA_TEMPLATE_PATH = `${import.meta.env.BASE_URL}templates/rex-liquidaciones-detalle-template.xlsx`;
 export const VISMA_CATALOG_SCOPES = [
@@ -187,9 +190,10 @@ export async function parseVismaHistoricalTemplate(arrayBuffer, password = '') {
 
   const exampleRows = readTwoColumnSheet(workbook, sheetNames.example);
   const headers = exampleRows[0]?.map(cleanCell) ?? [];
-  const expectedHeaders = LIQUIDATION_HEADERS.map(normalizeText);
-  if (expectedHeaders.some((header, index) => normalizeText(headers[index]) !== header)) {
-    throw new Error('La hoja Ejemplo del template debe conservar las 18 columnas de Liquidación Detalle y su orden oficial.');
+  const isCurrentFormat = matchesHeaders(headers, LIQUIDATION_HEADERS);
+  const isLegacyFormat = matchesHeaders(headers, LEGACY_LIQUIDATION_HEADERS);
+  if (!isCurrentFormat && !isLegacyFormat) {
+    throw new Error('La hoja Ejemplo debe conservar el orden oficial de las 18 o 20 columnas de Liquidación Detalle.');
   }
 
   const companies = readCatalogSheet(workbook, sheetNames.companies);
@@ -207,20 +211,67 @@ export async function parseVismaHistoricalTemplate(arrayBuffer, password = '') {
   };
 }
 
-export function buildVismaHistoricalModel({ sourceRows, sourceHeaders, resource }) {
+export function buildVismaHistoricalModel({ sourceRows, sourceHeaders, resource, employeeCatalog = [] }) {
   const catalog = resource?.conceptCatalog ?? [];
   const conceptColumns = extractConceptColumns(sourceRows, sourceHeaders);
   const decisions = conceptColumns.map((column, index) => buildDecision(column, index, catalog));
+  const employeeValidation = validateVismaHistoricalEmployees(sourceRows, employeeCatalog);
 
   return {
     decisions,
     catalog,
     sourceRows: sourceRows.length,
     sourceConcepts: decisions.length,
+    employeeValidation,
   };
 }
 
-export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource }) {
+export function validateVismaHistoricalEmployees(sourceRows, employeeCatalog = []) {
+  const employeeMap = new Map(employeeCatalog.map((employee) => [normalizeEmployeeKey(employee.id), employee]));
+  const workers = new Map();
+
+  sourceRows.forEach((row) => {
+    const key = normalizeEmployeeKey(row.RUT);
+    const workerKey = key || `${cleanCell(row.__sourceFileName)}:${cleanCell(row.__sourceRowNumber)}`;
+    if (workers.has(workerKey)) return;
+    const employee = employeeMap.get(key);
+    const hasValidRut = /^\d{6,9}[0-9K]$/i.test(key);
+    workers.set(workerKey, {
+      id: cleanCell(row.RUT),
+      name: cleanCell(row['APELLIDO Y NOMBRE']),
+      sourceFile: cleanCell(row.__sourceFileName),
+      sourceRow: row.__sourceRowNumber ?? '',
+      contract: employee?.contract ?? '',
+      issue: !hasValidRut ? 'RUT vacío o con formato inválido.' : !employee ? 'No aparece en el maestro REX+.' : !employee.contract ? 'El maestro no tiene contratoActi.' : '',
+    });
+  });
+
+  const allWorkers = [...workers.values()];
+  const issues = allWorkers.filter((worker) => worker.issue);
+  return {
+    total: allWorkers.length,
+    matched: allWorkers.length - issues.length,
+    issues,
+  };
+}
+
+export function getVismaHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [] }) {
+  const employeeKeys = new Set(employeeCatalog.map((employee) => normalizeEmployeeKey(employee.id)));
+  const approved = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+  const ids = new Set();
+
+  sourceRows.forEach((row) => {
+    const key = normalizeEmployeeKey(row.RUT);
+    if (!key || !employeeKeys.has(key)) return;
+    if (approved.some((decision) => parseVismaAmount(row[decision.sourceKey]) !== 0 && parseVismaAmount(row[decision.sourceKey]) !== null)) {
+      ids.add(cleanCell(row.RUT).replace(/[.\s]/g, '').toUpperCase());
+    }
+  });
+
+  return [...ids];
+}
+
+export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource, employeeCatalog = [], employeeIds = null }) {
   const rowsByKey = new Map();
   const companies = resource?.companies ?? [];
   const [company] = companies;
@@ -228,18 +279,30 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
     throw new Error('Selecciona exactamente una empresa del template REX+ antes de generar el CSV.');
   }
   const companyId = company.id;
+  const employeeMap = new Map(employeeCatalog.map((employee) => [normalizeEmployeeKey(employee.id), employee]));
+  const selectedEmployeeKeys = employeeIds ? new Set(employeeIds.map(normalizeEmployeeKey)) : null;
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
 
   approvedDecisions.forEach((decision) => {
     sourceRows.forEach((sourceRow) => {
-      const employeeId = normalizeEmployeeId(sourceRow.RUT);
+      const employeeKey = normalizeEmployeeKey(sourceRow.RUT);
+      const employee = employeeMap.get(employeeKey);
+      if (!employeeKey) {
+        throw new Error('Hay una fila de libro sin RUT; revisa el informe de diferencias antes de generar el CSV.');
+      }
+      if (selectedEmployeeKeys && !selectedEmployeeKeys.has(employeeKey)) return;
+      if (!employee?.contract) {
+        throw new Error('Hay trabajadores sin contratoActi válido en el maestro; no se puede generar el archivo con seguridad.');
+      }
+
       const amount = parseVismaAmount(sourceRow[decision.sourceKey]);
       const institutionId = resolveInstitutionId(decision.targetId, sourceRow);
-      if (!employeeId || amount === null || amount === 0) {
+      if (amount === null || amount === 0) {
         return;
       }
 
-      const rowKey = `${employeeId}::${decision.targetId}`;
+      const employeeId = normalizeEmployeeId(employee.id);
+      const rowKey = `${employeeKey}::${decision.targetId}`;
       const current = rowsByKey.get(rowKey);
       if (current) {
         current[4] = Number(current[4]) + amount;
@@ -249,7 +312,7 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
       rowsByKey.set(rowKey, [
         period || extractPeriodFromRow(sourceRow) || '',
         employeeId,
-        '1',
+        employee.contract,
         decision.targetId,
         amount,
         0,
@@ -265,12 +328,17 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         'C',
         0,
         0,
+        0,
+        0,
       ]);
     });
   });
 
-  const headers = resource?.headers?.length === LIQUIDATION_HEADERS.length ? resource.headers : LIQUIDATION_HEADERS;
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rowsByKey.values()]);
+  const headers = resource?.headers?.length === LIQUIDATION_HEADERS.length || resource?.headers?.length === LEGACY_LIQUIDATION_HEADERS.length
+    ? resource.headers
+    : LIQUIDATION_HEADERS;
+  const outputRows = [...rowsByKey.values()].map((row) => row.slice(0, headers.length));
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...outputRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false });
   return `\uFEFF${csv}`;
 }
@@ -303,7 +371,7 @@ export function summarizeVismaHistoricalDecisions(decisions) {
 
 function buildDecision(column, index, catalog) {
   const sourceName = stripDuplicateHeaderSuffix(column.sourceKey);
-  const exact = findExactConcept(sourceName, catalog);
+  const exact = column.isDuplicateHeader ? null : findExactConcept(sourceName, catalog);
   const suggestedMatches = findSuggestedMatches(sourceName, catalog);
   const target = exact ?? null;
   const isContractual = isContractualSourceHeader(sourceName) || isContractualTargetId(target?.id);
@@ -312,6 +380,8 @@ function buildDecision(column, index, catalog) {
     id: `${index + 1}-${column.sourceKey}`,
     sourceKey: column.sourceKey,
     sourceName,
+    sourceColumn: column.sourceColumn,
+    isDuplicateHeader: column.isDuplicateHeader,
     sourceSection: column.index >= 150 ? 'Descuento' : 'Haber',
     nonZeroCount: column.nonZeroCount,
     sampleValue: column.sampleValue,
@@ -330,8 +400,19 @@ function buildDecision(column, index, catalog) {
 }
 
 function extractConceptColumns(sourceRows, sourceHeaders) {
+  const headerCounts = new Map();
+  sourceHeaders.forEach((sourceKey) => {
+    const base = stripDuplicateHeaderSuffix(sourceKey);
+    headerCounts.set(base, (headerCounts.get(base) ?? 0) + 1);
+  });
+
   return sourceHeaders
-    .map((sourceKey, index) => ({ sourceKey, index }))
+    .map((sourceKey, index) => ({
+      sourceKey,
+      index,
+      sourceColumn: columnLabel(index),
+      isDuplicateHeader: (headerCounts.get(stripDuplicateHeaderSuffix(sourceKey)) ?? 0) > 1,
+    }))
     .filter(({ sourceKey, index }) => index >= 18 && sourceKey && !FIXED_SOURCE_HEADERS.has(stripDuplicateHeaderSuffix(sourceKey)))
     .map((column) => {
       const values = sourceRows.map((row) => parseVismaAmount(row[column.sourceKey])).filter((value) => value !== null && value !== 0);
@@ -495,6 +576,25 @@ function parseDays(value) {
 
 function normalizeEmployeeId(value) {
   return cleanCell(value).replace(/[.\s]/g, '').toUpperCase();
+}
+
+function normalizeEmployeeKey(value) {
+  return normalizeEmployeeId(value).replace(/-/g, '');
+}
+
+function matchesHeaders(headers, expectedHeaders) {
+  return expectedHeaders.every((header, index) => normalizeText(headers[index]) === normalizeText(header));
+}
+
+function columnLabel(index) {
+  let value = index + 1;
+  let label = '';
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + value % 26) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
 }
 
 function extractPeriodFromRow(row) {

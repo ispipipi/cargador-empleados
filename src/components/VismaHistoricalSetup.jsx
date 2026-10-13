@@ -18,9 +18,14 @@ export default function VismaHistoricalSetup({
   onTemplateSelected,
   isReadingTemplate,
   templateValidation,
+  employeeCatalog,
+  employeeMasterFileName,
+  employeeMasterValidation,
+  onEmployeeMasterSelected,
+  isReadingEmployeeMaster,
   sourceFile,
   sourceValidation,
-  onSourceSelected,
+  onSourceFilesSelected,
   isReadingSource,
   onBack,
   onContinue,
@@ -29,6 +34,7 @@ export default function VismaHistoricalSetup({
   const canContinue = Boolean(
     catalog?.length
       && templateResource
+      && employeeCatalog?.length
       && sourceFile?.rows?.length
       && sourceValidation?.isValid
       && companyOptions.some((option) => option.id === company)
@@ -43,7 +49,7 @@ export default function VismaHistoricalSetup({
         <p className="text-xs font-semibold uppercase tracking-[0.28em] text-brand-600">Visma → REX+ · Preparación</p>
         <h2 className="mt-2 text-2xl font-bold text-slate-950">Prepara la carga del libro histórico</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          Selecciona el ámbito de Visma. Luego confirma el catálogo REX+, el template oficial y el libro del mes.
+          Selecciona el ámbito de Visma. Carga el catálogo, template, maestro de trabajadores y todos los libros que componen el mismo período.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -77,7 +83,7 @@ export default function VismaHistoricalSetup({
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2">
         <WorkbookUpload
           title="Catálogo de conceptos REX+"
           description={catalog?.length
@@ -103,14 +109,26 @@ export default function VismaHistoricalSetup({
         />
 
         <WorkbookUpload
-          title="Libro mensual Visma"
-          description="Carga el libro del período que quieres transformar. Se valida su estructura antes de analizar los conceptos."
+          title="Maestro de personal"
+          description="Se usa empleado → contratoActi para asociar cada RUT al contrato que informa el maestro. No se asume contrato 1."
+          fileName={employeeMasterFileName}
+          isReady={Boolean(employeeCatalog?.length)}
+          isReading={isReadingEmployeeMaster}
+          validation={employeeMasterValidation}
+          onFileSelected={onEmployeeMasterSelected}
+          actionLabel={employeeCatalog?.length ? 'Reemplazar maestro' : 'Cargar maestro'}
+        />
+
+        <WorkbookUpload
+          title="Libros mensuales Visma"
+          description="Puedes seleccionar varios libros (por ejemplo, RP y RG). Se combinan sólo si comparten período y columnas, sin RUT duplicados."
           fileName={sourceFile?.fileName}
           isReady={Boolean(sourceValidation?.isValid && sourceFile?.rows?.length)}
           isReading={isReadingSource}
           validation={sourceValidation}
-          onFileSelected={onSourceSelected}
-          actionLabel={sourceFile ? 'Reemplazar libro mensual' : 'Cargar libro mensual'}
+          onFilesSelected={onSourceFilesSelected}
+          multiple
+          actionLabel={sourceFile ? 'Reemplazar libros mensuales' : 'Cargar libros mensuales'}
         />
       </div>
 
@@ -119,7 +137,7 @@ export default function VismaHistoricalSetup({
           Volver
         </button>
         <div className="flex flex-col items-end gap-2">
-          {!canContinue ? <p className="text-right text-xs text-slate-500">Selecciona la empresa del template y completa catálogo y libro mensual para continuar.</p> : null}
+          {!canContinue ? <p className="text-right text-xs text-slate-500">Selecciona la empresa y carga catálogo, template, maestro y libros del período para continuar.</p> : null}
           <button
             type="button"
             onClick={onContinue}
@@ -134,8 +152,8 @@ export default function VismaHistoricalSetup({
   );
 }
 
-function WorkbookUpload({ title, description, fileName, isReady = false, isReading, loadingLabel = 'Leyendo archivo…', validation, onFileSelected, actionLabel }) {
-  const [selectedFile, setSelectedFile] = useState(null);
+function WorkbookUpload({ title, description, fileName, isReady = false, isReading, loadingLabel = 'Leyendo archivo…', validation, onFileSelected, onFilesSelected, multiple = false, actionLabel }) {
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [password, setPassword] = useState('');
 
   useEffect(() => {
@@ -159,13 +177,15 @@ function WorkbookUpload({ title, description, fileName, isReady = false, isReadi
         <input
           type="file"
           accept=".xls,.xlsx"
+          multiple={multiple}
           className="sr-only"
           disabled={isReading}
           onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              setSelectedFile(file);
-              onFileSelected(file, password);
+            const files = Array.from(event.target.files ?? []);
+            if (files.length) {
+              setSelectedFiles(files);
+              if (multiple) onFilesSelected(files, password);
+              else onFileSelected(files[0], password);
             }
             event.target.value = '';
           }}
@@ -186,7 +206,10 @@ function WorkbookUpload({ title, description, fileName, isReady = false, isReadi
             />
             <button
               type="button"
-              onClick={() => selectedFile && onFileSelected(selectedFile, password)}
+              onClick={() => {
+                if (multiple && selectedFiles.length) onFilesSelected(selectedFiles, password);
+                else if (selectedFiles[0]) onFileSelected(selectedFiles[0], password);
+              }}
               disabled={isReading || !password.trim()}
               className="rounded-xl bg-amber-600 px-3 py-2 text-xs font-semibold text-white disabled:bg-amber-300"
             >

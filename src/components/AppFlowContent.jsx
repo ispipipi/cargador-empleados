@@ -54,6 +54,10 @@ export default function AppFlowContent({ app }) {
     isReadingVismaCatalog,
     isLoadingVismaCatalog,
     vismaHistoricalCatalogValidation,
+    vismaHistoricalEmployeeCatalog,
+    vismaEmployeeMasterFileName,
+    vismaEmployeeMasterValidation,
+    isReadingVismaEmployeeMaster,
     vismaTemplateCompanyId,
     vismaHistoricalTemplateResource,
     setVismaTemplateCompanyId,
@@ -90,6 +94,8 @@ export default function AppFlowContent({ app }) {
     handleConceptCatalogFileSelected,
     handleVismaHistoricalCatalogSelected,
     handleVismaHistoricalTemplateSelected,
+    handleVismaHistoricalEmployeeMasterSelected,
+    handleVismaHistoricalBooksSelected,
     handleVismaCatalogScopeChange,
     handleModuleChange,
     handleVismaNavigation,
@@ -256,9 +262,14 @@ export default function AppFlowContent({ app }) {
             onTemplateSelected={handleVismaHistoricalTemplateSelected}
             isReadingTemplate={isReadingVismaTemplate}
             templateValidation={vismaHistoricalTemplateValidation}
+            employeeCatalog={vismaHistoricalEmployeeCatalog}
+            employeeMasterFileName={vismaEmployeeMasterFileName}
+            employeeMasterValidation={vismaEmployeeMasterValidation}
+            onEmployeeMasterSelected={handleVismaHistoricalEmployeeMasterSelected}
+            isReadingEmployeeMaster={isReadingVismaEmployeeMaster}
             sourceFile={sourceFile}
             sourceValidation={validation}
-            onSourceSelected={handleFileSelected}
+            onSourceFilesSelected={handleVismaHistoricalBooksSelected}
             isReadingSource={isReadingFile}
             onBack={() => setStep(STEPS.format)}
             onContinue={() => {
@@ -266,8 +277,8 @@ export default function AppFlowContent({ app }) {
                 setGlobalError('Selecciona la empresa REX+ del template antes de analizar el libro.');
                 return;
               }
-              if (!vismaHistoricalCatalog?.length || !vismaHistoricalTemplateResource || !sourceFile || !validation?.isValid) {
-                setGlobalError('Carga el catálogo REX+, el template de Liquidación Detalle y el libro mensual antes de analizar.');
+              if (!vismaHistoricalCatalog?.length || !vismaHistoricalTemplateResource || !vismaHistoricalEmployeeCatalog?.length || !sourceFile || !validation?.isValid) {
+                setGlobalError('Carga el catálogo REX+, el template, el maestro de trabajadores y los libros del período antes de analizar.');
                 return;
               }
               setGlobalError('');
@@ -349,7 +360,10 @@ export default function AppFlowContent({ app }) {
               companies: vismaHistoricalTemplateResource.companies.filter((company) => company.id === vismaTemplateCompanyId),
               conceptCatalog: vismaHistoricalCatalog,
             }}
+            employeeCatalog={vismaHistoricalEmployeeCatalog}
             mappingScope={mappingScope}
+            batchState={historicalBatchState}
+            onBatchStateChange={setHistoricalBatchState}
             onBack={() => setStep(STEPS.upload)}
             onBusyChange={setIsPreparingHistoricalDownload}
           />

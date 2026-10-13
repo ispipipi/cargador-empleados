@@ -26,10 +26,10 @@ import {
 import { createAppUploadActions } from './lib/appUploadActions';
 import { createAppResultActions } from './lib/appResultActions';
 import { createAppConfigurationActions } from './lib/appConfigurationActions';
+import { useVismaHistoricalState } from './lib/useVismaHistoricalState';
 import { VISMA_CATALOG_SCOPES } from './lib/vismaHistorical';
 import {
   loadCloudConceptCatalog,
-  loadCloudVismaConceptCatalog,
   listCloudSessions,
   loadCloudMappings,
   saveCloudConceptCatalog,
@@ -40,13 +40,11 @@ import { ensureFirebaseSession, isFirebaseConfigured, subscribeToFirebaseAuth } 
 import {
   createSessionMetadata,
   loadConceptCatalogMemory,
-  loadVismaConceptCatalogMemory,
   loadMappingMemory,
   listSessions,
   mergeStoredMappingEntries,
   normalizeMappingScope,
   saveConceptCatalogMemory,
-  saveVismaConceptCatalogMemory,
   saveSession,
 } from './lib/sessionPersistence';
 
@@ -73,7 +71,6 @@ export default function App() {
   const [selectedOrigin, setSelectedOrigin] = useState('talana');
   const [selectedDestination, setSelectedDestination] = useState('buk');
   const [mappingCompany, setMappingCompany] = useState('FINNING');
-  const [vismaCatalogScope, setVismaCatalogScope] = useState('ola-1');
   const [vismaTemplateCompanyId, setVismaTemplateCompanyId] = useState('');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
   const [configurations, setConfigurations] = useState(() => loadConfigurations());
@@ -84,15 +81,6 @@ export default function App() {
   const [baseRexTemplateResource, setBaseRexTemplateResource] = useState(null);
   const [rexCompanyMasterResource, setRexCompanyMasterResource] = useState(null);
   const [conceptsResource, setConceptsResource] = useState(null);
-  const [vismaHistoricalCatalog, setVismaHistoricalCatalog] = useState(() => loadVismaConceptCatalogMemory('ola-1'));
-  const [vismaHistoricalCatalogFileName, setVismaHistoricalCatalogFileName] = useState('');
-  const [vismaHistoricalCatalogValidation, setVismaHistoricalCatalogValidation] = useState(null);
-  const [isReadingVismaCatalog, setIsReadingVismaCatalog] = useState(false);
-  const [isLoadingVismaCatalog, setIsLoadingVismaCatalog] = useState(false);
-  const [vismaHistoricalTemplateResource, setVismaHistoricalTemplateResource] = useState(null);
-  const [vismaHistoricalTemplateFileName, setVismaHistoricalTemplateFileName] = useState('');
-  const [vismaHistoricalTemplateValidation, setVismaHistoricalTemplateValidation] = useState(null);
-  const [isReadingVismaTemplate, setIsReadingVismaTemplate] = useState(false);
   const [historicalEmployeeCatalog, setHistoricalEmployeeCatalog] = useState(null);
   const [historicalEmployeeMasterFile, setHistoricalEmployeeMasterFile] = useState(null);
   const [historicalEmployeeMasterValidation, setHistoricalEmployeeMasterValidation] = useState(null);
@@ -113,6 +101,37 @@ export default function App() {
   const [preparedRexDownload, setPreparedRexDownload] = useState(null);
   const [exportState, setExportState] = useState(null);
   const [globalError, setGlobalError] = useState('');
+  const vismaHistoricalState = useVismaHistoricalState(authUser);
+  const {
+    vismaCatalogScope,
+    setVismaCatalogScope,
+    vismaHistoricalCatalog,
+    setVismaHistoricalCatalog,
+    vismaHistoricalCatalogFileName,
+    setVismaHistoricalCatalogFileName,
+    vismaHistoricalCatalogValidation,
+    setVismaHistoricalCatalogValidation,
+    isReadingVismaCatalog,
+    setIsReadingVismaCatalog,
+    isLoadingVismaCatalog,
+    setIsLoadingVismaCatalog,
+    vismaHistoricalTemplateResource,
+    setVismaHistoricalTemplateResource,
+    vismaHistoricalTemplateFileName,
+    setVismaHistoricalTemplateFileName,
+    vismaHistoricalTemplateValidation,
+    setVismaHistoricalTemplateValidation,
+    isReadingVismaTemplate,
+    setIsReadingVismaTemplate,
+    vismaHistoricalEmployeeCatalog,
+    setVismaHistoricalEmployeeCatalog,
+    vismaEmployeeMasterFileName,
+    setVismaEmployeeMasterFileName,
+    vismaEmployeeMasterValidation,
+    setVismaEmployeeMasterValidation,
+    isReadingVismaEmployeeMaster,
+    setIsReadingVismaEmployeeMaster,
+  } = vismaHistoricalState;
 
   const rexTemplateResource = useMemo(
     () => applyRexCompanyMasterResource(baseRexTemplateResource, rexCompanyMasterResource),
@@ -189,9 +208,10 @@ export default function App() {
       listCloudSessions(authUser),
       loadCloudMappings(authUser, 'concepts'),
       loadCloudMappings(authUser, 'historical-concepts'),
+      loadCloudMappings(authUser, 'visma-historical'),
       loadCloudConceptCatalog(authUser),
     ])
-      .then(([storedCloudSessions, conceptsMappings, historicalMappings, cloudConceptCatalog]) => {
+      .then(([storedCloudSessions, conceptsMappings, historicalMappings, vismaHistoricalMappings, cloudConceptCatalog]) => {
         if (!isMounted) {
           return;
         }
@@ -205,12 +225,17 @@ export default function App() {
           ...historicalMappings,
           ...(localMemory['historical-concepts'] ?? {}),
         };
+        const mergedVismaHistoricalMappings = {
+          ...vismaHistoricalMappings,
+          ...(localMemory['visma-historical'] ?? {}),
+        };
         const localConceptCatalog = loadConceptCatalogMemory();
         const conceptCatalog = cloudConceptCatalog?.length ? cloudConceptCatalog : localConceptCatalog;
 
         setCloudSessions(storedCloudSessions);
         mergeStoredMappingEntries('concepts', mergedConceptsMappings);
         mergeStoredMappingEntries('historical-concepts', mergedHistoricalMappings);
+        mergeStoredMappingEntries('visma-historical', mergedVismaHistoricalMappings);
 
         if (conceptCatalog?.length) {
           saveConceptCatalogMemory(conceptCatalog);
@@ -220,6 +245,7 @@ export default function App() {
         return Promise.all([
           saveCloudMappings(authUser, 'concepts', mergedConceptsMappings),
           saveCloudMappings(authUser, 'historical-concepts', mergedHistoricalMappings),
+          saveCloudMappings(authUser, 'visma-historical', mergedVismaHistoricalMappings),
           ...(conceptCatalog?.length ? [saveCloudConceptCatalog(authUser, conceptCatalog)] : []),
         ]);
       })
@@ -233,58 +259,6 @@ export default function App() {
       isMounted = false;
     };
   }, [authUser]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const localCatalog = loadVismaConceptCatalogMemory(vismaCatalogScope);
-    setVismaHistoricalCatalog(localCatalog);
-    setVismaHistoricalCatalogFileName('');
-    setVismaHistoricalCatalogValidation(localCatalog?.length
-      ? { isValid: true, message: `Catálogo local listo: ${localCatalog.length.toLocaleString('es-CL')} conceptos.` }
-      : null);
-
-    if (!authUser) {
-      setIsLoadingVismaCatalog(false);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    setIsLoadingVismaCatalog(true);
-    loadCloudVismaConceptCatalog(authUser, vismaCatalogScope)
-      .then((cloudCatalog) => {
-        if (!isMounted) {
-          return;
-        }
-
-        const nextCatalog = cloudCatalog?.length ? cloudCatalog : loadVismaConceptCatalogMemory(vismaCatalogScope);
-        if (cloudCatalog?.length) {
-          saveVismaConceptCatalogMemory(vismaCatalogScope, cloudCatalog);
-        }
-        setVismaHistoricalCatalog(nextCatalog);
-        setVismaHistoricalCatalogValidation(nextCatalog?.length
-          ? { isValid: true, message: `Catálogo listo: ${nextCatalog.length.toLocaleString('es-CL')} conceptos.` }
-          : null);
-      })
-      .catch(() => {
-        if (isMounted) {
-          const fallbackCatalog = loadVismaConceptCatalogMemory(vismaCatalogScope);
-          setVismaHistoricalCatalog(fallbackCatalog);
-          setVismaHistoricalCatalogValidation(fallbackCatalog?.length
-            ? { isValid: true, message: `Catálogo local listo: ${fallbackCatalog.length.toLocaleString('es-CL')} conceptos.` }
-            : null);
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoadingVismaCatalog(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [authUser, vismaCatalogScope]);
 
   useEffect(() => {
     if (!authUser) {
@@ -544,6 +518,10 @@ export default function App() {
     setVismaHistoricalCatalog,
     setVismaHistoricalCatalogFileName,
     setVismaHistoricalCatalogValidation,
+    setVismaHistoricalEmployeeCatalog,
+    setVismaEmployeeMasterFileName,
+    setVismaEmployeeMasterValidation,
+    setIsReadingVismaEmployeeMaster,
     setVismaHistoricalTemplateFileName,
     setVismaHistoricalTemplateResource,
     setVismaHistoricalTemplateValidation,
@@ -656,6 +634,10 @@ export default function App() {
         isReadingVismaCatalog,
         isLoadingVismaCatalog,
         vismaHistoricalCatalogValidation,
+        vismaHistoricalEmployeeCatalog,
+        vismaEmployeeMasterFileName,
+        vismaEmployeeMasterValidation,
+        isReadingVismaEmployeeMaster,
         vismaTemplateCompanyId,
         vismaHistoricalTemplateResource,
         setVismaTemplateCompanyId,

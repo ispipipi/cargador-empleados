@@ -165,6 +165,7 @@ export function rememberConceptMappings(namespace, decisions, scope) {
       type: decision.type ?? '',
       lreField: decision.lreField ?? '',
       classification: decision.classification ?? '',
+      duplicateHeaderReviewed: Boolean(decision.duplicateHeaderReviewed),
       scopeKey: mappingScope.key,
       scopeOrigin: mappingScope.origin,
       scopeDestination: mappingScope.destination,
@@ -293,6 +294,9 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
   const stored = findStoredHistoricalMapping(memory, namespace, decision, mappingScope);
 
   if (!stored || !isConfirmedStoredMapping(stored)) {
+    return decision;
+  }
+  if (decision.isDuplicateHeader && !stored.duplicateHeaderReviewed) {
     return decision;
   }
 
