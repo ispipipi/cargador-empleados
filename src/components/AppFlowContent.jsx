@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import FileUploader from '../components/FileUploader';
 import FormatSelector from '../components/FormatSelector';
 import ParamsWizard from '../components/ParamsWizard';
@@ -120,6 +121,16 @@ export default function AppFlowContent({ app }) {
     handleExportActiveConfiguration,
     resetFlow,
   } = app;
+
+  const vismaHistoricalResource = useMemo(() => {
+    if (!vismaHistoricalTemplateResource) return null;
+
+    return {
+      ...vismaHistoricalTemplateResource,
+      companies: vismaHistoricalTemplateResource.companies.filter((company) => company.id === vismaTemplateCompanyId),
+      conceptCatalog: vismaHistoricalCatalog,
+    };
+  }, [vismaHistoricalCatalog, vismaHistoricalTemplateResource, vismaTemplateCompanyId]);
 
   return (
     <VismaWorkspaceProvider>
@@ -352,14 +363,10 @@ export default function AppFlowContent({ app }) {
           />
         ) : null}
 
-        {step === STEPS.vismaHistoricalReview && sourceFile && vismaHistoricalTemplateResource && vismaHistoricalCatalog ? (
+        {step === STEPS.vismaHistoricalReview && sourceFile && vismaHistoricalResource ? (
           <VismaHistoricalMapper
             sourceFile={sourceFile}
-            resource={{
-              ...vismaHistoricalTemplateResource,
-              companies: vismaHistoricalTemplateResource.companies.filter((company) => company.id === vismaTemplateCompanyId),
-              conceptCatalog: vismaHistoricalCatalog,
-            }}
+            resource={vismaHistoricalResource}
             employeeCatalog={vismaHistoricalEmployeeCatalog}
             mappingScope={mappingScope}
             batchState={historicalBatchState}
