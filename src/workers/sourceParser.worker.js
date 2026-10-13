@@ -14,10 +14,7 @@ self.onmessage = async (event) => {
   try {
     const { arrayBuffer, originId = 'talana', password = '' } = event.data;
     const readableArrayBuffer = await decryptWorkbook(arrayBuffer, password);
-    const workbook = XLSX.read(readableArrayBuffer, {
-      type: 'array',
-      raw: false,
-    });
+    const workbook = readWorkbook(readableArrayBuffer);
     const parsedSource =
       originId === 'meta4'
         ? parseMeta4Workbook(workbook)
@@ -48,6 +45,19 @@ self.onmessage = async (event) => {
     });
   }
 };
+
+function readWorkbook(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const decoder = new TextDecoder('utf-8');
+  const prefix = decoder.decode(bytes.subarray(0, 512)).replace(/^\uFEFF/, '').trimStart();
+
+  if (/^(?:<!doctype\s+html\b|<html\b|<table\b)/i.test(prefix)) {
+    const html = decoder.decode(bytes).replace(/^\uFEFF/, '');
+    return XLSX.read(html, { type: 'string', raw: false });
+  }
+
+  return XLSX.read(arrayBuffer, { type: 'array', raw: false });
+}
 
 function parseTalanaWorkbook(workbook) {
   const firstSheetName = workbook.SheetNames[0];
