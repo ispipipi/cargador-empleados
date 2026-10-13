@@ -84,6 +84,88 @@ export function fetchVismaEmployeesPreview({ tenantId, companyId, companyTypeId,
   });
 }
 
+export function fetchVismaLeavesPreview({
+  tenantId,
+  companyId,
+  companyTypeId,
+  year,
+  month,
+  employeeId = '',
+  typeLeaveId = '',
+  pageSize = VISMA_PAYROLL_PAGE_SIZE,
+}) {
+  return postToVismaProxy({
+    action: 'leaves-preview',
+    tenantId: cleanCell(tenantId),
+    companyId: cleanCell(companyId),
+    companyTypeId: cleanCell(companyTypeId),
+    year: Number(year),
+    month: Number(month),
+    employeeId: cleanCell(employeeId),
+    typeLeaveId: cleanCell(typeLeaveId),
+    limit: Number(pageSize) || VISMA_PAYROLL_PAGE_SIZE,
+  });
+}
+
+export function buildVismaLeavesCsv({ leaves = [], companyName = '', periodLabel = '' }) {
+  const headers = [
+    'EMPRESA',
+    'RUT',
+    'ID EMPLEADO',
+    'ID EMPLEADO EXTERNO',
+    'NOMBRE',
+    'TIPO AUSENTISMO',
+    'ID TIPO AUSENTISMO',
+    'FECHA DESDE',
+    'FECHA HASTA',
+    'DÍAS',
+    'ESTADO',
+    'JORNADA',
+    'FOLIO',
+    'FECHA FOLIO',
+    'OBSERVACIONES',
+  ];
+  const rows = leaves.map((leave) => [
+    cleanCell(companyName),
+    cleanCell(leave.rut),
+    cleanCell(leave.employeeId),
+    cleanCell(leave.employeeExternalId),
+    cleanCell(leave.name),
+    cleanCell(leave.type),
+    cleanCell(leave.typeLeaveId),
+    cleanCell(leave.startDate),
+    cleanCell(leave.endDate),
+    String(inclusiveDays(leave.startDate, leave.endDate)),
+    cleanCell(leave.status),
+    cleanCell(leave.fullDay),
+    cleanCell(leave.folio),
+    cleanCell(leave.folioDate),
+    cleanCell(leave.observations),
+  ]);
+  const sheet = XLSX.utils.aoa_to_sheet([
+    [`Período: ${cleanCell(periodLabel)}`],
+    headers,
+    ...rows,
+  ]);
+
+  return `\uFEFF${XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false })}`;
+}
+
+function inclusiveDays(startDate, endDate) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate || startDate);
+  if (!start || !end || end < start) {
+    return '';
+  }
+
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function parseIsoDate(value) {
+  const match = cleanCell(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+}
+
 export function fetchVismaPayrollProcessesPreview({ tenantId, year, month, periodId, pageSize = VISMA_PAYROLL_PAGE_SIZE }) {
   return postToVismaProxy({
     action: 'payroll-processes-preview',
@@ -571,5 +653,6 @@ export function summarizeVismaSourceFile(sourceFile, apiSummary) {
     withBank: apiSummary?.withBank ?? rows.filter((row) => cleanCell(row.BANCO) || cleanCell(row['N° CTA CTE'])).length,
     withStructures: apiSummary?.withStructures ?? rows.filter((row) => Number(row.__visma?.structures) > 0).length,
     withEmail: apiSummary?.withEmail ?? rows.filter((row) => cleanCell(row.EMAIL)).length,
+    withHealthAmount: apiSummary?.withHealthAmount ?? rows.filter((row) => cleanCell(row['MONTO SALUD UF'])).length,
   };
 }

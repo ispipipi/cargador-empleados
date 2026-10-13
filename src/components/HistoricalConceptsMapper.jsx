@@ -16,9 +16,23 @@ import {
 } from '../lib/historicalConcepts';
 import { normalizeText } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
-import ConceptSearchPicker from './ConceptSearchPicker';
+import HistoricalConceptsExportPanel from './HistoricalConceptsExportPanel';
+import HistoricalConceptsReviewPanel from './HistoricalConceptsReviewPanel';
+import {
+  buildHistoricalLoadFileName,
+  canIncludeInHistoricalOutput,
+  exportGroupSlug,
+  formatHistoricalMoney,
+  getConceptGroup,
+  getReviewGroup,
+  Metric,
+  ReconciliationMetric,
+  todayStamp,
+  triggerTextDownload,
+  triggerWorkbookDownload,
+  waitForPaint,
+} from './HistoricalConceptsMapperParts';
 
-const EXCLUDE_VALUE = '__exclude__';
 const CREATE_VALUE = '__create__';
 const BATCH_KEY = 'meta4-rex-concepts';
 
@@ -63,9 +77,20 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
         employeeCatalog,
         mappingScope,
       });
-      const storedDecisions = nextModel.decisions.map((decision) =>
-        applyStoredHistoricalMapping('historical-concepts', decision, { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true }),
-      );
+      const storedDecisions = nextModel.decisions.map((decision) => {
+        if (decision.excluded) {
+          return decision;
+        }
+
+        const storedDecision = applyStoredHistoricalMapping(
+          'historical-concepts',
+          decision,
+          { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true },
+        );
+
+        // Earlier versions stored automatic exclusions for employer concepts.
+        return storedDecision.excluded ? decision : storedDecision;
+      });
 
       if (!active) {
         return;
@@ -214,7 +239,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     }).sort((left, right) => getReviewGroup(left) - getReviewGroup(right) || left.sourceName.localeCompare(right.sourceName));
   }, [activeFilter, decisions, search]);
 
-  const visibleIds = visibleDecisions.map((decision) => decision.id);
+  const visibleIds = visibleDecisions.filter((decision) => !decision.excluded).map((decision) => decision.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
 
   const updateDecision = (decisionId, patch) => {
@@ -224,26 +249,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   };
 
   const assignDecision = (decisionId, targetId) => {
-    if (targetId === EXCLUDE_VALUE) {
-      updateDecision(decisionId, {
-        approved: true,
-        excluded: true,
-        action: 'exclude',
-        targetId: '',
-        targetName: '',
-        targetConcept: null,
-        matchStatus: 'excluded',
-      });
-      setExportSelectedIds((current) => current.filter((id) => id !== decisionId));
+    const currentDecision = decisions.find((decision) => decision.id === decisionId);
+    if (!currentDecision || currentDecision.excluded) {
       return;
     }
 
     if (targetId === CREATE_VALUE) {
-      const currentDecision = decisions.find((decision) => decision.id === decisionId);
-      if (!currentDecision) {
-        return;
-      }
-
       updateDecision(decisionId, {
         approved: false,
         excluded: false,
@@ -330,6 +341,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
   };
 
   const handleSelect = (decisionId) => {
+    if (decisions.find((decision) => decision.id === decisionId)?.excluded) {
+      return;
+    }
+
     setSelectedIds((current) =>
       current.includes(decisionId) ? current.filter((id) => id !== decisionId) : [...current, decisionId],
     );
@@ -516,7 +531,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <Metric label="Matches perfectos" value={summary.exact} tone="success" />
                 <Metric label="Propuestas a revisar" value={summary.pending} tone="warning" />
                 <Metric label="Se crearán" value={summary.createdApproved} />
-                <Metric label="Excluidos por regla" value={excludedConcepts.length} />
+                <Metric label="Aportes patronales" value={decisions.filter((decision) => getConceptGroup(decision) === 'aporte').length} />
                 <Metric label="Filas estimadas" value={summary.detailRows.toLocaleString('es-CL')} />
                 <Metric label="Colaboradores REX+" value={`${employeeValidation.matched}/${employeeValidation.total}`} />
               </div>
@@ -528,12 +543,13 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
               <p className="text-sm font-semibold text-slate-900">Reglas aplicadas</p>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
                 <li>{isFinningCatalog
-                  ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos del listado FINNING V2, todos haberes o descuentos.`
+                  ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos FINNING V2, incluidos aportes patronales.`
                   : `Catálogo REX+ activo: ${concepts.length.toLocaleString('es-CL')} conceptos disponibles.`}</li>
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
+                <li>Se incluyen los conceptos REX+ tipo 5A. Sólo se excluyen provisiones y Renta Imponible RIMA.</li>
                 <li>El archivo de carga histórico se descarga como CSV UTF-8, separado por punto y coma, con las 20 columnas de `Ejemplo`.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
-                <li>Los conceptos sin match quedan destacados como propuestas para asignación manual, exclusión o creación.</li>
+                <li>Los conceptos sin match quedan destacados para asignación manual o creación.</li>
                 <li>Los trabajadores se comparan contra el maestro cargado: {employeeMasterFileName || 'maestro REX+ embebido'}.</li>
                 <li>Las reglas de Afecto, instituciones, impuesto, jornada y monto inicial se aplican según las notas de la plantilla.</li>
                 <li>Los lotes se descargan en Excel y se descuentan sólo al marcarlos como cargados en REX+.</li>
@@ -569,8 +585,8 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
             ) : null}
             {excludedConcepts.length > 0 ? (
               <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">Se excluyeron {excludedConcepts.length} conceptos que no corresponden al archivo de haberes y descuentos.</p>
-                <p className="mt-2 leading-6">Ejemplos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
+                <p className="font-semibold text-slate-900">Se excluyeron {excludedConcepts.length} provisiones o conceptos de Renta Imponible RIMA, según la regla definida para FINNING.</p>
+                <p className="mt-2 leading-6">Conceptos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
             <section className="mt-5 rounded-[28px] border border-sky-200 bg-sky-50/70 p-5">
@@ -630,575 +646,12 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 </button>
               </div>
             </section>
-            <section className="mt-5 rounded-[28px] border border-indigo-200 bg-indigo-50/70 p-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-indigo-700">Archivo de carga</p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">Elige qué conceptos incluir</h3>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                    El archivo puede contener haberes y descuentos. Puedes revisar por grupo y marcar los conceptos que quieres incluir en el CSV de Liquidaciones en Detalle.
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
-                  {selectedExportIdsInGroup.length} seleccionados
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setExportGroup('all')}
-                  className={`rounded-2xl border p-4 text-left transition ${exportGroup === 'all' ? 'border-indigo-300 bg-indigo-50 text-indigo-800' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
-                >
-                  <div className="flex items-center justify-between gap-3"><span className="font-semibold">Todos</span><span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">{decisions.length}</span></div>
-                  <p className="mt-2 text-xs opacity-80">Haberes, descuentos y leyes del libro</p>
-                </button>
-                {[
-                  ['haber', 'Haberes', 'Conceptos pagados o devengados', 'border-emerald-300 bg-emerald-50 text-emerald-800'],
-                  ['descuento', 'Descuentos', 'Descuentos del colaborador', 'border-amber-300 bg-amber-50 text-amber-800'],
-                ].map(([groupId, label, detail, activeClass]) => {
-                  const groupCount = decisions.filter((decision) => getConceptGroup(decision) === groupId).length;
-                  const isActive = exportGroup === groupId;
-
-                  return (
-                    <button
-                      key={groupId}
-                      type="button"
-                      onClick={() => setExportGroup(groupId)}
-                      className={`rounded-2xl border p-4 text-left transition ${isActive ? activeClass : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-semibold">{label}</span>
-                        <span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">{groupCount}</span>
-                      </div>
-                      <p className="mt-2 text-xs opacity-80">{detail}</p>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-indigo-100 bg-white p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                    <input type="checkbox" checked={allExportGroupSelected} onChange={handleExportGroupSelectAll} />
-                    Seleccionar todos los {exportGroup === 'all' ? 'conceptos disponibles' : exportGroup === 'haber' ? 'haberes' : 'descuentos disponibles'}
-                  </label>
-                  <span className="text-xs text-slate-500">
-                    {exportGroupDecisions.length} conceptos del grupo · {selectedExportIdsInGroup.length} incluidos
-                  </span>
-                </div>
-
-                <div className="mt-4 grid max-h-96 gap-2 overflow-y-auto pr-1">
-                  {exportGroupDecisions.map((decision) => {
-                    const canInclude = canIncludeInHistoricalOutput(decision);
-                    const hasNonZeroAmount = Number(decision.nonZeroCount) > 0;
-                    const status = decision.excluded
-                      ? 'Excluido'
-                      : !hasNonZeroAmount
-                        ? 'Sin valores distintos de cero'
-                      : canInclude
-                        ? 'Listo para incluir'
-                        : 'Pendiente de mapeo';
-
-                    return (
-                      <label
-                        key={`export-${decision.id}`}
-                        className={`flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${canInclude ? 'border-slate-200 bg-slate-50' : 'border-slate-100 bg-slate-100/70 text-slate-500'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={exportSelectedIds.includes(decision.id)}
-                          disabled={!canInclude}
-                          onChange={() => handleExportSelect(decision)}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block break-words font-semibold leading-5 text-slate-900">{decision.sourceName}</span>
-                          <span className="mt-1 block break-words text-xs leading-5 text-slate-500">
-                            {decision.targetName ? `${decision.targetName} (${decision.targetId})` : 'Sin concepto REX+ asignado'}
-                          </span>
-                          <span className={`mt-1 block text-[11px] font-semibold ${canInclude ? 'text-emerald-700' : 'text-amber-700'}`}>{status}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-            <section className="mt-5 rounded-[28px] border border-brand-200 bg-brand-50 p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Carga controlada</p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">Descargar siguiente lote para REX+</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Se incluyen los conceptos seleccionados de todo el libro para cada colaborador del lote. El archivo se descarga como CSV y usa el acumulado de trabajadores cargados en el nombre. Cuando REX+ confirme la carga, marca el lote como realizado para descontarlo y no duplicarlo.
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
-                  {remainingEmployeeIds.length.toLocaleString('es-CL')} restantes
-                </span>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-end gap-3">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Colaboradores por lote
-                  <input
-                    type="number"
-                    min="1"
-                    max="10000"
-                    value={batchSize}
-                    disabled={Boolean(preparedBatch)}
-                    onChange={(event) => setBatchSize(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))}
-                    className="mt-2 block w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal tracking-normal text-slate-900 disabled:bg-slate-100"
-                  />
-                </label>
-                {[10, 50, 100, 500].map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    disabled={Boolean(preparedBatch)}
-                    onClick={() => setBatchSize(size)}
-                    className="rounded-full border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-
-              {hasExportBlockers ? (
-                <>
-                  <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    {employeeValidation.missing.length > 0
-                      ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+.`
-                      : hasReconciliationBlockers
-                        ? reconciliation.source.status === 'blocked'
-                          ? `El libro Meta4 tiene ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido.`
-                          : 'No se puede comprobar el líquido porque faltan totales en el libro Meta4.'
-                      : !rexValidation.valid
-                        ? `Hay ${rexValidation.issues.length} filas que no cumplen las validaciones de REX+. Corrígelas antes de descargar.`
-                      : selectedExportDecisions.length === 0
-                        ? 'Selecciona al menos un concepto listo para incluir en el archivo.'
-                        : `Hay ${selectedExportPending.length} conceptos seleccionados que todavía requieren mapeo.`}
-                  </p>
-                  {!rexValidation.valid ? (
-                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                      <p className="font-semibold">Detalle de validación REX+</p>
-                      <ul className="mt-2 space-y-1 text-xs leading-5">
-                        {rexValidation.issues.slice(0, 5).map((issue) => (
-                          <li key={`${issue.row}-${issue.employeeId}-${issue.conceptId}`}>
-                            Fila {issue.row} · {issue.employeeId} · {issue.conceptId}: {issue.message || issue.institutionId || 'vacío'}
-                            {issue.amount !== undefined ? ` (${formatHistoricalMoney(issue.amount)})` : ''}
-                          </li>
-                        ))}
-                      </ul>
-                      {rexValidation.issues.length > 5 ? <p className="mt-2 text-xs">Se muestran 5 de {rexValidation.issues.length} observaciones.</p> : null}
-                    </div>
-                  ) : null}
-                </>
-              ) : preparedBatch ? (
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} colaboradores.</p>
-                  <p className="mt-1">Archivo: <strong>{preparedBatch.fileName}</strong>. Si la carga falló en REX+, puedes descargar nuevamente el mismo lote. Si fue correcta, márcalo como realizado.</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => handleDownload('batch')} className="button-secondary border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100">
-                      Descargar este lote nuevamente
-                    </button>
-                    <button type="button" onClick={handleMarkBatchCompleted} className="button-primary bg-emerald-700 hover:bg-emerald-800">
-                      Marcar lote como realizado
-                    </button>
-                  </div>
-                </div>
-              ) : remainingEmployeeIds.length > 0 ? (
-                <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-brand-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-slate-600">
-                    Próximo lote: <strong className="text-slate-900">{nextBatchEmployeeIds.length.toLocaleString('es-CL')} colaboradores</strong>. Archivo: <strong className="text-slate-900">{buildHistoricalLoadFileName(completedEmployeeIds.size + nextBatchEmployeeIds.length, sourceFile.period)}</strong>.
-                  </p>
-                  <button type="button" onClick={() => handleDownload('batch')} className="button-primary shrink-0" disabled={isPreparing}>
-                    Descargar siguiente lote
-                  </button>
-                </div>
-              ) : (
-                <p className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  Todos los colaboradores elegibles ya fueron marcados como realizados. No quedan registros para volver a descargar.
-                </p>
-              )}
-            </section>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <DownloadButton
-                title="Descargar archivo de carga a REX+"
-                detail={employeeValidation.missing.length
-                  ? `Bloqueado: faltan ${employeeValidation.missing.length} colaboradores REX+`
-                  : hasReconciliationBlockers
-                    ? reconciliation.source.status === 'blocked'
-                      ? `Bloqueado: ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido`
-                      : 'Bloqueado: no se pudo comprobar el líquido del libro'
-                  : !rexValidation.valid
-                    ? `Bloqueado: ${rexValidation.issues.length} validaciones REX+ pendientes`
-                  : hasExportBlockers
-                    ? selectedExportDecisions.length === 0
-                      ? 'Selecciona conceptos para generar el archivo'
-                      : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                    : 'CSV de Liquidaciones en Detalle listo para cargar en REX+'}
-                onClick={() => handleDownload('output')}
-                disabled={hasExportBlockers || isPreparing}
-                primary
-              />
-              <DownloadButton
-                title="Descargar altas de conceptos"
-                detail={`${selectedCreatedCount} conceptos nuevos seleccionados para crear en REX+`}
-                onClick={() => handleDownload('create')}
-                disabled={selectedCreatedCount === 0 || isPreparing}
-              />
-            </div>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={onBack} className="button-secondary">Volver a módulos</button>
-              <button type="button" onClick={handleApproveExact} className="button-primary">Aprobar matches perfectos</button>
-              <button type="button" onClick={handleApproveCreations} className="button-secondary">Aprobar creaciones ({decisions.filter((decision) => decision.action === 'create' && !decision.approved).length})</button>
-            </div>
+            <HistoricalConceptsExportPanel selectedExportIdsInGroup={selectedExportIdsInGroup} exportGroup={exportGroup} setExportGroup={setExportGroup} decisions={decisions} exportGroupDecisions={exportGroupDecisions} allExportGroupSelected={allExportGroupSelected} handleExportGroupSelectAll={handleExportGroupSelectAll} exportSelectedIds={exportSelectedIds} handleExportSelect={handleExportSelect} remainingEmployeeIds={remainingEmployeeIds} batchSize={batchSize} setBatchSize={setBatchSize} preparedBatch={preparedBatch} hasExportBlockers={hasExportBlockers} employeeValidation={employeeValidation} hasReconciliationBlockers={hasReconciliationBlockers} reconciliation={reconciliation} rexValidation={rexValidation} selectedExportDecisions={selectedExportDecisions} selectedExportPending={selectedExportPending} nextBatchEmployeeIds={nextBatchEmployeeIds} completedEmployeeIds={completedEmployeeIds} sourceFile={sourceFile} handleDownload={handleDownload} handleMarkBatchCompleted={handleMarkBatchCompleted} isPreparing={isPreparing} selectedCreatedCount={selectedCreatedCount} onBack={onBack} handleApproveExact={handleApproveExact} handleApproveCreations={handleApproveCreations} />
           </div>
         </div>
       </section>
 
-      <section className="panel p-6 sm:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Revisión de mapeo</p>
-            <h3 className="mt-2 text-2xl font-bold text-slate-950">Haberes y descuentos detectados</h3>
-            <p className="mt-2 text-sm text-slate-600">Los matches exactos quedan seleccionados. Las propuestas muestran el primer concepto REX+ sugerido.</p>
-          </div>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar concepto…"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm lg:w-80"
-          />
-        </div>
-
-        <div className="mt-6 flex flex-wrap gap-2">
-          {[
-            ['all', 'Todos'],
-            ['exact', 'Matches perfectos'],
-            ['proposal', 'Propuestas'],
-            ['no-proposal', 'Sin propuesta'],
-            ['pending', 'Pendientes'],
-            ['assigned', 'Asignados'],
-            ['excluded', 'Excluidos'],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveFilter(key)}
-              className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
-                activeFilter === key
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-slate-200 bg-white text-slate-500 hover:border-brand-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={allVisibleSelected} onChange={handleSelectAll} />
-            Seleccionar visibles
-          </label>
-          <select value={bulkTarget} onChange={(event) => setBulkTarget(event.target.value)} className="max-w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-            <option value="">Asignación masiva…</option>
-            <option value={EXCLUDE_VALUE}>Excluir seleccionados</option>
-            {catalogOptions.map((concept) => (
-              <option key={concept.id} value={concept.id}>{concept.id} · {concept.name}</option>
-            ))}
-          </select>
-          <button type="button" onClick={handleBulkApply} disabled={!bulkTarget || selectedIds.length === 0} className="button-primary disabled:cursor-not-allowed disabled:bg-slate-300">
-            Aplicar a {selectedIds.length} seleccionados
-          </button>
-          <span className="text-xs text-slate-500">Mostrando {visibleDecisions.length} de {decisions.length}</span>
-        </div>
-
-        <div className="mt-5 overflow-x-auto rounded-[24px] border border-slate-200">
-          <table className="min-w-[1250px] w-full border-collapse text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="px-4 py-4"> </th>
-                <th className="px-4 py-4">Estado</th>
-                <th className="px-4 py-4">Concepto Meta4</th>
-                <th className="px-4 py-4">Uso</th>
-                <th className="px-4 py-4">Propuesta / match REX+</th>
-                <th className="px-4 py-4">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {visibleDecisions.map((decision) => (
-                <HistoricalConceptRow
-                  key={decision.id}
-                  decision={decision}
-                  catalog={catalogOptions}
-                  selected={selectedIds.includes(decision.id)}
-                  onSelect={() => handleSelect(decision.id)}
-                  onAssign={(targetId) => assignDecision(decision.id, targetId)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {isPreparing ? (
-          <div className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-700">
-            <div className="flex items-center gap-3 font-semibold"><span className="loader-orb h-2.5 w-2.5 rounded-full bg-sky-500" /><span className="loader-orb h-2.5 w-2.5 rounded-full bg-cyan-500" />Preparando el archivo histórico…</div>
-            <p className="mt-2">Estamos construyendo las filas del CSV y validando el orden de las columnas.</p>
-          </div>
-        ) : null}
-
-        <section className="mt-6 rounded-[28px] border border-amber-200 bg-amber-50/70 p-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Altas de conceptos</p>
-              <h3 className="mt-2 text-xl font-bold text-slate-950">Conceptos que se crearán en REX+</h3>
-              <p className="mt-2 text-sm text-slate-600">Este listado alimenta el archivo separado de creación de conceptos.</p>
-            </div>
-            <span className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-              {summary.createdApproved} altas aprobadas
-            </span>
-          </div>
-          {summary.createdApproved > 0 ? (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
-              <table className="min-w-[680px] w-full text-left text-sm">
-                <thead className="bg-amber-100/60 text-xs uppercase tracking-[0.16em] text-amber-800">
-                  <tr>
-                    <th className="px-4 py-3">Concepto Meta4</th>
-                    <th className="px-4 py-3">ID nuevo</th>
-                    <th className="px-4 py-3">Tipo</th>
-                    <th className="px-4 py-3">LRE</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100">
-                  {decisions.filter((decision) => decision.action === 'create' && decision.approved && !decision.excluded).map((decision) => (
-                    <tr key={`historical-creation-${decision.id}`}>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{decision.sourceName}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.targetId}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.type || '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{decision.lreField || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-white/70 px-4 py-4 text-sm text-slate-600">
-              Todavía no hay conceptos aprobados para crear. Las propuestas pendientes aparecen destacadas en la tabla.
-            </p>
-          )}
-        </section>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          <DownloadButton
-            title="Descargar altas de conceptos"
-            detail={`${selectedCreatedCount} conceptos nuevos seleccionados para crear en REX+`}
-            onClick={() => handleDownload('create')}
-            disabled={selectedCreatedCount === 0 || isPreparing}
-          />
-          <DownloadButton
-            title="Descargar archivo de carga a REX+"
-            detail={employeeValidation.missing.length
-              ? `Faltan ${employeeValidation.missing.length} colaboradores en el listado REX+`
-              : hasReconciliationBlockers
-                ? reconciliation.source.status === 'blocked'
-                  ? `Hay ${reconciliation.source.differenceRows.toLocaleString('es-CL')} diferencias de líquido en Meta4`
-                  : 'Faltan totales para comprobar el líquido'
-              : hasExportBlockers
-                ? !rexValidation.valid
-                  ? `Hay ${rexValidation.issues.length} validaciones REX+ pendientes`
-                  : selectedExportDecisions.length === 0
-                  ? 'Selecciona conceptos para generar el archivo'
-                  : `Hay ${selectedExportPending.length} conceptos seleccionados por resolver`
-                : 'CSV de Liquidaciones en Detalle listo para cargar en REX+'}
-            onClick={() => handleDownload('output')}
-            disabled={hasExportBlockers || isPreparing}
-            primary
-          />
-          <DownloadButton
-            title="Descargar informe completo"
-            detail="Incluye exactos, propuestas, asignaciones y exclusiones"
-            onClick={() => handleDownload('report')}
-            disabled={isPreparing}
-          />
-          <DownloadButton
-            title="Descargar pendientes"
-            detail="Entrega sólo los conceptos que requieren decisión"
-            onClick={() => handleDownload('pending')}
-            disabled={summary.pending === 0 || isPreparing}
-          />
-        </div>
-      </section>
+      <HistoricalConceptsReviewPanel search={search} setSearch={setSearch} activeFilter={activeFilter} setActiveFilter={setActiveFilter} allVisibleSelected={allVisibleSelected} handleSelectAll={handleSelectAll} bulkTarget={bulkTarget} setBulkTarget={setBulkTarget} catalogOptions={catalogOptions} selectedIds={selectedIds} handleBulkApply={handleBulkApply} visibleDecisions={visibleDecisions} decisions={decisions} handleSelect={handleSelect} assignDecision={assignDecision} isPreparing={isPreparing} summary={summary} selectedCreatedCount={selectedCreatedCount} handleDownload={handleDownload} employeeValidation={employeeValidation} hasReconciliationBlockers={hasReconciliationBlockers} reconciliation={reconciliation} hasExportBlockers={hasExportBlockers} rexValidation={rexValidation} selectedExportDecisions={selectedExportDecisions} selectedExportPending={selectedExportPending} />
     </div>
   );
-}
-
-function HistoricalConceptRow({ decision, catalog, selected, onSelect, onAssign }) {
-  const statusLabel = decision.excluded
-    ? 'Excluido'
-    : decision.exactMatch
-      ? decision.action === 'create'
-        ? 'Match guardado · se creará'
-        : decision.matchOrigin === 'memory' || decision.matchOrigin === 'concepts-module' ? 'Match perfecto guardado' : 'Match perfecto'
-      : decision.action === 'create'
-        ? decision.approved ? 'Creación aprobada' : 'Propuesta: crear nuevo'
-        : decision.approved ? 'Asignado manualmente' : 'Propuesta pendiente';
-  const statusClass = decision.excluded
-    ? 'border-slate-200 bg-slate-100 text-slate-600'
-    : decision.exactMatch
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-amber-300 bg-amber-100 text-amber-800';
-
-  return (
-    <tr className={decision.exactMatch || decision.approved ? 'bg-white' : 'bg-amber-50/60'}>
-      <td className="px-4 py-4"><input type="checkbox" checked={selected} onChange={onSelect} /></td>
-      <td className="px-4 py-4">
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClass}`}>{statusLabel}</span>
-        {!decision.exactMatch && !decision.excluded ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-amber-800">Revisa esta propuesta antes de aprobarla.</p> : null}
-        {decision.excluded && decision.exclusionReason ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-slate-600">{decision.exclusionReason}</p> : null}
-      </td>
-      <td className="max-w-[360px] px-4 py-4">
-        <p className="font-semibold text-slate-900">{decision.sourceName}</p>
-        {decision.sourceKey !== decision.sourceName ? <p className="mt-1 text-xs text-slate-500">Columna: {decision.sourceKey}</p> : null}
-        <p className="mt-1 text-xs text-slate-500">Ejemplo: {decision.sampleValue || '—'}</p>
-      </td>
-      <td className="px-4 py-4 text-slate-600"><p>{decision.nonZeroCount.toLocaleString('es-CL')} colaboradores</p><p className="mt-1 text-xs text-slate-400">{decision.sourceSection}</p></td>
-      <td className="px-4 py-4">
-        <ConceptSearchPicker
-          selectedId={decision.targetId}
-          selectedLabel={decision.action === 'create'
-            ? `Crear concepto nuevo (${decision.targetId})`
-            : decision.targetName
-              ? `${decision.targetName} (${decision.targetId})`
-              : ''}
-          concepts={catalog}
-          suggestedConcepts={decision.suggestedMatches.map(({ concept }) => concept)}
-          createId={decision.proposedId}
-          onSelect={(targetId) => onAssign(targetId)}
-          onCreate={() => onAssign(CREATE_VALUE)}
-          onExclude={() => onAssign(EXCLUDE_VALUE)}
-        />
-      </td>
-      <td className="px-4 py-4 text-xs text-slate-500">{decision.approved ? 'Se incluirá en la salida' : 'Requiere asignación o exclusión'}</td>
-    </tr>
-  );
-}
-
-function getReviewGroup(decision) {
-  if (decision.excluded || decision.exactMatch || decision.approved) {
-    return decision.excluded ? 3 : 0;
-  }
-
-  return decision.suggestedMatches.length > 0 ? 1 : 2;
-}
-
-function getConceptGroup(decision) {
-  const type = normalizeText(decision.type);
-
-  if (type === '3l' || type === '4d') {
-    return 'descuento';
-  }
-
-  if (type === '1h' || type === '1i' || type === '1r' || type === '2e') {
-    return 'haber';
-  }
-
-  return normalizeText(decision.sourceSection).includes('descuento') ? 'descuento' : 'haber';
-}
-
-function canIncludeInHistoricalOutput(decision) {
-  return Boolean(
-    decision.approved
-      && !decision.excluded
-      && decision.targetId
-      && normalizeText(decision.targetConcept?.type).replace(/[^a-z0-9]+/g, '') !== '5a'
-      && (Number(decision.nonZeroCount) > 0 || isTaxDecision(decision)),
-  );
-}
-
-function exportGroupSlug(group) {
-  if (group === 'all') {
-    return 'liquidaciones';
-  }
-  return group === 'descuento' ? 'descuentos' : 'haberes';
-}
-
-function isTaxDecision(decision) {
-  return normalizeText(decision?.targetId || decision?.sourceName).includes('impuesto');
-}
-
-function Metric({ label, value, tone = 'default' }) {
-  const toneClass = tone === 'success' ? 'bg-emerald-400/10 text-emerald-100' : tone === 'warning' ? 'bg-amber-400/15 text-amber-100' : 'bg-white/10 text-white';
-  return <div className={`rounded-2xl px-4 py-4 ${toneClass}`}><p className="text-xs text-white/60">{label}</p><p className="mt-1 text-2xl font-extrabold">{value}</p></div>;
-}
-
-function ReconciliationMetric({ label, value, detail, tone = 'neutral' }) {
-  const toneClass = tone === 'success'
-    ? 'border-emerald-200 bg-emerald-50'
-    : tone === 'warning'
-      ? 'border-amber-200 bg-amber-50'
-      : 'border-slate-200 bg-white';
-
-  return (
-    <div className={`rounded-2xl border px-4 py-4 ${toneClass}`}>
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-extrabold text-slate-950">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
-    </div>
-  );
-}
-
-function formatHistoricalMoney(value) {
-  return Number(value || 0).toLocaleString('es-CL');
-}
-
-function DownloadButton({ title, detail, onClick, disabled, primary = false }) {
-  return <button type="button" onClick={onClick} disabled={disabled} className={`rounded-[24px] border p-5 text-left transition ${primary ? 'border-brand-200 bg-brand-50 hover:border-brand-400' : 'border-slate-200 bg-white hover:border-brand-200'} disabled:cursor-not-allowed disabled:opacity-50`}><p className="font-semibold text-slate-900">{title}</p><p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p></button>;
-}
-
-function triggerWorkbookDownload(workbook, fileName) {
-  const arrayBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-}
-
-function triggerTextDownload(contents, fileName) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-}
-
-function buildHistoricalLoadFileName(employeeCount, period) {
-  const match = String(period ?? '').match(/^(\d{4})-(\d{2})$/);
-  const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-  const monthIndex = match ? Number(match[2]) - 1 : -1;
-  const periodLabel = match && monthNames[monthIndex]
-    ? `${monthNames[monthIndex]} ${match[1].slice(-2)}`
-    : 'periodo';
-
-  return `${Number(employeeCount) || 0} ${periodLabel}.csv`;
-}
-
-function todayStamp() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function waitForPaint() {
-  return new Promise((resolve) => window.requestAnimationFrame(() => window.setTimeout(resolve, 0)));
 }

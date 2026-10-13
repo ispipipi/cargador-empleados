@@ -1,0 +1,502 @@
+import {
+  buildValidationMessage,
+  normalizeEmployeeId,
+  parseSourceWorkbook,
+  waitForUiToPaint,
+} from './appHelpers';
+import { parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './concepts';
+import { getMeta4MissingColumns } from '../connectors/origins/meta4';
+import { parseVismaHistoricalTemplate } from './vismaHistorical';
+import { saveCloudConceptCatalog, saveCloudVismaConceptCatalog } from './cloudMemory';
+import {
+  createSessionId,
+  loadVismaConceptCatalogMemory,
+  saveConceptCatalogMemory,
+  saveVismaConceptCatalogMemory,
+} from './sessionPersistence';
+import { todayStamp } from './utils';
+
+export function createAppUploadActions(context) {
+  const {
+    STEPS,
+    authUser,
+    isHistoricalConceptsFlow,
+    isTalanaHistoricalFlow,
+    isVismaHistoricalFlow,
+    isVismaMastersFlow,
+    selectedOrigin,
+    sourceFile,
+    vismaCatalogScope,
+    vismaCatalogScopeLabel,
+    setConceptsResource,
+    setGlobalError,
+    setHistoricalBatchState,
+    setHistoricalEmployeeCatalog,
+    setHistoricalEmployeeMasterFile,
+    setHistoricalEmployeeMasterValidation,
+    setIsLoadingVismaCatalog,
+    setIsReadingFile,
+    setIsReadingHistoricalEmployeeMaster,
+    setIsReadingVismaCatalog,
+    setIsReadingVismaTemplate,
+    setIsUpdatingConceptCatalog,
+    setMappingCompany,
+    setResult,
+    setRexCompanyMasterResource,
+    setSelectedDestination,
+    setSelectedModule,
+    setSelectedOrigin,
+    setSessionId,
+    setSourceFile,
+    setStep,
+    setValidation,
+    setVismaCatalogScope,
+    setVismaHistoricalCatalog,
+    setVismaHistoricalCatalogFileName,
+    setVismaHistoricalCatalogValidation,
+    setVismaHistoricalTemplateFileName,
+    setVismaHistoricalTemplateResource,
+    setVismaHistoricalTemplateValidation,
+    setVismaTemplateCompanyId,
+  } = context;
+
+  const handleFileSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setValidation({
+        isValid: false,
+        missingColumns: [],
+        message: 'El archivo debe ser .xls o .xlsx.',
+      });
+      return;
+    }
+
+    setGlobalError('');
+    setResult(null);
+    setSourceFile(null);
+    setValidation(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
+    setIsReadingFile(true);
+
+    try {
+      await waitForUiToPaint();
+      const arrayBuffer = await file.arrayBuffer();
+      const parserOrigin = isVismaHistoricalFlow
+        ? 'visma-historico'
+        : isTalanaHistoricalFlow
+          ? 'talana-historico'
+          : isHistoricalConceptsFlow
+            ? 'meta4-historico'
+            : selectedOrigin;
+      const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin, password);
+      const validationMessage = buildValidationMessage({
+        originId: parserOrigin,
+        parsedSource,
+      });
+      const nextSourceFile = {
+        fileName: file.name,
+        workbookName: parsedSource.workbookName,
+        headers: parsedSource.headers,
+        rows: parsedSource.rows,
+        previewRows: parsedSource.previewRows,
+        period: parsedSource.period,
+      };
+      const nextValidation = {
+        isValid: parsedSource.missingColumns.length === 0 && (parsedSource.formatIssues ?? []).length === 0 && parsedSource.rows.length > 0,
+        missingColumns: parsedSource.missingColumns,
+        formatIssues: parsedSource.formatIssues ?? [],
+        formatName: parsedSource.formatName,
+        message: validationMessage,
+      };
+      const nextSessionId = createSessionId();
+
+      setSessionId(nextSessionId);
+      setSourceFile(nextSourceFile);
+      setValidation(nextValidation);
+    } catch (error) {
+      setSourceFile(null);
+      setValidation({
+        isValid: false,
+        missingColumns: [],
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el archivo: ${error.message}`,
+      });
+    } finally {
+      setIsReadingFile(false);
+    }
+  };
+
+  const handleMonthlyBookSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setGlobalError('El libro mensual debe ser .xls o .xlsx.');
+      return;
+    }
+
+    setGlobalError('');
+    setSourceFile(null);
+    setValidation(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
+    setIsReadingFile(true);
+
+    try {
+      await waitForUiToPaint();
+      const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico', password);
+
+      if (parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0 || parsedSource.rows.length === 0) {
+        throw new Error(
+          parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0
+            ? [...parsedSource.missingColumns.map((column) => `Falta la columna ${column}.`), ...(parsedSource.formatIssues ?? [])].join(' ')
+            : 'El libro mensual no contiene filas de remuneraciones.',
+        );
+      }
+
+      const nextSourceFile = {
+        fileName: file.name,
+        workbookName: parsedSource.workbookName,
+        headers: parsedSource.headers,
+        rows: parsedSource.rows,
+        previewRows: parsedSource.previewRows,
+        period: parsedSource.period,
+      };
+
+      setSessionId(createSessionId());
+      setSourceFile(nextSourceFile);
+      setHistoricalBatchState({ completedEmployeeIds: [] });
+      setValidation({
+        isValid: true,
+        missingColumns: [],
+        message: `Libro mensual listo. Se detectaron ${parsedSource.rows.length} colaboradores.`,
+      });
+      setStep(STEPS.historicalReview);
+    } catch (error) {
+      setSourceFile(null);
+      setGlobalError(error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+        ? error.message
+        : `No se pudo leer el libro mensual: ${error.message}`);
+    } finally {
+      setIsReadingFile(false);
+    }
+  };
+
+  const handleHistoricalEmployeeMasterSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setHistoricalEmployeeMasterValidation({ isValid: false, message: 'El maestro debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setHistoricalEmployeeMasterFile(file);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterValidation(null);
+    setIsReadingHistoricalEmployeeMaster(true);
+
+    try {
+      const employeeCatalog = await parseEmployeeMasterWorkbook(await file.arrayBuffer(), password);
+      setHistoricalEmployeeCatalog(employeeCatalog);
+      setHistoricalEmployeeMasterValidation({
+        isValid: true,
+        message: `Maestro listo. Se encontraron ${employeeCatalog.length.toLocaleString('es-CL')} trabajadores para comparar.`,
+      });
+    } catch (error) {
+      setHistoricalEmployeeCatalog(null);
+      setHistoricalEmployeeMasterValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el maestro: ${error.message}`,
+      });
+    } finally {
+      setIsReadingHistoricalEmployeeMaster(false);
+    }
+  };
+
+  const handleConceptCatalogUpdated = async (concepts) => {
+    setIsUpdatingConceptCatalog(true);
+    saveConceptCatalogMemory(concepts);
+    setConceptsResource((current) => (current ? { ...current, concepts } : current));
+
+    try {
+      if (authUser) {
+        await saveCloudConceptCatalog(authUser, concepts);
+      }
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No se pudo guardar el catálogo REX+ en la memoria cloud.');
+    } finally {
+      setIsUpdatingConceptCatalog(false);
+    }
+  };
+
+  const handleConceptCatalogFileSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    setGlobalError('');
+
+    try {
+      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer(), password);
+      await handleConceptCatalogUpdated(concepts);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : 'No fue posible leer el catálogo REX+.');
+    }
+  };
+
+  const handleVismaHistoricalCatalogSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setVismaHistoricalCatalogValidation({ isValid: false, message: 'El catálogo debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setGlobalError('');
+    setVismaHistoricalCatalogValidation(null);
+    setIsReadingVismaCatalog(true);
+    try {
+      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer(), password);
+      saveVismaConceptCatalogMemory(vismaCatalogScope, concepts);
+      setVismaHistoricalCatalog(concepts);
+      setVismaHistoricalCatalogFileName(file.name);
+      setVismaHistoricalCatalogValidation({
+        isValid: true,
+        message: `Catálogo válido: ${concepts.length.toLocaleString('es-CL')} conceptos para ${vismaCatalogScopeLabel}.`,
+      });
+      if (authUser) {
+        try {
+          await saveCloudVismaConceptCatalog(authUser, vismaCatalogScope, concepts);
+        } catch (error) {
+          setGlobalError(`El catálogo quedó guardado en este navegador, pero no se pudo sincronizar con la memoria cloud: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      setVismaHistoricalCatalogValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No fue posible leer el catálogo REX+: ${error.message}`,
+      });
+    } finally {
+      setIsReadingVismaCatalog(false);
+    }
+  };
+
+  const handleVismaHistoricalTemplateSelected = async (file, password = '') => {
+    if (!file) {
+      return;
+    }
+
+    setVismaHistoricalTemplateResource(null);
+    setVismaTemplateCompanyId('');
+    setVismaHistoricalTemplateFileName(file.name);
+    setVismaHistoricalTemplateValidation(null);
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setVismaHistoricalTemplateValidation({ isValid: false, message: 'El template debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setGlobalError('');
+    setIsReadingVismaTemplate(true);
+    try {
+      const resource = await parseVismaHistoricalTemplate(await file.arrayBuffer(), password);
+      setVismaHistoricalTemplateResource(resource);
+      setVismaTemplateCompanyId(resource.companies.length === 1 ? resource.companies[0].id : '');
+      setVismaHistoricalTemplateValidation({
+        isValid: true,
+        message: `Template válido: ${resource.conceptCatalog.length.toLocaleString('es-CL')} conceptos base y hojas de referencia cargadas.`,
+      });
+    } catch (error) {
+      setVismaHistoricalTemplateValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No fue posible leer el template: ${error.message}`,
+      });
+    } finally {
+      setIsReadingVismaTemplate(false);
+    }
+  };
+
+  const handleVismaCatalogScopeChange = (scope) => {
+    const localCatalog = loadVismaConceptCatalogMemory(scope);
+    setVismaCatalogScope(scope);
+    setGlobalError('');
+    setVismaHistoricalCatalog(localCatalog);
+    setVismaHistoricalCatalogFileName('');
+    setVismaHistoricalCatalogValidation(localCatalog?.length
+      ? { isValid: true, message: `Catálogo local listo: ${localCatalog.length.toLocaleString('es-CL')} conceptos.` }
+      : null);
+    setIsLoadingVismaCatalog(Boolean(authUser));
+  };
+
+  const handleModuleChange = (moduleId) => {
+    setSelectedModule(moduleId);
+
+    if (moduleId !== 'visma-empleados') {
+      setRexCompanyMasterResource(null);
+    }
+
+    if (moduleId === 'visma-empleados') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setStep(STEPS.vismaEmployeesReview);
+      return;
+    }
+
+    if (moduleId === 'visma-maestros') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setStep(STEPS.vismaMastersReview);
+      return;
+    }
+
+    if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
+      setSelectedOrigin('meta4');
+      setSelectedDestination('rex');
+      if (moduleId === 'conceptos-historicos') {
+        setHistoricalEmployeeCatalog(null);
+        setHistoricalEmployeeMasterFile(null);
+        setHistoricalEmployeeMasterValidation(null);
+      }
+      return;
+    }
+
+    if (moduleId === 'libros-historicos') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setMappingCompany('');
+      setSourceFile(null);
+      setValidation(null);
+      setVismaHistoricalTemplateResource(null);
+      setVismaTemplateCompanyId('');
+      setVismaHistoricalTemplateFileName('');
+      setVismaHistoricalTemplateValidation(null);
+      setGlobalError('');
+      setStep(STEPS.upload);
+      return;
+    }
+
+    if (moduleId === 'talana-libros-historicos') {
+      setSelectedOrigin('talana');
+      setSelectedDestination('buk');
+      setMappingCompany('SOSER');
+      setStep(STEPS.upload);
+    }
+
+  };
+
+  const handleVismaNavigation = (moduleId) => {
+    setSelectedModule(moduleId);
+    setSelectedOrigin('visma');
+    setSelectedDestination('rex');
+    setGlobalError('');
+    setStep(moduleId === 'visma-maestros' ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
+  };
+
+  const handleVismaContextChange = () => {
+    setRexCompanyMasterResource(null);
+    setSourceFile(null);
+    setValidation(null);
+    setResult(null);
+    setSessionId(null);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterFile(null);
+    setHistoricalEmployeeMasterValidation(null);
+    setGlobalError('');
+    setStep(isVismaMastersFlow ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
+  };
+
+  const handleOpenOtherFlows = () => {
+    setSelectedModule('empleados');
+    setSelectedOrigin('talana');
+    setSelectedDestination('buk');
+    setRexCompanyMasterResource(null);
+    setHistoricalEmployeeCatalog(null);
+    setHistoricalEmployeeMasterFile(null);
+    setHistoricalEmployeeMasterValidation(null);
+    setStep(STEPS.format);
+    setGlobalError('');
+  };
+
+  const handleOpenMissingMeta4Employees = (missingEmployees) => {
+    if (!sourceFile?.rows?.length || !missingEmployees?.length) {
+      return;
+    }
+
+    const missingIds = new Set(
+      missingEmployees
+        .map((employee) => normalizeEmployeeId(employee.id))
+        .filter(Boolean),
+    );
+    const missingRows = sourceFile.rows.filter((row) => missingIds.has(
+      normalizeEmployeeId(row.CI || row['ID EMPLEADO']),
+    ));
+
+    if (!missingRows.length) {
+      setGlobalError('No se pudieron recuperar las filas de los trabajadores faltantes desde el libro cargado.');
+      return;
+    }
+
+    const missingColumns = getMeta4MissingColumns(sourceFile.headers ?? []);
+    const preparedFileName = `Meta4_empleados_pendientes_${todayStamp()}.xlsx`;
+
+    setSelectedModule('empleados');
+    setSelectedOrigin('meta4');
+    setSelectedDestination('rex');
+    setRexCompanyMasterResource(null);
+    setResult(null);
+    setHistoricalBatchState({ completedEmployeeIds: [] });
+    setSessionId(createSessionId());
+    setSourceFile({
+      ...sourceFile,
+      fileName: preparedFileName,
+      rows: missingRows,
+      previewRows: missingRows.slice(0, 3),
+      preparedFromHistoricalMissingEmployees: true,
+      originalFileName: sourceFile.fileName,
+    });
+    setValidation({
+      isValid: missingColumns.length === 0,
+      missingColumns,
+      formatIssues: [],
+      message: `Se prepararon ${missingRows.length.toLocaleString('es-CL')} trabajadores faltantes desde ${sourceFile.fileName}. Revisa los datos y continúa al wizard de empleados.`,
+    });
+    setGlobalError('');
+    setStep(STEPS.upload);
+  };
+  return {
+    handleFileSelected,
+    handleMonthlyBookSelected,
+    handleHistoricalEmployeeMasterSelected,
+    handleConceptCatalogUpdated,
+    handleConceptCatalogFileSelected,
+    handleVismaHistoricalCatalogSelected,
+    handleVismaHistoricalTemplateSelected,
+    handleVismaCatalogScopeChange,
+    handleModuleChange,
+    handleVismaNavigation,
+    handleVismaContextChange,
+    handleOpenOtherFlows,
+    handleOpenMissingMeta4Employees,
+  };
+}

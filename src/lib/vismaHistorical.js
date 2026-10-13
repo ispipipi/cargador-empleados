@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { cleanCell, normalizeText } from './utils';
+import { decryptWorkbook } from './workbookCrypto';
 
 export const LIQUIDATION_HEADERS = [
   'Fecha de proceso',
@@ -23,6 +24,13 @@ export const LIQUIDATION_HEADERS = [
 ];
 
 const VISMA_TEMPLATE_PATH = `${import.meta.env.BASE_URL}templates/rex-liquidaciones-detalle-template.xlsx`;
+export const VISMA_CATALOG_SCOPES = [
+  { id: 'ola-1', label: 'Ola 1' },
+  { id: 'enaco', label: 'Enaco' },
+  { id: 'consorcio', label: 'Consorcio' },
+  { id: 'patria', label: 'Patria' },
+  { id: 'fruticola', label: 'Frutícola' },
+];
 const FIXED_SOURCE_HEADERS = new Set([
   'PERÍODO',
   'EMPLEADO',
@@ -160,15 +168,42 @@ export async function loadVismaHistoricalResource() {
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
+  return parseVismaHistoricalTemplate(arrayBuffer);
+}
+
+export async function parseVismaHistoricalTemplate(arrayBuffer, password = '') {
+  const workbook = XLSX.read(await decryptWorkbook(arrayBuffer, password), { type: 'array', cellDates: false });
+  const sheetNames = {
+    example: findSheetName(workbook, ['Ejemplo']),
+    concepts: findSheetName(workbook, ['Concepto', 'Conceptos']),
+    institutions: findSheetName(workbook, ['Instituciones', 'Institucion']),
+    companies: findSheetName(workbook, ['Empresa', 'Empresas']),
+    journeys: findSheetName(workbook, ['Jornada', 'Jornadas']),
+  };
+  const missingSheets = Object.entries(sheetNames).filter(([, sheetName]) => !sheetName).map(([key]) => key);
+  if (missingSheets.length) {
+    throw new Error(`El template de Liquidación Detalle no contiene las hojas requeridas: ${missingSheets.join(', ')}.`);
+  }
+
+  const exampleRows = readTwoColumnSheet(workbook, sheetNames.example);
+  const headers = exampleRows[0]?.map(cleanCell) ?? [];
+  const expectedHeaders = LIQUIDATION_HEADERS.map(normalizeText);
+  if (expectedHeaders.some((header, index) => normalizeText(headers[index]) !== header)) {
+    throw new Error('La hoja Ejemplo del template debe conservar las 18 columnas de Liquidación Detalle y su orden oficial.');
+  }
+
+  const companies = readCatalogSheet(workbook, sheetNames.companies);
+  if (!companies.length) {
+    throw new Error('La hoja Empresa del template no contiene empresas con ID. Carga un template REX+ con su catálogo de empresas.');
+  }
 
   return {
     arrayBuffer,
-    headers: readTwoColumnSheet(workbook, 'Ejemplo')[0] ?? LIQUIDATION_HEADERS,
-    conceptCatalog: readCatalogSheet(workbook, 'Concepto'),
-    institutions: readCatalogSheet(workbook, 'Instituciones'),
-    companies: readCatalogSheet(workbook, 'Empresa'),
-    journeys: readCatalogSheet(workbook, 'Jornada'),
+    headers,
+    conceptCatalog: readCatalogSheet(workbook, sheetNames.concepts),
+    institutions: readCatalogSheet(workbook, sheetNames.institutions),
+    companies,
+    journeys: readCatalogSheet(workbook, sheetNames.journeys),
   };
 }
 
@@ -187,7 +222,12 @@ export function buildVismaHistoricalModel({ sourceRows, sourceHeaders, resource 
 
 export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource }) {
   const rowsByKey = new Map();
-  const companyId = resource?.companies?.[0]?.id ?? '1';
+  const companies = resource?.companies ?? [];
+  const [company] = companies;
+  if (!company?.id || companies.length !== 1) {
+    throw new Error('Selecciona exactamente una empresa del template REX+ antes de generar el CSV.');
+  }
+  const companyId = company.id;
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
 
   approvedDecisions.forEach((decision) => {
@@ -229,7 +269,8 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
     });
   });
 
-  const sheet = XLSX.utils.aoa_to_sheet([LIQUIDATION_HEADERS, ...rowsByKey.values()]);
+  const headers = resource?.headers?.length === LIQUIDATION_HEADERS.length ? resource.headers : LIQUIDATION_HEADERS;
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rowsByKey.values()]);
   const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false });
   return `\uFEFF${csv}`;
 }
@@ -476,4 +517,8 @@ function readCatalogSheet(workbook, sheetName) {
     .slice(1)
     .map((row) => ({ id: cleanCell(row[0]), name: cleanCell(row[1]) }))
     .filter((entry) => entry.id);
+}
+
+function findSheetName(workbook, candidates) {
+  return workbook.SheetNames.find((sheetName) => candidates.some((candidate) => normalizeText(sheetName) === normalizeText(candidate))) ?? '';
 }

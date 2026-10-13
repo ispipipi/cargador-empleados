@@ -1,86 +1,54 @@
-import { startTransition, useEffect, useMemo, useState } from 'react';
-import { flushSync } from 'react-dom';
-import * as XLSX from 'xlsx';
-import FileUploader from './components/FileUploader';
-import FormatSelector from './components/FormatSelector';
-import ParamsWizard from './components/ParamsWizard';
-import RexCorrectionsStep from './components/RexCorrectionsStep';
-import RexTransformResult from './components/RexTransformResult';
-import TransformResult from './components/TransformResult';
-import ConceptsMapper from './components/ConceptsMapper';
-import HistoricalConceptsMapper from './components/HistoricalConceptsMapper';
-import VismaHistoricalMapper from './components/VismaHistoricalMapper';
-import TalanaHistoricalMapper from './components/TalanaHistoricalMapper';
-import VismaEmployeesReview from './components/VismaEmployeesReview';
-import VismaMastersReview from './components/VismaMastersReview';
-import VismaSidebar from './components/VismaSidebar';
-import { VismaWorkspaceProvider } from './components/VismaWorkspaceProvider';
+import { useEffect, useMemo, useState } from 'react';
+import AppFlowContent from './components/AppFlowContent';
 import {
   bukColaboradoresDestination,
   getBukColaboradoresFieldDefinitions,
   getDefaultParameterValues,
 } from './connectors/destinations/buk_colaboradores';
 import {
-  buildInitialRexTransformation,
-  buildRexRow,
-  getDefaultRexParameterValues,
   rexDestination,
-  summarizeRexRows,
 } from './connectors/destinations/rex_empleados';
 import {
-  buildBukTrabajosSupportSheets,
-  transformBukTrabajosRows,
-} from './connectors/destinations/buk_trabajos';
-import { transformWorkbookRows } from './engine/transformer';
-import {
-  buildBukColaboradoresExportWorkbook,
-  buildBukTrabajosExportWorkbook,
-  buildRexExportWorkbook,
   applyRexCompanyMasterResource,
-  loadBukColaboradoresTemplateResource,
-  loadBukTrabajosTemplateResource,
-  loadRexTemplateResource,
+  buildRexExportWorkbook,
 } from './lib/template';
+import { useAppTemplates } from './lib/useAppTemplates';
 import {
-  createConfigurationPayload,
-  exportConfiguration,
   loadConfigurations,
   persistConfigurations,
-  removeConfiguration,
-  upsertConfiguration,
-  validateConfigurationShape,
 } from './lib/storage';
-import { sanitizeFilenameSegment, todayStamp } from './lib/utils';
-import { loadConceptsResource, parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './lib/concepts';
-import { loadVismaHistoricalResource } from './lib/vismaHistorical';
-import { getMeta4MissingColumns } from './connectors/origins/meta4';
 import {
-  deleteCloudSession,
+  createPreparedDownload,
+  getRexDownloadFilename,
+  mergeSessionLists,
+  revokePreparedDownload,
+} from './lib/appHelpers';
+import { createAppUploadActions } from './lib/appUploadActions';
+import { createAppResultActions } from './lib/appResultActions';
+import { createAppConfigurationActions } from './lib/appConfigurationActions';
+import { VISMA_CATALOG_SCOPES } from './lib/vismaHistorical';
+import {
   loadCloudConceptCatalog,
+  loadCloudVismaConceptCatalog,
   listCloudSessions,
   loadCloudMappings,
-  loadCloudSession,
   saveCloudConceptCatalog,
   saveCloudMappings,
   saveCloudSession,
 } from './lib/cloudMemory';
 import { ensureFirebaseSession, isFirebaseConfigured, subscribeToFirebaseAuth } from './lib/firebase';
 import {
-  createSessionId,
   createSessionMetadata,
-  deleteSession,
   loadConceptCatalogMemory,
+  loadVismaConceptCatalogMemory,
   loadMappingMemory,
   listSessions,
-  loadSession,
   mergeStoredMappingEntries,
   normalizeMappingScope,
   saveConceptCatalogMemory,
+  saveVismaConceptCatalogMemory,
   saveSession,
 } from './lib/sessionPersistence';
-
-const ART_BPO_LOGO_PATH = `${import.meta.env.BASE_URL}branding/artbpo-logo.png`;
-const TMF_LOGO_PATH = `${import.meta.env.BASE_URL}branding/tmf-logo.png`;
 
 const STEPS = {
   format: 'format',
@@ -105,6 +73,8 @@ export default function App() {
   const [selectedOrigin, setSelectedOrigin] = useState('talana');
   const [selectedDestination, setSelectedDestination] = useState('buk');
   const [mappingCompany, setMappingCompany] = useState('FINNING');
+  const [vismaCatalogScope, setVismaCatalogScope] = useState('ola-1');
+  const [vismaTemplateCompanyId, setVismaTemplateCompanyId] = useState('');
   const [parameters, setParameters] = useState(getDefaultParameterValues());
   const [configurations, setConfigurations] = useState(() => loadConfigurations());
   const [activeConfiguration, setActiveConfiguration] = useState(null);
@@ -114,7 +84,15 @@ export default function App() {
   const [baseRexTemplateResource, setBaseRexTemplateResource] = useState(null);
   const [rexCompanyMasterResource, setRexCompanyMasterResource] = useState(null);
   const [conceptsResource, setConceptsResource] = useState(null);
-  const [vismaHistoricalResource, setVismaHistoricalResource] = useState(null);
+  const [vismaHistoricalCatalog, setVismaHistoricalCatalog] = useState(() => loadVismaConceptCatalogMemory('ola-1'));
+  const [vismaHistoricalCatalogFileName, setVismaHistoricalCatalogFileName] = useState('');
+  const [vismaHistoricalCatalogValidation, setVismaHistoricalCatalogValidation] = useState(null);
+  const [isReadingVismaCatalog, setIsReadingVismaCatalog] = useState(false);
+  const [isLoadingVismaCatalog, setIsLoadingVismaCatalog] = useState(false);
+  const [vismaHistoricalTemplateResource, setVismaHistoricalTemplateResource] = useState(null);
+  const [vismaHistoricalTemplateFileName, setVismaHistoricalTemplateFileName] = useState('');
+  const [vismaHistoricalTemplateValidation, setVismaHistoricalTemplateValidation] = useState(null);
+  const [isReadingVismaTemplate, setIsReadingVismaTemplate] = useState(false);
   const [historicalEmployeeCatalog, setHistoricalEmployeeCatalog] = useState(null);
   const [historicalEmployeeMasterFile, setHistoricalEmployeeMasterFile] = useState(null);
   const [historicalEmployeeMasterValidation, setHistoricalEmployeeMasterValidation] = useState(null);
@@ -143,8 +121,12 @@ export default function App() {
 
   const pairKey = `${selectedOrigin}:${selectedDestination}`;
   const mappingScope = useMemo(
-    () => normalizeMappingScope({ origin: selectedOrigin, destination: selectedDestination, company: mappingCompany }),
-    [mappingCompany, selectedDestination, selectedOrigin],
+    () => normalizeMappingScope({
+      origin: selectedOrigin,
+      destination: selectedDestination,
+      company: selectedModule === 'libros-historicos' ? `${vismaCatalogScope}:${vismaTemplateCompanyId}` : mappingCompany,
+    }),
+    [mappingCompany, selectedDestination, selectedModule, selectedOrigin, vismaCatalogScope, vismaTemplateCompanyId],
   );
   const isBukFlow = pairKey === 'talana:buk';
   const isRexFlow = pairKey === 'meta4:rex';
@@ -154,6 +136,7 @@ export default function App() {
   const isTalanaHistoricalFlow = selectedModule === 'talana-libros-historicos';
   const isVismaMastersFlow = selectedModule === 'visma-maestros';
   const isVismaEmployeesFlow = selectedModule === 'visma-empleados';
+  const vismaCatalogScopeLabel = VISMA_CATALOG_SCOPES.find((scope) => scope.id === vismaCatalogScope)?.label ?? vismaCatalogScope;
   const showVismaSidebar = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
   const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isTalanaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
@@ -163,45 +146,14 @@ export default function App() {
     [isBukFlow],
   );
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function bootstrapTemplates() {
-      try {
-        const [loadedColaboradoresTemplate, loadedTrabajosTemplate, loadedRexTemplate, loadedConcepts, loadedVismaHistoricalResource] = await Promise.all([
-          loadBukColaboradoresTemplateResource(),
-          loadBukTrabajosTemplateResource(),
-          loadRexTemplateResource(),
-          loadConceptsResource(),
-          loadVismaHistoricalResource(),
-        ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setColaboradoresTemplateResource(loadedColaboradoresTemplate);
-        setTrabajosTemplateResource(loadedTrabajosTemplate);
-        setBaseRexTemplateResource(loadedRexTemplate);
-        setConceptsResource(loadedConcepts);
-        setVismaHistoricalResource(loadedVismaHistoricalResource);
-        setTemplateStatus('ready');
-      } catch (error) {
-        if (!isMounted) {
-          return;
-        }
-
-        setTemplateStatus('error');
-        setGlobalError(error.message);
-      }
-    }
-
-    bootstrapTemplates();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  useAppTemplates({
+    setColaboradoresTemplateResource,
+    setConceptsResource,
+    setGlobalError,
+    setBaseRexTemplateResource,
+    setTemplateStatus,
+    setTrabajosTemplateResource,
+  });
 
   useEffect(() => {
     if (!cloudConfigured) {
@@ -281,6 +233,58 @@ export default function App() {
       isMounted = false;
     };
   }, [authUser]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const localCatalog = loadVismaConceptCatalogMemory(vismaCatalogScope);
+    setVismaHistoricalCatalog(localCatalog);
+    setVismaHistoricalCatalogFileName('');
+    setVismaHistoricalCatalogValidation(localCatalog?.length
+      ? { isValid: true, message: `Catálogo local listo: ${localCatalog.length.toLocaleString('es-CL')} conceptos.` }
+      : null);
+
+    if (!authUser) {
+      setIsLoadingVismaCatalog(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsLoadingVismaCatalog(true);
+    loadCloudVismaConceptCatalog(authUser, vismaCatalogScope)
+      .then((cloudCatalog) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const nextCatalog = cloudCatalog?.length ? cloudCatalog : loadVismaConceptCatalogMemory(vismaCatalogScope);
+        if (cloudCatalog?.length) {
+          saveVismaConceptCatalogMemory(vismaCatalogScope, cloudCatalog);
+        }
+        setVismaHistoricalCatalog(nextCatalog);
+        setVismaHistoricalCatalogValidation(nextCatalog?.length
+          ? { isValid: true, message: `Catálogo listo: ${nextCatalog.length.toLocaleString('es-CL')} conceptos.` }
+          : null);
+      })
+      .catch(() => {
+        if (isMounted) {
+          const fallbackCatalog = loadVismaConceptCatalogMemory(vismaCatalogScope);
+          setVismaHistoricalCatalog(fallbackCatalog);
+          setVismaHistoricalCatalogValidation(fallbackCatalog?.length
+            ? { isValid: true, message: `Catálogo local listo: ${fallbackCatalog.length.toLocaleString('es-CL')} conceptos.` }
+            : null);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingVismaCatalog(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser, vismaCatalogScope]);
 
   useEffect(() => {
     if (!authUser) {
@@ -503,1315 +507,188 @@ export default function App() {
     [preparedRexDownload],
   );
 
-  const handleFileSelected = async (file, password = '') => {
-    if (!file) {
-      return;
-    }
-
-    if (!/\.(xls|xlsx)$/i.test(file.name)) {
-      setValidation({
-        isValid: false,
-        missingColumns: [],
-        message: 'El archivo debe ser .xls o .xlsx.',
-      });
-      return;
-    }
-
-    setGlobalError('');
-    setResult(null);
-    setSourceFile(null);
-    setValidation(null);
-    setHistoricalBatchState({ completedEmployeeIds: [] });
-    setIsReadingFile(true);
-
-    try {
-      await waitForUiToPaint();
-      const arrayBuffer = await file.arrayBuffer();
-      const parserOrigin = isVismaHistoricalFlow
-        ? 'visma-historico'
-        : isTalanaHistoricalFlow
-          ? 'talana-historico'
-          : isHistoricalConceptsFlow
-            ? 'meta4-historico'
-            : selectedOrigin;
-      const parsedSource = await parseSourceWorkbook(arrayBuffer, parserOrigin, password);
-      const validationMessage = buildValidationMessage({
-        originId: parserOrigin,
-        parsedSource,
-      });
-      const nextSourceFile = {
-        fileName: file.name,
-        workbookName: parsedSource.workbookName,
-        headers: parsedSource.headers,
-        rows: parsedSource.rows,
-        previewRows: parsedSource.previewRows,
-        period: parsedSource.period,
-      };
-      const nextValidation = {
-        isValid: parsedSource.missingColumns.length === 0 && (parsedSource.formatIssues ?? []).length === 0 && parsedSource.rows.length > 0,
-        missingColumns: parsedSource.missingColumns,
-        formatIssues: parsedSource.formatIssues ?? [],
-        formatName: parsedSource.formatName,
-        message: validationMessage,
-      };
-      const nextSessionId = createSessionId();
-
-      setSessionId(nextSessionId);
-      setSourceFile(nextSourceFile);
-      setValidation(nextValidation);
-    } catch (error) {
-      setSourceFile(null);
-      setValidation({
-        isValid: false,
-        missingColumns: [],
-        requiresPassword: error.code === 'PASSWORD_REQUIRED',
-        invalidPassword: error.code === 'INVALID_PASSWORD',
-        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
-          ? error.message
-          : `No se pudo leer el archivo: ${error.message}`,
-      });
-    } finally {
-      setIsReadingFile(false);
-    }
-  };
-
-  const handleMonthlyBookSelected = async (file, password = '') => {
-    if (!file) {
-      return;
-    }
-
-    if (!/\.(xls|xlsx)$/i.test(file.name)) {
-      setGlobalError('El libro mensual debe ser .xls o .xlsx.');
-      return;
-    }
-
-    setGlobalError('');
-    setSourceFile(null);
-    setValidation(null);
-    setHistoricalBatchState({ completedEmployeeIds: [] });
-    setIsReadingFile(true);
-
-    try {
-      await waitForUiToPaint();
-      const parsedSource = await parseSourceWorkbook(await file.arrayBuffer(), 'meta4-historico', password);
-
-      if (parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0 || parsedSource.rows.length === 0) {
-        throw new Error(
-          parsedSource.missingColumns.length > 0 || (parsedSource.formatIssues ?? []).length > 0
-            ? [...parsedSource.missingColumns.map((column) => `Falta la columna ${column}.`), ...(parsedSource.formatIssues ?? [])].join(' ')
-            : 'El libro mensual no contiene filas de remuneraciones.',
-        );
-      }
-
-      const nextSourceFile = {
-        fileName: file.name,
-        workbookName: parsedSource.workbookName,
-        headers: parsedSource.headers,
-        rows: parsedSource.rows,
-        previewRows: parsedSource.previewRows,
-        period: parsedSource.period,
-      };
-
-      setSessionId(createSessionId());
-      setSourceFile(nextSourceFile);
-      setHistoricalBatchState({ completedEmployeeIds: [] });
-      setValidation({
-        isValid: true,
-        missingColumns: [],
-        message: `Libro mensual listo. Se detectaron ${parsedSource.rows.length} colaboradores.`,
-      });
-      setStep(STEPS.historicalReview);
-    } catch (error) {
-      setSourceFile(null);
-      setGlobalError(error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
-        ? error.message
-        : `No se pudo leer el libro mensual: ${error.message}`);
-    } finally {
-      setIsReadingFile(false);
-    }
-  };
-
-  const handleHistoricalEmployeeMasterSelected = async (file, password = '') => {
-    if (!file) {
-      return;
-    }
-
-    if (!/\.(xls|xlsx)$/i.test(file.name)) {
-      setHistoricalEmployeeMasterValidation({ isValid: false, message: 'El maestro debe ser .xls o .xlsx.' });
-      return;
-    }
-
-    setHistoricalEmployeeMasterFile(file);
-    setHistoricalEmployeeCatalog(null);
-    setHistoricalEmployeeMasterValidation(null);
-    setIsReadingHistoricalEmployeeMaster(true);
-
-    try {
-      const employeeCatalog = await parseEmployeeMasterWorkbook(await file.arrayBuffer(), password);
-      setHistoricalEmployeeCatalog(employeeCatalog);
-      setHistoricalEmployeeMasterValidation({
-        isValid: true,
-        message: `Maestro listo. Se encontraron ${employeeCatalog.length.toLocaleString('es-CL')} trabajadores para comparar.`,
-      });
-    } catch (error) {
-      setHistoricalEmployeeCatalog(null);
-      setHistoricalEmployeeMasterValidation({
-        isValid: false,
-        requiresPassword: error.code === 'PASSWORD_REQUIRED',
-        invalidPassword: error.code === 'INVALID_PASSWORD',
-        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
-          ? error.message
-          : `No se pudo leer el maestro: ${error.message}`,
-      });
-    } finally {
-      setIsReadingHistoricalEmployeeMaster(false);
-    }
-  };
-
-  const handleConceptCatalogUpdated = async (concepts) => {
-    setIsUpdatingConceptCatalog(true);
-    saveConceptCatalogMemory(concepts);
-    setConceptsResource((current) => (current ? { ...current, concepts } : current));
-
-    try {
-      if (authUser) {
-        await saveCloudConceptCatalog(authUser, concepts);
-      }
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo guardar el catálogo REX+ en la memoria cloud.');
-    } finally {
-      setIsUpdatingConceptCatalog(false);
-    }
-  };
-
-  const handleConceptCatalogFileSelected = async (file, password = '') => {
-    if (!file) {
-      return;
-    }
-
-    setGlobalError('');
-
-    try {
-      const concepts = await parseConceptCatalogWorkbook(await file.arrayBuffer(), password);
-      await handleConceptCatalogUpdated(concepts);
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No fue posible leer el catálogo REX+.');
-    }
-  };
-
-  const handleModuleChange = (moduleId) => {
-    setSelectedModule(moduleId);
-
-    if (moduleId !== 'visma-empleados') {
-      setRexCompanyMasterResource(null);
-    }
-
-    if (moduleId === 'visma-empleados') {
-      setSelectedOrigin('visma');
-      setSelectedDestination('rex');
-      setStep(STEPS.vismaEmployeesReview);
-      return;
-    }
-
-    if (moduleId === 'visma-maestros') {
-      setSelectedOrigin('visma');
-      setSelectedDestination('rex');
-      setStep(STEPS.vismaMastersReview);
-      return;
-    }
-
-    if (moduleId === 'conceptos' || moduleId === 'conceptos-historicos') {
-      setSelectedOrigin('meta4');
-      setSelectedDestination('rex');
-      if (moduleId === 'conceptos-historicos') {
-        setHistoricalEmployeeCatalog(null);
-        setHistoricalEmployeeMasterFile(null);
-        setHistoricalEmployeeMasterValidation(null);
-      }
-      return;
-    }
-
-    if (moduleId === 'libros-historicos') {
-      setSelectedOrigin('visma');
-      setSelectedDestination('rex');
-      setMappingCompany('FRUTICOLA');
-      setStep(STEPS.upload);
-      return;
-    }
-
-    if (moduleId === 'talana-libros-historicos') {
-      setSelectedOrigin('talana');
-      setSelectedDestination('buk');
-      setMappingCompany('SOSER');
-      setStep(STEPS.upload);
-    }
-
-  };
-
-  const handleVismaNavigation = (moduleId) => {
-    setSelectedModule(moduleId);
-    setSelectedOrigin('visma');
-    setSelectedDestination('rex');
-    setGlobalError('');
-    setStep(moduleId === 'visma-maestros' ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
-  };
-
-  const handleVismaContextChange = () => {
-    setRexCompanyMasterResource(null);
-    setSourceFile(null);
-    setValidation(null);
-    setResult(null);
-    setSessionId(null);
-    setHistoricalEmployeeCatalog(null);
-    setHistoricalEmployeeMasterFile(null);
-    setHistoricalEmployeeMasterValidation(null);
-    setGlobalError('');
-    setStep(isVismaMastersFlow ? STEPS.vismaMastersReview : STEPS.vismaEmployeesReview);
-  };
-
-  const handleOpenOtherFlows = () => {
-    setSelectedModule('empleados');
-    setSelectedOrigin('talana');
-    setSelectedDestination('buk');
-    setRexCompanyMasterResource(null);
-    setHistoricalEmployeeCatalog(null);
-    setHistoricalEmployeeMasterFile(null);
-    setHistoricalEmployeeMasterValidation(null);
-    setStep(STEPS.format);
-    setGlobalError('');
-  };
-
-  const handleOpenMissingMeta4Employees = (missingEmployees) => {
-    if (!sourceFile?.rows?.length || !missingEmployees?.length) {
-      return;
-    }
-
-    const missingIds = new Set(
-      missingEmployees
-        .map((employee) => normalizeEmployeeId(employee.id))
-        .filter(Boolean),
-    );
-    const missingRows = sourceFile.rows.filter((row) => missingIds.has(
-      normalizeEmployeeId(row.CI || row['ID EMPLEADO']),
-    ));
-
-    if (!missingRows.length) {
-      setGlobalError('No se pudieron recuperar las filas de los trabajadores faltantes desde el libro cargado.');
-      return;
-    }
-
-    const missingColumns = getMeta4MissingColumns(sourceFile.headers ?? []);
-    const preparedFileName = `Meta4_empleados_pendientes_${todayStamp()}.xlsx`;
-
-    setSelectedModule('empleados');
-    setSelectedOrigin('meta4');
-    setSelectedDestination('rex');
-    setRexCompanyMasterResource(null);
-    setResult(null);
-    setHistoricalBatchState({ completedEmployeeIds: [] });
-    setSessionId(createSessionId());
-    setSourceFile({
-      ...sourceFile,
-      fileName: preparedFileName,
-      rows: missingRows,
-      previewRows: missingRows.slice(0, 3),
-      preparedFromHistoricalMissingEmployees: true,
-      originalFileName: sourceFile.fileName,
-    });
-    setValidation({
-      isValid: missingColumns.length === 0,
-      missingColumns,
-      formatIssues: [],
-      message: `Se prepararon ${missingRows.length.toLocaleString('es-CL')} trabajadores faltantes desde ${sourceFile.fileName}. Revisa los datos y continúa al wizard de empleados.`,
-    });
-    setGlobalError('');
-    setStep(STEPS.upload);
-  };
-
-  const handleTransform = async () => {
-    if (!sourceFile || !isSupportedPair) {
-      return;
-    }
-
-    setIsTransforming(true);
-
-    try {
-      await waitForUiToPaint();
-
-      if (isBukFlow) {
-        const colaboradoresTransformation = transformWorkbookRows({
-          sourceRows: sourceFile.rows,
-          fieldDefinitions: colaboradoresFieldDefinitions,
-          employeeHeaders: colaboradoresTemplateResource.employeeHeaders,
-          listsCatalog: colaboradoresTemplateResource.listsCatalog,
-          parameters,
-          sourceMeta: {
-            fileName: sourceFile.fileName,
-            workbookName: sourceFile.workbookName,
-            fichaCodesCatalog: colaboradoresTemplateResource.fichaCodesCatalog,
-          },
-        });
-        const trabajosSupportSheets = buildBukTrabajosSupportSheets({
-          templateResource: trabajosTemplateResource,
-        });
-        const trabajosTransformation = transformBukTrabajosRows({
-          sourceRows: sourceFile.rows,
-          trabajosHeaders: trabajosTemplateResource.trabajosHeaders,
-          supportSheets: trabajosSupportSheets,
-        });
-
-        startTransition(() => {
-          setResult({
-            kind: 'buk',
-            colaboradores: {
-              ...colaboradoresTransformation,
-              errors: colaboradoresTransformation.allErrors,
-              alerts: colaboradoresTransformation.allAlerts,
-            },
-            trabajos: {
-              ...trabajosTransformation,
-              errors: trabajosTransformation.allErrors,
-              alerts: trabajosTransformation.allAlerts,
-              supportSheets: trabajosSupportSheets,
-            },
-            generatedAt: todayStamp(),
-          });
-          setStep(STEPS.result);
-        });
-        return;
-      }
-
-      if (isRexFlow) {
-        const rexTransformation = buildInitialRexTransformation({
-          sourceRows: sourceFile.rows,
-          templateResource: rexTemplateResource,
-        });
-
-        startTransition(() => {
-          setResult({
-            kind: 'rex',
-            rowStates: rexTransformation.rowStates,
-            correctionsByRow: {},
-            summary: rexTransformation.summary,
-            generatedAt: todayStamp(),
-          });
-          setStep(rexTransformation.summary.pendingCount > 0 ? STEPS.review : STEPS.result);
-        });
-      }
-    } catch (error) {
-      setGlobalError(error.message);
-    } finally {
-      setIsTransforming(false);
-    }
-  };
-
-  const handleVismaEmployeesReady = (nextSourceFile, nextValidation, nextCompanyMasterResource) => {
-    if (!nextSourceFile?.rows?.length || !rexTemplateResource || !nextCompanyMasterResource) {
-      setGlobalError('Carga el maestro REX+ para generar el archivo final.');
-      return;
-    }
-
-    try {
-      const nextRexTemplateResource = applyRexCompanyMasterResource(
-        baseRexTemplateResource,
-        nextCompanyMasterResource,
-      );
-      const rexTransformation = buildInitialRexTransformation({
-        sourceRows: nextSourceFile.rows,
-        templateResource: nextRexTemplateResource,
-      });
-
-      setRexCompanyMasterResource(nextCompanyMasterResource);
-      setSessionId(createSessionId());
-      setSourceFile(nextSourceFile);
-      setValidation(nextValidation);
-      setResult({
-        kind: 'rex',
-        rowStates: rexTransformation.rowStates,
-        correctionsByRow: {},
-        summary: rexTransformation.summary,
-        generatedAt: todayStamp(),
-      });
-      setGlobalError('');
-      setStep(rexTransformation.summary.pendingCount > 0 ? STEPS.review : STEPS.result);
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo transformar la respuesta VISMA.');
-    }
-  };
-
-  const downloadWorkbookWithFeedback = ({ title, detail, fileName, buildWorkbook }) => {
-    if (exportState) {
-      return;
-    }
-
-    flushSync(() => {
-      setGlobalError('');
-      setExportState({ title, detail });
-    });
-
-    try {
-      const workbook = buildWorkbook();
-      triggerWorkbookDownload(workbook, fileName);
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo preparar la descarga.');
-    } finally {
-      setExportState(null);
-    }
-  };
-
-  const handleDownloadColaboradores = (mode) => {
-    if (!result || !colaboradoresTemplateResource) {
-      return;
-    }
-
-    downloadWorkbookWithFeedback({
-      title: 'Preparando BUK Colaboradores',
-      detail: 'Estamos armando el Excel final para descargarlo sin congelar la pantalla.',
-      fileName: `BUK_colaboradores_${todayStamp()}.xlsx`,
-      buildWorkbook: () =>
-        buildBukColaboradoresExportWorkbook({
-          templateResource: colaboradoresTemplateResource,
-          rowEntries:
-            mode === 'all' ? result.colaboradores.transformedRows : result.colaboradores.cleanTransformedRows,
-        }),
-    });
-  };
-
-  const handleDownloadTrabajos = (mode) => {
-    if (!result || !trabajosTemplateResource) {
-      return;
-    }
-
-    downloadWorkbookWithFeedback({
-      title: 'Preparando BUK Trabajos',
-      detail: 'Estamos consolidando la hoja de trabajos y sus listas de apoyo para la descarga.',
-      fileName: `BUK_trabajos_${todayStamp()}.xlsx`,
-      buildWorkbook: () =>
-        buildBukTrabajosExportWorkbook({
-          templateResource: trabajosTemplateResource,
-          exportedRows: mode === 'all' ? result.trabajos.allExportedRows : result.trabajos.cleanExportedRows,
-          supportSheets: result.trabajos.supportSheets,
-        }),
-    });
-  };
-
-  const handleDownloadBukErrors = () => {
-    if (!result || result.kind !== 'buk' || !sourceFile?.rows?.length) {
-      return;
-    }
-
-    const errorRows = [
-      ...result.colaboradores.errors.map((error) => ({ section: 'Colaboradores', error })),
-      ...result.trabajos.errors.map((error) => ({ section: 'Trabajos', error })),
-    ];
-
-    if (errorRows.length === 0) {
-      return;
-    }
-
-    downloadWorkbookWithFeedback({
-      title: 'Preparando reporte de errores',
-      detail: 'Estamos consolidando los errores de colaboradores y trabajos para que puedas corregirlos.',
-      fileName: `BUK_errores_${todayStamp()}.xlsx`,
-      buildWorkbook: () => buildBukErrorsReportWorkbook({ errorRows, sourceRows: sourceFile.rows, sourceFileName: sourceFile.fileName }),
-    });
-  };
-
-  const handleDownloadRex = () => {
-    if (!result || !rexTemplateResource || result.kind !== 'rex') {
-      return;
-    }
-
-    if (isVismaEmployeesFlow && !rexCompanyMasterResource) {
-      setGlobalError('Para descargar empleados VISMA debes cargar el maestro REX+.');
-      return;
-    }
-
-    if (step === STEPS.result && preparedRexDownload) {
-      triggerPreparedDownload(preparedRexDownload);
-      return;
-    }
-
-    if (isPreparingRexDownload) {
-      return;
-    }
-
-    downloadWorkbookWithFeedback({
-      title: 'Preparando REX+ Empleados',
-      detail: 'Estamos construyendo el Excel final de REX+ y activando la descarga en tu navegador.',
-      fileName: getRexDownloadFilename(sourceFile),
-      buildWorkbook: () =>
-        buildRexExportWorkbook({
-          templateResource: rexTemplateResource,
-          rowEntries: result.rowStates.map((rowState) => rowState.exportedRow),
-        }),
-    });
-  };
-
-  const handleDownloadRexPendingReport = () => {
-    if (!result || result.kind !== 'rex') {
-      return;
-    }
-
-    downloadWorkbookWithFeedback({
-      title: 'Preparando reporte de pendientes',
-      detail: 'Estamos consolidando los campos pendientes para que puedas revisarlos o compartirlos.',
-      fileName: `REX_pendientes_${todayStamp()}.xlsx`,
-      buildWorkbook: () => {
-        const pendingRows = result.rowStates.flatMap((rowState) =>
-          rowState.pendingItems.map((item) => ({
-            Fila: rowState.rowNumber,
-            Empleado: rowState.employeeName || '',
-            Identificador: rowState.employeeId || '',
-            Campo: item.label,
-            Clave: item.key,
-            Tipo: item.type,
-            Catalogo: item.catalogName || '',
-            'Valor origen': item.sourceValue || '',
-            'Contexto origen': (item.sourceContext ?? [])
-              .filter((entry) => entry?.value)
-              .map((entry) => `${entry.label}: ${entry.value}`)
-              .join(' | '),
-            'Corrección actual': result.correctionsByRow[rowState.rowNumber]?.[item.key] ?? '',
-          })),
-        );
-
-        const workbook = XLSX.utils.book_new();
-        const pendingSheet = XLSX.utils.json_to_sheet(pendingRows);
-        XLSX.utils.book_append_sheet(workbook, pendingSheet, 'Pendientes');
-        return workbook;
-      },
-    });
-  };
-
-  const handleUpdateRexCorrection = (rowNumber, fieldKey, value) => {
-    if (!result || result.kind !== 'rex' || !rexTemplateResource) {
-      return;
-    }
-
-    setResult((current) => {
-      if (!current || current.kind !== 'rex') {
-        return current;
-      }
-
-      const currentRowCorrections = {
-        ...(current.correctionsByRow[rowNumber] ?? {}),
-      };
-
-      if (value === '') {
-        delete currentRowCorrections[fieldKey];
-      } else {
-        currentRowCorrections[fieldKey] = value;
-      }
-
-      const nextCorrectionsByRow = {
-        ...current.correctionsByRow,
-        [rowNumber]: currentRowCorrections,
-      };
-      const nextRowStates = current.rowStates.map((rowState) =>
-        rowState.rowNumber === rowNumber
-          ? buildRexRow({
-              sourceRow: rowState.sourceRow,
-              templateResource: rexTemplateResource,
-              corrections: nextCorrectionsByRow[rowNumber],
-            })
-          : rowState,
-      );
-
-      return {
-        ...current,
-        correctionsByRow: nextCorrectionsByRow,
-        rowStates: nextRowStates,
-        summary: summarizeRexRows(nextRowStates),
-      };
-    });
-  };
-
-  const handleBulkApplyRexCorrection = (fieldKey, rowNumbers, value) => {
-    if (!result || result.kind !== 'rex' || !rexTemplateResource || value === '' || rowNumbers.length === 0) {
-      return;
-    }
-
-    setResult((current) => {
-      if (!current || current.kind !== 'rex') {
-        return current;
-      }
-
-      const nextCorrectionsByRow = { ...current.correctionsByRow };
-
-      rowNumbers.forEach((rowNumber) => {
-        const rowCorrections = {
-          ...(nextCorrectionsByRow[rowNumber] ?? {}),
-        };
-
-        if (value === '') {
-          delete rowCorrections[fieldKey];
-        } else {
-          rowCorrections[fieldKey] = value;
-        }
-
-        nextCorrectionsByRow[rowNumber] = rowCorrections;
-      });
-
-      const nextRowStates = current.rowStates.map((rowState) =>
-        rowNumbers.includes(rowState.rowNumber)
-          ? buildRexRow({
-              sourceRow: rowState.sourceRow,
-              templateResource: rexTemplateResource,
-              corrections: nextCorrectionsByRow[rowState.rowNumber],
-            })
-          : rowState,
-      );
-
-      return {
-        ...current,
-        correctionsByRow: nextCorrectionsByRow,
-        rowStates: nextRowStates,
-        summary: summarizeRexRows(nextRowStates),
-      };
-    });
-  };
-
-  const handleSaveConfiguration = (name) => {
-    const configuration = createConfigurationPayload({
-      name,
-      origin: selectedOrigin,
-      destination: selectedDestination,
-      parameters: isBukFlow ? parameters : {},
-    });
-    const nextConfigurations = upsertConfiguration(configuration, configurations);
-    setConfigurations(nextConfigurations);
-    setActiveConfiguration(configuration);
-  };
-
-  const handleActivateConfiguration = (configuration) => {
-    const normalizedConfiguration = {
-      ...configuration,
-      origen: normalizeOrigin(configuration.origen),
-      destino: normalizeDestination(configuration.destino),
-    };
-
-    setSelectedOrigin(normalizedConfiguration.origen);
-    setSelectedDestination(normalizedConfiguration.destino);
-    setParameters({
-      ...(normalizedConfiguration.destino === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
-      ...normalizedConfiguration.parametros,
-    });
-    setActiveConfiguration(normalizedConfiguration);
-  };
-
-  const handleDeleteConfiguration = (configuration) => {
-    if (!window.confirm(`¿Eliminar la configuración "${configuration.nombre}"?`)) {
-      return;
-    }
-
-    const nextConfigurations = removeConfiguration(configuration.id, configurations);
-    setConfigurations(nextConfigurations);
-
-    if (activeConfiguration?.id === configuration.id) {
-      setActiveConfiguration(null);
-    }
-  };
-
-  const handleImportConfiguration = async (file) => {
-    if (!file) {
-      return;
-    }
-
-    try {
-      const contents = await file.text();
-      const parsed = JSON.parse(contents);
-
-      if (!validateConfigurationShape(parsed)) {
-        throw new Error('La estructura del JSON no corresponde a una configuración válida.');
-      }
-
-      const importedConfiguration = {
-        ...parsed,
-        id: parsed.id || crypto.randomUUID(),
-        origen: normalizeOrigin(parsed.origen),
-        destino: normalizeDestination(parsed.destino),
-      };
-      const nextConfigurations = upsertConfiguration(importedConfiguration, configurations);
-      setConfigurations(nextConfigurations);
-      setActiveConfiguration(importedConfiguration);
-      setSelectedOrigin(importedConfiguration.origen);
-      setSelectedDestination(normalizeDestination(importedConfiguration.destino));
-      setParameters({
-        ...(importedConfiguration.destino === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
-        ...importedConfiguration.parametros,
-      });
-    } catch (error) {
-      setGlobalError(error.message);
-    }
-  };
-
-  const handleResumeSession = async (storedSessionId) => {
-    try {
-      const storedMetadata = visibleSessions.find((session) => session.id === storedSessionId);
-      const storedSession = storedMetadata?.storage === 'cloud' && authUser
-        ? await loadCloudSession(authUser, storedSessionId)
-        : await loadSession(storedSessionId);
-      if (!storedSession) {
-        throw new Error('No se encontró la carga guardada.');
-      }
-
-      const { metadata, data } = storedSession;
-      const restoredOrigin = normalizeOrigin(data.selectedOrigin ?? metadata.selectedOrigin);
-      const restoredDestination = normalizeDestination(data.selectedDestination ?? metadata.selectedDestination);
-      const restoredModule = data.selectedModule ?? metadata.selectedModule ?? 'empleados';
-      const restoredCompanyMaster = data.rexCompanyMasterResource ?? null;
-
-      setSessionId(metadata.id);
-      setSelectedModule(restoredModule);
-      setSelectedOrigin(restoredOrigin);
-      setSelectedDestination(restoredDestination);
-      setMappingCompany(data.mappingCompany ?? metadata.mappingCompany ?? 'FINNING');
-      setParameters({
-        ...(restoredDestination === 'buk' ? getDefaultParameterValues() : getDefaultRexParameterValues()),
-        ...(data.parameters ?? {}),
-      });
-      setSourceFile(data.sourceFile ?? null);
-      setValidation(data.validation ?? null);
-      setResult(data.result ?? null);
-      setRexCompanyMasterResource(restoredCompanyMaster);
-      setHistoricalBatchState(data.historicalBatchState ?? { completedEmployeeIds: [] });
-      setStep(
-        restoredModule === 'visma-empleados' && !restoredCompanyMaster
-          ? STEPS.vismaEmployeesReview
-          : data.step ?? metadata.step ?? STEPS.upload,
-      );
-      setGlobalError('');
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo retomar la carga guardada.');
-    }
-  };
-
-  const handleDeleteSession = async (session) => {
-    if (!window.confirm(`¿Eliminar la carga guardada "${session.fileName || 'sin nombre'}"?`)) {
-      return;
-    }
-
-    try {
-      if (session.storage !== 'cloud' || !authUser) {
-        await deleteSession(session.id);
-      }
-      if ((session.storage === 'cloud' || session.storage === 'both') && authUser) {
-        await deleteCloudSession(authUser, session);
-      }
-      setSessions((current) => current.filter((item) => item.id !== session.id));
-      setCloudSessions((current) => current.filter((item) => item.id !== session.id));
-
-      if (sessionId === session.id) {
-        resetFlow();
-      }
-    } catch (error) {
-      setGlobalError(error instanceof Error ? error.message : 'No se pudo eliminar la carga guardada.');
-    }
-  };
-
-  const handleExportActiveConfiguration = () => {
-    if (!activeConfiguration) {
-      return;
-    }
-
-    exportConfiguration(activeConfiguration);
-  };
-
-  const resetFlow = () => {
-    setStep(STEPS.format);
-    setSelectedModule('empleados');
-    setSelectedOrigin('talana');
-    setSelectedDestination('buk');
-    setSessionId(null);
-    setSourceFile(null);
-    setValidation(null);
-    setResult(null);
-    setRexCompanyMasterResource(null);
-    setHistoricalEmployeeCatalog(null);
-    setHistoricalEmployeeMasterFile(null);
-    setHistoricalEmployeeMasterValidation(null);
-    setHistoricalBatchState({ completedEmployeeIds: [] });
-    setGlobalError('');
-  };
+  const uploadActions = createAppUploadActions({
+    STEPS,
+    authUser,
+    isHistoricalConceptsFlow,
+    isTalanaHistoricalFlow,
+    isVismaHistoricalFlow,
+    isVismaMastersFlow,
+    selectedOrigin,
+    sourceFile,
+    vismaCatalogScope,
+    vismaCatalogScopeLabel,
+    setConceptsResource,
+    setGlobalError,
+    setHistoricalBatchState,
+    setHistoricalEmployeeCatalog,
+    setHistoricalEmployeeMasterFile,
+    setHistoricalEmployeeMasterValidation,
+    setIsLoadingVismaCatalog,
+    setIsReadingFile,
+    setIsReadingHistoricalEmployeeMaster,
+    setIsReadingVismaCatalog,
+    setIsReadingVismaTemplate,
+    setIsUpdatingConceptCatalog,
+    setMappingCompany,
+    setResult,
+    setRexCompanyMasterResource,
+    setSelectedDestination,
+    setSelectedModule,
+    setSelectedOrigin,
+    setSessionId,
+    setSourceFile,
+    setStep,
+    setValidation,
+    setVismaCatalogScope,
+    setVismaHistoricalCatalog,
+    setVismaHistoricalCatalogFileName,
+    setVismaHistoricalCatalogValidation,
+    setVismaHistoricalTemplateFileName,
+    setVismaHistoricalTemplateResource,
+    setVismaHistoricalTemplateValidation,
+    setVismaTemplateCompanyId,
+  });
+
+  const resultActions = createAppResultActions({
+    STEPS,
+    baseRexTemplateResource,
+    colaboradoresFieldDefinitions,
+    colaboradoresTemplateResource,
+    exportState,
+    isBukFlow,
+    isPreparingRexDownload,
+    isRexFlow,
+    isSupportedPair,
+    isVismaEmployeesFlow,
+    parameters,
+    preparedRexDownload,
+    result,
+    rexCompanyMasterResource,
+    rexTemplateResource,
+    sourceFile,
+    step,
+    trabajosTemplateResource,
+    setExportState,
+    setGlobalError,
+    setIsTransforming,
+    setResult,
+    setRexCompanyMasterResource,
+    setSessionId,
+    setSourceFile,
+    setStep,
+    setValidation,
+  });
+
+  const configurationActions = createAppConfigurationActions({
+    STEPS,
+    activeConfiguration,
+    authUser,
+    configurations,
+    isBukFlow,
+    mappingCompany,
+    parameters,
+    selectedDestination,
+    selectedOrigin,
+    sessionId,
+    visibleSessions,
+    setActiveConfiguration,
+    setCloudSessions,
+    setConfigurations,
+    setGlobalError,
+    setHistoricalBatchState,
+    setHistoricalEmployeeCatalog,
+    setHistoricalEmployeeMasterFile,
+    setHistoricalEmployeeMasterValidation,
+    setMappingCompany,
+    setParameters,
+    setRexCompanyMasterResource,
+    setResult,
+    setSelectedDestination,
+    setSelectedModule,
+    setSelectedOrigin,
+    setSessionId,
+    setSessions,
+    setSourceFile,
+    setStep,
+    setValidation,
+  });
 
   useEffect(() => {
     persistConfigurations(configurations);
   }, [configurations]);
 
   return (
-    <VismaWorkspaceProvider>
-      <main className="min-h-screen bg-[#f6f7fb] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
-      {busyState ? <WorkInProgressOverlay title={busyState.title} detail={busyState.detail} /> : null}
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-6">
-          <div className="panel px-5 py-4 sm:px-7">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex min-w-0 items-center gap-4">
-                <img src={ART_BPO_LOGO_PATH} alt="artBPO" className="h-14 w-24 shrink-0 object-contain object-center" />
-                <div className="min-w-0 border-l border-slate-200 pl-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.28em] text-brand-600">Plataforma interna</p>
-                  <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Transformator</h1>
-                  <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                  {isVismaMastersFlow
-                    ? 'Consulta los maestros VISMA desde el backend y prepáralos para las cargas.'
-                    : isVismaEmployeesFlow
-                      ? 'Conecta VISMA por proxy backend, elige empresa y trae empleados o libros históricos para REX+.'
-                    : `Mapea archivos de ${originLabel} a ${destinationLabel} en un flujo client-side, con trazabilidad antes de descargar.`}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <img src={TMF_LOGO_PATH} alt="TMF Group" className="h-10 w-10 rounded-xl object-cover" />
-                  <div className="text-xs">
-                    <p className="font-bold uppercase tracking-[0.16em] text-slate-500">TMF Group</p>
-                    <p className="mt-1 font-semibold text-slate-900">
-                    {selectedOrigin} → {destinationLabel}
-                    {isConceptsFlow || isHistoricalConceptsFlow ? ` · ${mappingScope.company.toUpperCase()}` : ''}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {globalError ? (
-          <div className="mb-6 rounded-[28px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
-            {globalError}
-          </div>
-        ) : null}
-
-        <div className={showVismaSidebar ? 'grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]' : ''}>
-          {showVismaSidebar ? (
-            <VismaSidebar
-              selectedModule={selectedModule}
-              onNavigate={handleVismaNavigation}
-              onContextChange={handleVismaContextChange}
-              onOpenOtherFlows={handleOpenOtherFlows}
-            />
-          ) : null}
-
-          <div className={showVismaSidebar ? 'min-w-0' : ''}>
-        {step === STEPS.format && !showVismaSidebar ? (
-          <FormatSelector
-            selectedOrigin={selectedOrigin}
-            selectedDestination={selectedDestination}
-            mappingCompany={mappingCompany}
-            selectedModule={selectedModule}
-            onChangeOrigin={setSelectedOrigin}
-            onChangeDestination={setSelectedDestination}
-            onChangeMappingCompany={setMappingCompany}
-            onChangeModule={handleModuleChange}
-            onContinue={() => setStep(
-              isConceptsFlow
-                ? STEPS.concepts
-                : isVismaMastersFlow
-                  ? STEPS.vismaMastersReview
-                : isVismaEmployeesFlow
-                  ? STEPS.vismaEmployeesReview
-                  : STEPS.upload,
-            )}
-            templateStatus={templateStatus}
-            conceptCatalogCount={conceptsResource?.concepts?.length ?? 0}
-            isUpdatingConceptCatalog={isUpdatingConceptCatalog}
-            onCatalogSelected={handleConceptCatalogFileSelected}
-            pairKey={pairKey}
-            isSupportedPair={isSupportedPair}
-            configurations={configurations}
-            activeConfigurationId={activeConfigurationId}
-            onActivateConfiguration={handleActivateConfiguration}
-            onDeleteConfiguration={handleDeleteConfiguration}
-            onImportConfiguration={handleImportConfiguration}
-            onExportActiveConfiguration={handleExportActiveConfiguration}
-            sessions={visibleSessions}
-            onResumeSession={handleResumeSession}
-            onDeleteSession={handleDeleteSession}
-          />
-        ) : null}
-
-        {step === STEPS.vismaMastersReview ? (
-          <VismaMastersReview
-            onBack={() => handleVismaNavigation('visma-empleados')}
-            onBusyChange={(isBusy) => {
-              setExportState(isBusy
-                ? {
-                    title: 'Consultando maestros VISMA',
-                    detail: 'El proxy está consultando los maestros de la conexión seleccionada.',
-                  }
-                : null);
-            }}
-          />
-        ) : null}
-
-        {step === STEPS.vismaEmployeesReview ? (
-          <VismaEmployeesReview
-            conceptsResource={conceptsResource}
-            onBack={() => handleVismaNavigation('visma-maestros')}
-            onContinue={handleVismaEmployeesReady}
-            onBusyChange={(isBusy) => {
-              setExportState(isBusy
-                ? {
-                    title: 'Consultando VISMA',
-                    detail: 'El proxy está consultando VISMA con las claves guardadas y la empresa seleccionada.',
-                  }
-                : null);
-            }}
-          />
-        ) : null}
-
-        {step === STEPS.upload ? (
-          <FileUploader
-            originLabel={originLabel}
-            sourceFile={sourceFile}
-            validation={validation}
-            isReadingFile={isReadingFile}
-            secondaryUpload={isHistoricalConceptsFlow ? {
-              title: 'Maestro REX+ de empleados',
-              description: 'Carga el maestro actualizado de REX+. Se usará sólo para comprobar qué trabajadores del libro ya existen.',
-              fileName: historicalEmployeeMasterFile?.name,
-              validation: historicalEmployeeMasterValidation,
-              isReadingFile: isReadingHistoricalEmployeeMaster,
-              onFileSelected: handleHistoricalEmployeeMasterSelected,
-            } : null}
-            continueLabel={isVismaHistoricalFlow || isTalanaHistoricalFlow || isHistoricalConceptsFlow ? 'Analizar libro histórico' : 'Continuar al wizard'}
-            onFileSelected={handleFileSelected}
-            onBack={() => setStep(showVismaSidebar ? STEPS.vismaEmployeesReview : STEPS.format)}
-            onContinue={() => {
-              if (isHistoricalConceptsFlow && !historicalEmployeeCatalog) {
-                setGlobalError('Carga el maestro REX+ de empleados antes de analizar el libro histórico.');
-                return;
-              }
-
-              setStep(isVismaHistoricalFlow ? STEPS.vismaHistoricalReview : isTalanaHistoricalFlow ? STEPS.talanaHistoricalReview : isHistoricalConceptsFlow ? STEPS.historicalReview : STEPS.params);
-            }}
-          />
-        ) : null}
-
-        {step === STEPS.params ? (
-          <ParamsWizard
-            parameters={parameters}
-            parameterDefinitions={activeParameterDefinitions}
-            onChangeParameter={(key, value) => setParameters((current) => ({ ...current, [key]: value }))}
-            onBack={() => setStep(STEPS.upload)}
-            onTransform={handleTransform}
-            isTransforming={isTransforming}
-          />
-        ) : null}
-
-        {step === STEPS.concepts && conceptsResource ? (
-          <ConceptsMapper
-            resource={conceptsResource}
-            isReadingMonthlyBook={isReadingFile}
-            isUpdatingCatalog={isUpdatingConceptCatalog}
-            onBack={() => setStep(STEPS.format)}
-            onMonthlyBookSelected={handleMonthlyBookSelected}
-            onCatalogUpdated={handleConceptCatalogUpdated}
-          />
-        ) : null}
-
-        {step === STEPS.historicalReview && sourceFile && conceptsResource ? (
-          <HistoricalConceptsMapper
-            sourceFile={sourceFile}
-            conceptsResource={conceptsResource}
-            employeeCatalogOverride={historicalEmployeeCatalog}
-            employeeMasterFileName={historicalEmployeeMasterFile?.name}
-            mappingScope={mappingScope}
-            batchState={historicalBatchState}
-            onBatchStateChange={setHistoricalBatchState}
-            onBack={() => setStep(STEPS.format)}
-            onOpenMissingEmployees={handleOpenMissingMeta4Employees}
-            onBusyChange={setIsPreparingHistoricalDownload}
-          />
-        ) : null}
-
-        {step === STEPS.vismaHistoricalReview && sourceFile && vismaHistoricalResource ? (
-          <VismaHistoricalMapper
-            sourceFile={sourceFile}
-            resource={vismaHistoricalResource}
-            mappingScope={mappingScope}
-            onBack={() => setStep(STEPS.upload)}
-            onBusyChange={setIsPreparingHistoricalDownload}
-          />
-        ) : null}
-
-        {step === STEPS.talanaHistoricalReview && sourceFile ? (
-          <TalanaHistoricalMapper
-            sourceFile={sourceFile}
-            mappingScope={mappingScope}
-            batchState={historicalBatchState}
-            onBatchStateChange={setHistoricalBatchState}
-            onBack={() => setStep(STEPS.upload)}
-            onBusyChange={setIsPreparingHistoricalDownload}
-          />
-        ) : null}
-
-        {step === STEPS.review && result?.kind === 'rex' ? (
-          <RexCorrectionsStep
-            rowStates={result.rowStates}
-            correctionsByRow={result.correctionsByRow}
-            templateResource={rexTemplateResource}
-            onBack={() => setStep(isVismaEmployeesFlow ? STEPS.vismaEmployeesReview : STEPS.upload)}
-            onDownloadRex={handleDownloadRex}
-            onDownloadPendingReport={handleDownloadRexPendingReport}
-            onUpdateCorrection={handleUpdateRexCorrection}
-            onBulkApply={handleBulkApplyRexCorrection}
-            onContinue={() => setStep(STEPS.result)}
-          />
-        ) : null}
-
-        {step === STEPS.result && result?.kind === 'buk' ? (
-          <TransformResult
-            colaboradoresResult={result.colaboradores}
-            trabajosResult={result.trabajos}
-            activeConfiguration={activeConfiguration}
-            onDownloadColaboradoresAll={() => handleDownloadColaboradores('all')}
-            onDownloadColaboradoresClean={() => handleDownloadColaboradores('clean')}
-            onDownloadTrabajosAll={() => handleDownloadTrabajos('all')}
-            onDownloadTrabajosClean={() => handleDownloadTrabajos('clean')}
-            onDownloadErrors={handleDownloadBukErrors}
-            onSaveConfiguration={handleSaveConfiguration}
-            onExportActiveConfiguration={handleExportActiveConfiguration}
-            onRestart={resetFlow}
-          />
-        ) : null}
-
-        {step === STEPS.result && result?.kind === 'rex' ? (
-          <RexTransformResult
-            result={result}
-            sourceLabel={isVismaEmployeesFlow ? 'VISMA' : 'Meta 4'}
-            defaultConfigurationName={isVismaEmployeesFlow ? 'VISMA → REX+ Empleados' : 'Meta 4 → REX+'}
-            activeConfiguration={activeConfiguration}
-            onDownload={handleDownloadRex}
-            downloadHref={preparedRexDownload?.objectUrl ?? ''}
-            downloadName={preparedRexDownload?.fileName ?? ''}
-            isDownloading={isPreparingRexDownload || Boolean(exportState)}
-            onSaveConfiguration={handleSaveConfiguration}
-            onExportActiveConfiguration={handleExportActiveConfiguration}
-            onRestart={resetFlow}
-          />
-        ) : null}
-          </div>
-        </div>
-      </div>
-      </main>
-    </VismaWorkspaceProvider>
+    <AppFlowContent
+      app={{
+        STEPS,
+        busyState,
+        isVismaMastersFlow,
+        isVismaEmployeesFlow,
+        originLabel,
+        destinationLabel,
+        selectedOrigin,
+        isConceptsFlow,
+        isHistoricalConceptsFlow,
+        mappingScope,
+        globalError,
+        showVismaSidebar,
+        selectedModule,
+        step,
+        selectedDestination,
+        mappingCompany,
+        setSelectedOrigin,
+        setSelectedDestination,
+        setMappingCompany,
+        setStep,
+        templateStatus,
+        conceptsResource,
+        isUpdatingConceptCatalog,
+        pairKey,
+        isSupportedPair,
+        configurations,
+        activeConfigurationId,
+        visibleSessions,
+        setExportState,
+        vismaCatalogScope,
+        vismaHistoricalCatalog,
+        vismaHistoricalCatalogFileName,
+        isReadingVismaCatalog,
+        isLoadingVismaCatalog,
+        vismaHistoricalCatalogValidation,
+        vismaTemplateCompanyId,
+        vismaHistoricalTemplateResource,
+        setVismaTemplateCompanyId,
+        vismaHistoricalTemplateFileName,
+        isReadingVismaTemplate,
+        vismaHistoricalTemplateValidation,
+        sourceFile,
+        validation,
+        isReadingFile,
+        setGlobalError,
+        historicalEmployeeMasterFile,
+        historicalEmployeeMasterValidation,
+        isReadingHistoricalEmployeeMaster,
+        historicalEmployeeCatalog,
+        isVismaHistoricalFlow,
+        isTalanaHistoricalFlow,
+        parameters,
+        activeParameterDefinitions,
+        setParameters,
+        isTransforming,
+        historicalBatchState,
+        setHistoricalBatchState,
+        setIsPreparingHistoricalDownload,
+        result,
+        rexTemplateResource,
+        activeConfiguration,
+        preparedRexDownload,
+        isPreparingRexDownload,
+        exportState,
+        ...uploadActions,
+        ...resultActions,
+        ...configurationActions,
+      }}
+    />
   );
-}
-
-function WorkInProgressOverlay({ title, detail }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[32px] border border-white/20 bg-slate-950 px-6 py-7 text-white shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="relative flex h-16 w-16 items-center justify-center">
-            <span className="absolute h-16 w-16 rounded-full border border-cyan-300/30" />
-            <span className="absolute h-11 w-11 rounded-full border-2 border-cyan-300 border-t-transparent animate-spin" />
-            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 -translate-x-8 -translate-y-1/2 rounded-full bg-cyan-300" />
-            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300" />
-            <span className="loader-orb absolute left-1/2 top-1/2 h-3 w-3 translate-x-6 -translate-y-1/2 rounded-full bg-amber-300" />
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200">Trabajando</p>
-            <h3 className="mt-2 text-2xl font-extrabold">{title}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-300">{detail}</p>
-          </div>
-        </div>
-
-        <div className="loader-track mt-6 h-2 overflow-hidden rounded-full bg-white/10">
-          <span className="block h-full w-1/3 rounded-full bg-gradient-to-r from-cyan-300 via-emerald-300 to-amber-300" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function triggerWorkbookDownload(workbook, fileName) {
-  triggerPreparedDownload(createPreparedDownload(workbook, fileName));
-}
-
-function buildBukErrorsReportWorkbook({ errorRows, sourceRows, sourceFileName }) {
-  const sourceRowsByNumber = new Map(
-    sourceRows.map((row, index) => [Number(row.__sourceRowNumber) || index + 2, row]),
-  );
-  const reportRows = errorRows.map(({ section, error }) => {
-    const sourceRow = sourceRowsByNumber.get(Number(error.row)) ?? {};
-    const rut = firstSourceValue(sourceRow, ['RUT', 'CI', 'Número de Documento', 'Numero de Documento']);
-    const employeeName = resolveSourceEmployeeName(sourceRow);
-    const originalValue = error.value ?? '';
-
-    return {
-      Archivo: sourceFileName || '',
-      Sección: section,
-      Fila: error.row,
-      RUT: rut,
-      Empleado: employeeName,
-      Campo: error.field || '',
-      'Valor original': originalValue,
-      Catálogo: error.listName || '',
-      Motivo: error.message || 'El valor requiere revisión antes de cargarlo en BUK.',
-    };
-  });
-
-  const workbook = XLSX.utils.book_new();
-  const errorSheet = XLSX.utils.json_to_sheet(reportRows);
-  const summaryRows = [
-    { Indicador: 'Total de errores', Valor: reportRows.length },
-    { Indicador: 'Errores en colaboradores', Valor: reportRows.filter((row) => row.Sección === 'Colaboradores').length },
-    { Indicador: 'Errores en trabajos', Valor: reportRows.filter((row) => row.Sección === 'Trabajos').length },
-    { Indicador: 'Archivo de origen', Valor: sourceFileName || '' },
-  ];
-
-  XLSX.utils.book_append_sheet(workbook, errorSheet, 'Errores');
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'Resumen');
-  return workbook;
-}
-
-function firstSourceValue(sourceRow, keys) {
-  return keys.map((key) => sourceRow[key]).find((value) => String(value ?? '').trim()) ?? '';
-}
-
-function resolveSourceEmployeeName(sourceRow) {
-  const directName = firstSourceValue(sourceRow, ['Empleado', 'Nombre completo', 'NOMBRE']);
-  if (directName) {
-    return directName;
-  }
-
-  return [sourceRow['Apellido Paterno'], sourceRow['Apellido Materno'], sourceRow.Nombre]
-    .filter((value) => String(value ?? '').trim())
-    .join(' ');
-}
-
-function getRexDownloadFilename(sourceFile) {
-  const companyName = String(sourceFile?.companyName || '').trim();
-  return companyName
-    ? `REX_empleados_${sanitizeFilenameSegment(companyName)}_${todayStamp()}.xlsx`
-    : `REX_empleados_${todayStamp()}.xlsx`;
-}
-
-function createPreparedDownload(workbook, fileName) {
-  const arrayBuffer = XLSX.write(workbook, {
-    bookType: 'xlsx',
-    type: 'array',
-  });
-  const blob = new Blob([arrayBuffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  return {
-    fileName,
-    objectUrl: URL.createObjectURL(blob),
-  };
-}
-
-function triggerPreparedDownload(downloadResource) {
-  if (!downloadResource?.objectUrl || !downloadResource?.fileName) {
-    return;
-  }
-
-  const link = document.createElement('a');
-  link.href = downloadResource.objectUrl;
-  link.download = downloadResource.fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
-function revokePreparedDownload(downloadResource) {
-  if (!downloadResource?.objectUrl) {
-    return;
-  }
-
-  URL.revokeObjectURL(downloadResource.objectUrl);
-}
-
-function mergeSessionLists(localSessions, remoteSessions) {
-  const sessionsById = new Map();
-
-  localSessions.forEach((session) => {
-    sessionsById.set(session.id, { ...session, storage: 'local' });
-  });
-
-  remoteSessions.forEach((session) => {
-    const current = sessionsById.get(session.id);
-    sessionsById.set(session.id, {
-      ...current,
-      ...session,
-      storage: current ? 'both' : 'cloud',
-    });
-  });
-
-  return [...sessionsById.values()].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
-}
-
-function normalizeDestination(destinationId) {
-  return destinationId === 'rex' ? 'rex' : 'buk';
-}
-
-function normalizeOrigin(originId) {
-  if (originId === 'visma') {
-    return 'visma';
-  }
-
-  return originId === 'meta4' ? 'meta4' : 'talana';
-}
-
-function normalizeEmployeeId(value) {
-  return String(value ?? '').replace(/[.\s]/g, '').toUpperCase();
-}
-
-function parseSourceWorkbook(arrayBuffer, originId, password = '') {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./workers/sourceParser.worker.js', import.meta.url), {
-      type: 'module',
-    });
-
-    worker.onmessage = (event) => {
-      worker.terminate();
-
-      if (event.data?.ok) {
-        resolve(event.data);
-        return;
-      }
-
-      const error = new Error(event.data?.error || 'No se pudo leer el archivo.');
-      error.code = event.data?.code || '';
-      reject(error);
-    };
-
-    worker.onerror = () => {
-      worker.terminate();
-      reject(new Error('No se pudo procesar el archivo en segundo plano.'));
-    };
-
-    worker.postMessage({ arrayBuffer, originId, password }, [arrayBuffer]);
-  });
-}
-
-function waitForUiToPaint() {
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.setTimeout(resolve, 0);
-    });
-  });
-}
-
-function buildValidationMessage({ originId, parsedSource }) {
-  if (parsedSource.formatIssues?.length > 0) {
-    return `Formato no compatible para ${parsedSource.formatName ?? 'el flujo seleccionado'}: ${parsedSource.formatIssues.join(' ')}`;
-  }
-
-  if (parsedSource.missingColumns.length > 0) {
-    return originId === 'meta4' || originId === 'meta4-historico'
-      ? 'El archivo no cumple con las columnas mínimas para Meta 4.'
-      : originId === 'visma-historico'
-        ? 'El archivo no cumple con las columnas mínimas para Visma.'
-        : originId === 'talana-historico'
-          ? 'El archivo no cumple con las columnas mínimas para un libro histórico de Talana.'
-        : 'El archivo no cumple con las columnas mínimas para Talana.';
-  }
-
-  return `Archivo listo. Se detectaron ${parsedSource.rows.length} filas en la hoja ${parsedSource.workbookName}.`;
 }

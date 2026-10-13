@@ -54,7 +54,7 @@ export function VismaWorkspaceProvider({ children }) {
     () => organizationGroups.find((group) => String(group.id) === String(selection.companyTypeId)) ?? organizationGroups[0] ?? null,
     [organizationGroups, selection.companyTypeId],
   );
-  const companyOptions = selectedOrganizationGroup?.options ?? [];
+  const companyOptions = useMemo(() => selectedOrganizationGroup?.options ?? [], [selectedOrganizationGroup]);
   const selectedTenant = useMemo(
     () => (connection?.tenants ?? []).find((tenant) => String(tenant.id) === String(selection.tenantId)) ?? null,
     [connection, selection.tenantId],

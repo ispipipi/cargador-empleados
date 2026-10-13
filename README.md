@@ -1,6 +1,6 @@
 # Transformator
 
-App en React + Vite + Tailwind + SheetJS para mapear archivos de Meta 4 a REX+ y mantener los flujos Talana → BUK.
+App en React + Vite + Tailwind + SheetJS para preparar cargas de Meta 4 y VISMA hacia REX+, además de flujos Talana → BUK.
 
 ## Stack
 
@@ -58,7 +58,7 @@ El conector ya permite generar REX+ Empleados por empresa seleccionada. En libro
 
 ## Flujo funcional
 
-1. Seleccionar el módulo `Empleados`, `Conceptos` o `Conceptos históricos`
+1. Seleccionar un grupo y el flujo correspondiente
 2. Elegir origen y destino
 3. Subir archivo `.xls` o `.xlsx` cuando el módulo lo requiera
 4. Responder el wizard de parámetros cuando corresponda
@@ -86,11 +86,13 @@ Los registros marcados como `NO APLICA` se excluyen del archivo de carga, pero s
 
 ## Módulo Conceptos históricos
 
-`Conceptos históricos` recibe el libro de remuneraciones Meta 4 de formato ancho, con los encabezados en la fila 5 y una fila por colaborador. Detecta los conceptos con montos distintos de cero, conserva las columnas repetidas del origen y los compara contra el catálogo actual de REX+.
+`Carga de libros históricos` ofrece tres flujos independientes: Meta 4 → REX+ Liquidaciones en Detalle, VISMA → REX+ Liquidaciones Detalle y Talana → BUK Liquidaciones Históricas. Cada flujo tiene su parser, memoria de mapeos y formato de salida propios; no reutilizar reglas de un origen en otro sin validar el formato y el alcance de empresa.
 
-El flujo permite aprobar matches exactos, asignar una propuesta o cualquier concepto del catálogo en forma individual o masiva, y excluir conceptos que no deban cargarse. Mientras exista un concepto pendiente, el CSV queda bloqueado para evitar una carga incompleta.
+Meta 4 → REX+ recibe el libro mensual, compara conceptos con el catálogo autorizado y las decisiones guardadas, y valida colaboradores contra el maestro REX+ disponible. La revisión permite confirmar pareos, propuestas, exclusiones y altas. Antes de descargar valida el formato de salida y la cuadratura del líquido; el reporte permite ubicar diferencias y pendientes.
 
-La descarga principal es `REX_conceptos_detalle_historicos_YYYY-MM-DD.csv`, en UTF-8 con BOM, encabezados y separador `;`. Usa `M` como origen, `M` como período mensual, acción `C`, y deja fechas, institución, dato adicional, comentario y centro de costo vacíos para que no se inventen datos.
+El archivo de carga Meta 4 → REX+ es CSV UTF-8 con BOM y separador `;`, basado en las columnas de la plantilla oficial de Liquidaciones en Detalle. La carga se puede fraccionar por trabajadores; los lotes marcados como realizados se descuentan para evitar duplicar cargas, y un lote fallido se puede descargar de nuevo.
+
+VISMA → REX+ prepara el ámbito de empresa, catálogo REX+, template de Liquidación Detalle y libro del período en un paso de configuración propio. Los pareos se guardan dentro del ámbito elegido para no mezclar catálogos entre empresas.
 
 ## Template embebido
 
@@ -153,15 +155,15 @@ URL esperada:
 
 ## Estructura principal
 
-```text
-src/
-  components/
-  connectors/
-    destinations/
-    origins/
-  engine/
-  lib/
-```
+La guía completa de módulos, recorrido de datos y puntos de extensión está en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Resume dónde implementar cambios por origen, destino, pantalla, persistencia o integración backend, y las convenciones para mantener los módulos debajo de 700 líneas.
+
+Puntos de entrada principales:
+
+- `src/main.jsx`: aplicación principal Transformator.
+- `src/geovictoria-main.jsx`: aplicación GeoVictoria independiente.
+- `functions/index.js`: exportaciones públicas de Cloud Functions.
+
+Las reglas de formato por origen están en `src/connectors/origins/`; las transformaciones de destino en `src/connectors/destinations/`; las reglas compartidas del flujo en `src/lib/`; la UI en `src/components/`.
 
 ## Notas
 

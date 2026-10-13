@@ -116,6 +116,24 @@ export async function saveCloudConceptCatalog(user, concepts) {
   });
 }
 
+export async function loadCloudVismaConceptCatalog(user, scope) {
+  const services = requireServices();
+  const scopeId = normalizeVismaCatalogScope(scope);
+  const catalogSnapshot = await getDoc(doc(services.database, 'users', user.uid, 'catalogs', `visma-${scopeId}`));
+  return catalogSnapshot.exists() ? catalogSnapshot.data().concepts ?? null : null;
+}
+
+export async function saveCloudVismaConceptCatalog(user, scope, concepts) {
+  const services = requireServices();
+  const scopeId = normalizeVismaCatalogScope(scope);
+  await setDoc(doc(services.database, 'users', user.uid, 'catalogs', `visma-${scopeId}`), {
+    ownerUid: user.uid,
+    scope: scopeId,
+    concepts,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function requireServices() {
   const services = getFirebaseServices();
   if (!services) {
@@ -123,4 +141,8 @@ function requireServices() {
   }
 
   return services;
+}
+
+function normalizeVismaCatalogScope(scope) {
+  return String(scope ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9-]/g, '');
 }

@@ -6,6 +6,7 @@ const SESSION_STORE = 'sessions';
 const SESSION_DATA_STORE = 'session-data';
 const MAPPING_STORAGE_KEY = 'maper.mapping-memory.v1';
 const CONCEPT_CATALOG_STORAGE_KEY = 'maper.concept-catalog.v1';
+const VISMA_CONCEPT_CATALOG_STORAGE_KEY = 'maper.visma-concept-catalogs.v1';
 const LEGACY_MAPPING_SCOPE_KEY = 'meta4:rex:finning';
 
 let databasePromise;
@@ -105,6 +106,32 @@ export function saveConceptCatalogMemory(concepts) {
     window.dispatchEvent(new CustomEvent('maper-concept-catalog-changed', {
       detail: { concepts },
     }));
+  } catch {
+    // A blocked or full localStorage should not interrupt the mapping flow.
+  }
+}
+
+export function loadVismaConceptCatalogMemory(scope) {
+  try {
+    const rawValue = window.localStorage.getItem(VISMA_CONCEPT_CATALOG_STORAGE_KEY);
+    const catalogs = rawValue ? JSON.parse(rawValue) : {};
+    const concepts = catalogs?.[normalizeScopePart(scope)];
+    return Array.isArray(concepts) && concepts.length > 0 ? concepts : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveVismaConceptCatalogMemory(scope, concepts) {
+  if (!Array.isArray(concepts) || concepts.length === 0) {
+    return;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(VISMA_CONCEPT_CATALOG_STORAGE_KEY);
+    const catalogs = rawValue ? JSON.parse(rawValue) : {};
+    catalogs[normalizeScopePart(scope)] = concepts;
+    window.localStorage.setItem(VISMA_CONCEPT_CATALOG_STORAGE_KEY, JSON.stringify(catalogs));
   } catch {
     // A blocked or full localStorage should not interrupt the mapping flow.
   }

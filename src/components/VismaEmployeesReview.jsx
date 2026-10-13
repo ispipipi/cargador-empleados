@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
+  buildVismaLeavesCsv,
   buildVismaPayrollWorkbook,
   buildVismaRexConceptDetailCsv,
   buildVismaSourceFile,
   fetchVismaEmployeesPreview,
+  fetchVismaLeavesPreview,
   fetchVismaPayrollBookPreview,
   fetchVismaPayrollProcessesPreview,
   summarizeVismaSourceFile,
@@ -12,6 +14,14 @@ import {
 import { parseRexCompanyMasterWorkbook } from '../lib/template';
 import { cleanCell } from '../lib/utils';
 import { useVismaWorkspace, ALL_COMPANIES_VALUE } from './VismaWorkspaceProvider';
+import {
+  EmployeesPreview,
+  LeavesPreview,
+  MetricCard,
+  PayrollProcessesPreview,
+  RexCompanyMasterUploader,
+  triggerTextDownload,
+} from './VismaEmployeesReviewParts';
 
 const DEFAULT_PAYROLL_PAGE_SIZE = 500;
 const EXTRACTION_MODES = [
@@ -24,6 +34,11 @@ const EXTRACTION_MODES = [
     id: 'payroll',
     label: 'Libros históricos',
     detail: 'Remuneraciones, conceptos, aportes y leyes sociales.',
+  },
+  {
+    id: 'leaves',
+    label: 'Licencias y ausencias',
+    detail: 'Licencias médicas, permisos y ausencias del período.',
   },
 ];
 
@@ -43,11 +58,14 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
     payrollYear: new Date().getFullYear(),
     payrollMonth: new Date().getMonth() + 1,
     payrollPrintable: false,
+    leavesYear: new Date().getFullYear(),
+    leavesMonth: new Date().getMonth() + 1,
   });
   const [payload, setPayload] = useState(null);
   const [payrollPayload, setPayrollPayload] = useState(null);
   const [payrollBookPayload, setPayrollBookPayload] = useState(null);
   const [payrollDetailSummary, setPayrollDetailSummary] = useState(null);
+  const [leavesPayload, setLeavesPayload] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -59,6 +77,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
   const isAllCompanies = selection.companyId === ALL_COMPANIES_VALUE;
   const payrollProcesses = payrollPayload?.payrollProcesses ?? [];
   const payrollPeriods = payrollPayload?.periods ?? [];
+  const leaveSummary = leavesPayload?.summary ?? {};
   const summary = useMemo(() => summarizeVismaSourceFile(sourceFile, payload?.summary), [payload, sourceFile]);
   const visibleRows = useMemo(() => {
     const rows = sourceFile?.rows ?? [];
@@ -89,6 +108,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
     setPayrollPayload(null);
     setPayrollBookPayload(null);
     setPayrollDetailSummary(null);
+    setLeavesPayload(null);
     setSourceFile(null);
     setSearch('');
   }, [selection.companyId, selection.companyTypeId, selection.tenantId]);
@@ -105,6 +125,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
       setPayrollPayload(null);
       setPayrollBookPayload(null);
       setPayrollDetailSummary(null);
+      setLeavesPayload(null);
       setSourceFile(null);
       setSearch('');
     }
@@ -166,6 +187,25 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
         return;
       }
 
+      if (form.extractionMode === 'leaves') {
+        const nextLeavesPayload = await fetchVismaLeavesPreview({
+          tenantId: selection.tenantId,
+          companyId: isAllCompanies ? '' : selection.companyId,
+          companyTypeId: selection.companyTypeId,
+          year: form.leavesYear,
+          month: form.leavesMonth,
+        });
+
+        setPayload(null);
+        setSourceFile(null);
+        setPayrollPayload(null);
+        setPayrollBookPayload(null);
+        setPayrollDetailSummary(null);
+        setLeavesPayload(nextLeavesPayload);
+        setSearch('');
+        return;
+      }
+
       const nextPayload = await fetchVismaEmployeesPreview({
         tenantId: selection.tenantId,
         companyId: isAllCompanies ? '' : selection.companyId,
@@ -185,12 +225,14 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
       setPayrollPayload(null);
       setPayrollBookPayload(null);
       setPayrollDetailSummary(null);
+      setLeavesPayload(null);
       setPayload(nextPayload);
       setSourceFile(nextSourceFile);
       setSearch('');
     } catch (queryError) {
       setPayload(null);
       setPayrollPayload(null);
+      setLeavesPayload(null);
       setSourceFile(null);
       setError(queryError instanceof Error ? queryError.message : 'No se pudo consultar VISMA.');
     } finally {
@@ -263,6 +305,20 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
     setPayrollDetailSummary(detail.summary);
   };
 
+  const handleLeavesDownload = () => {
+    if (!leavesPayload) {
+      return;
+    }
+
+    const periodLabel = `${form.leavesYear}-${String(form.leavesMonth).padStart(2, '0')}`;
+    const csv = buildVismaLeavesCsv({
+      leaves: leavesPayload.leaves,
+      companyName: isAllCompanies ? 'Todas las empresas' : selectedCompany?.name,
+      periodLabel,
+    });
+    triggerTextDownload(csv, `VISMA_AUSENCIAS_${periodLabel}.csv`);
+  };
+
   const handleContinue = () => {
     if (!canContinue) {
       return;
@@ -333,7 +389,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
 
               <fieldset>
                 <legend className="text-sm font-semibold text-slate-700">Qué quieres traer</legend>
-                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {EXTRACTION_MODES.map((mode) => (
                     <button
                       key={mode.id}
@@ -356,8 +412,8 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
                 <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
                   <p className="text-sm font-semibold text-slate-700">Trabajadores a traer</p>
                   <p className="mt-1 text-sm text-slate-600">Se traerá la totalidad de los trabajadores activos disponibles en VISMA.</p>
-                </div>
-              ) : (
+                  </div>
+              ) : form.extractionMode === 'payroll' ? (
                 <div className="space-y-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block">
@@ -396,6 +452,36 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
                     </span>
                   </label>
                 </div>
+              ) : (
+                <div className="space-y-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Año</span>
+                      <input
+                        value={form.leavesYear}
+                        onChange={(event) => updateForm('leavesYear', event.target.value)}
+                        type="number"
+                        min="2000"
+                        max="2100"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Mes</span>
+                      <input
+                        value={form.leavesMonth}
+                        onChange={(event) => updateForm('leavesMonth', event.target.value)}
+                        type="number"
+                        min="1"
+                        max="12"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs leading-5 text-slate-500">
+                    La consulta usa el endpoint VISMA de licencias con `dateFrom` del primer día del mes y trae licencias médicas, permisos y ausencias que se crucen con el período.
+                  </p>
+                </div>
               )}
             </div>
 
@@ -417,6 +503,8 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
                   ? 'Consultando...'
                   : form.extractionMode === 'payroll'
                     ? 'Buscar procesos'
+                    : form.extractionMode === 'leaves'
+                      ? 'Buscar ausencias'
                     : 'Traer empleados'}
               </button>
             </div>
@@ -427,7 +515,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
 
           <div className="bg-white px-6 py-8 sm:px-8">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-              {form.extractionMode === 'payroll' ? 'Procesos payroll' : 'Cobertura'}
+              {form.extractionMode === 'payroll' ? 'Procesos payroll' : form.extractionMode === 'leaves' ? 'Ausentismos del período' : 'Cobertura'}
             </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {form.extractionMode === 'payroll' ? (
@@ -435,6 +523,14 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
                   <MetricCard label="Procesos" value={payrollProcesses.length} detail="Encontrados" />
                   <MetricCard label="Períodos" value={payrollPeriods.length} detail={`${form.payrollMonth}/${form.payrollYear}`} />
                   <MetricCard label="Libro" value={payrollBookPayload ? 'Listo' : '-'} detail={payrollBookPayload ? `${payrollBookPayload.summary?.concepts ?? 0} conceptos` : 'Selecciona un proceso'} />
+                </>
+              ) : form.extractionMode === 'leaves' ? (
+                <>
+                  <MetricCard label="Registros" value={leaveSummary.returned ?? 0} detail={`de ${leaveSummary.totalAvailable ?? 0} disponibles`} />
+                  <MetricCard label="Licencias" value={leaveSummary.medicalLicenses ?? 0} detail="Médicas" />
+                  <MetricCard label="Permisos" value={leaveSummary.permissions ?? 0} detail="Administrativos" />
+                  <MetricCard label="Ausencias" value={leaveSummary.absences ?? 0} detail="Inasistencias" />
+                  <MetricCard label="Tipos" value={leavesPayload?.leaveTypes?.length ?? 0} detail="Catálogo VISMA" />
                 </>
               ) : (
                 <>
@@ -444,6 +540,7 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
                   <MetricCard label="Banco" value={summary.withBank} detail="Con pago" />
                   <MetricCard label="Estructuras" value={summary.withStructures} detail="Con org." />
                   <MetricCard label="Email" value={summary.withEmail} detail="Contacto" />
+                  <MetricCard label="Plan UF" value={summary.withHealthAmount} detail="Concepto 06622" />
                 </>
               )}
             </div>
@@ -496,6 +593,22 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
               </div>
             ) : null}
 
+            {leavesPayload ? (
+              <div className="mt-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <p className="text-sm font-semibold text-emerald-900">Ausentismos listos</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-800">
+                  Se encontraron {leavesPayload.leaves?.length ?? 0} registros para {leavesPayload.from} a {leavesPayload.to}.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleLeavesDownload}
+                  className="mt-4 rounded-full bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                >
+                  Descargar ausentismos CSV
+                </button>
+              </div>
+            ) : null}
+
             {error || connectionError ? (
               <div className="mt-6 rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
                 {error || connectionError}
@@ -542,185 +655,10 @@ export default function VismaEmployeesReview({ conceptsResource, onBack, onConti
           loadedProcessId={payrollBookPayload?.processId}
         />
       ) : null}
+
+      {leavesPayload ? (
+        <LeavesPreview leaves={leavesPayload.leaves ?? []} companyName={isAllCompanies ? 'Todas las empresas' : selectedCompany?.name} />
+      ) : null}
     </div>
   );
-}
-
-function RexCompanyMasterUploader({ fileName, resource, error, isReading, disabled, onFileSelected }) {
-  const handleDrop = (event) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
-
-    if (file && !disabled) {
-      onFileSelected(file);
-    }
-  };
-
-  return (
-    <section className="rounded-[24px] border border-brand-200 bg-brand-50/60 p-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-700">Maestro REX+</p>
-          <h3 className="mt-2 text-base font-bold text-slate-950">Carga el archivo base para generar REX+</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            Puedes consultar empleados desde VISMA sin este archivo. Debes cargarlo antes de generar el archivo final REX+.
-          </p>
-        </div>
-        <span className="rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
-          Para generar
-        </span>
-      </div>
-
-      <label
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={handleDrop}
-        className={`mt-4 flex cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed px-4 py-5 text-center transition ${
-          disabled
-            ? 'cursor-not-allowed border-slate-200 bg-slate-100/80 opacity-70'
-            : 'border-brand-300 bg-white hover:border-brand-500 hover:bg-brand-50'
-        }`}
-      >
-        <span className="text-sm font-semibold text-slate-900">
-          {isReading ? 'Leyendo archivo...' : fileName || 'Selecciona o arrastra el archivo de carga REX+'}
-        </span>
-        <span className="mt-1 text-xs text-slate-500">Formato permitido: .xls / .xlsx</span>
-        <input
-          type="file"
-          accept=".xls,.xlsx"
-          className="hidden"
-          disabled={disabled || isReading}
-          onChange={(event) => onFileSelected(event.target.files?.[0])}
-        />
-      </label>
-
-      {!resource && disabled ? (
-        <p className="mt-3 text-xs font-semibold text-amber-700">Selecciona primero una empresa o Todas las empresas.</p>
-      ) : null}
-
-      {error ? (
-        <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">
-          {error}
-        </div>
-      ) : null}
-
-      {resource ? (
-        <>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            {resource.masters.map((master) => (
-              <div key={master.key} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
-                <p className="text-xs font-semibold text-emerald-800">{master.label}</p>
-                <p className="mt-1 text-lg font-bold text-slate-950">{master.count.toLocaleString('es-CL')}</p>
-                <p className="text-[11px] text-emerald-700">registros disponibles</p>
-              </div>
-            ))}
-          </div>
-          {resource.missingOptionalMasters?.length ? (
-            <p className="mt-3 text-xs leading-5 text-slate-600">
-              Esta plantilla no incluye una lista separada de {resource.missingOptionalMasters.join(', ').toLowerCase()}. Se utilizará el valor recibido directamente desde VISMA.
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </section>
-  );
-}
-
-function EmployeesPreview({ rows, companyName }) {
-  return (
-    <section className="panel p-6 sm:p-8">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Vista previa</p>
-        <h3 className="mt-2 text-2xl font-bold text-slate-950">Empleados normalizados</h3>
-        <p className="mt-2 text-sm text-slate-600">Empresa seleccionada: {companyName || 'sin nombre'} · Mostrando hasta 20 filas del lote consultado.</p>
-      </div>
-
-      <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              {['CI', 'NOMBRE', 'EMPRESA', 'POSICION', 'UBICACION', 'CENTRO COSTO', 'BANCO'].map((header) => (
-                <th key={header} className="px-4 py-3 font-semibold text-slate-700">{header}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {rows.map((row) => (
-              <tr key={`${row.__sourceRowNumber}-${row.CI}`}>
-                {['CI', 'NOMBRE', 'EMPRESA', 'POSICION', 'UBICACION', 'CENTRO COSTO', 'BANCO'].map((header) => (
-                  <td key={header} className="px-4 py-3 text-slate-700">{cleanCell(row[header]) || '-'}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function PayrollProcessesPreview({ processes, onLoadBook, isLoading, loadedProcessId }) {
-  return (
-    <section className="panel p-6 sm:p-8">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand-600">Libros históricos</p>
-        <h3 className="mt-2 text-2xl font-bold text-slate-950">Procesos de remuneraciones disponibles</h3>
-        <p className="mt-2 text-sm text-slate-600">Selecciona un proceso para traer el libro completo con conceptos y acumuladores.</p>
-      </div>
-
-      <div className="mt-6 overflow-x-auto rounded-[24px] border border-slate-200">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              {['ID', 'PERÍODO', 'NOMBRE', 'MODELO', 'ESTADO', 'ACCIÓN'].map((header) => (
-                <th key={header} className="px-4 py-3 font-semibold text-slate-700">{header}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {processes.map((process, index) => (
-              <tr key={`${process.id}-${index}`}>
-                <td className="px-4 py-3 text-slate-700">{process.id || '-'}</td>
-                <td className="px-4 py-3 text-slate-700">{process.period || [process.dateFrom, process.dateTo].filter(Boolean).join(' - ') || '-'}</td>
-                <td className="px-4 py-3 text-slate-700">{process.name || '-'}</td>
-                <td className="px-4 py-3 text-slate-700">{process.model || '-'}</td>
-                <td className="px-4 py-3 text-slate-700">{process.status || '-'}</td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => onLoadBook(process)}
-                    disabled={isLoading}
-                    className="rounded-full border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loadedProcessId === process.id ? 'Libro cargado' : isLoading ? 'Consultando...' : 'Traer libro'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function MetricCard({ label, value, detail }) {
-  return (
-    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</p>
-      <p className="mt-3 text-3xl font-extrabold text-slate-950">{value}</p>
-      <p className="mt-2 text-xs text-slate-500">{detail}</p>
-    </div>
-  );
-}
-
-function triggerTextDownload(contents, fileName) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
