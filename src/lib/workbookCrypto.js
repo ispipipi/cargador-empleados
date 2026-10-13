@@ -20,11 +20,19 @@ async function loadOfficeCrypto() {
 }
 
 export async function isEncryptedWorkbook(arrayBuffer) {
+  if (isHtmlWorkbook(arrayBuffer)) {
+    return false;
+  }
+
   const officeCrypto = await loadOfficeCrypto();
   return officeCrypto.isEncrypted(arrayBuffer);
 }
 
 export async function decryptWorkbook(arrayBuffer, password) {
+  if (isHtmlWorkbook(arrayBuffer)) {
+    return arrayBuffer;
+  }
+
   let officeCrypto;
   try {
     officeCrypto = await loadOfficeCrypto();
@@ -64,4 +72,13 @@ function createWorkbookPasswordError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+function isHtmlWorkbook(arrayBuffer) {
+  const prefix = new TextDecoder('utf-8')
+    .decode(new Uint8Array(arrayBuffer).subarray(0, 512))
+    .replace(/^\uFEFF/, '')
+    .trimStart();
+
+  return /^(?:<!doctype\s+html\b|<html\b|<table\b)/i.test(prefix);
 }
