@@ -12,10 +12,12 @@ import {
 import { normalizeText, todayStamp } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
 import { splitVismaHistoricalRows } from '../lib/vismaHistoricalRows';
+import { buildVismaMissingEmployeeDraft } from '../lib/vismaEmployeeDraft';
+import { buildRexExportWorkbook } from '../lib/template';
 
 const MAPPING_NAMESPACE = 'visma-historical';
 
-export default function VismaHistoricalMapper({ sourceFile, resource, employeeCatalog = [], mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
+export default function VismaHistoricalMapper({ sourceFile, resource, employeeCatalog = [], employeeTemplateResource, companyId, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
@@ -25,6 +27,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   const [batchSize, setBatchSize] = useState(100);
   const [preparedBatch, setPreparedBatch] = useState(null);
   const [downloadError, setDownloadError] = useState('');
+  const [employeeDraftError, setEmployeeDraftError] = useState('');
   const { monthlyRows, finiquitoRows } = useMemo(
     () => splitVismaHistoricalRows(sourceFile.rows),
     [sourceFile.rows],
@@ -76,6 +79,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   const summary = summarizeVismaHistoricalDecisions(decisions);
   const catalog = model?.catalog ?? [];
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, issues: [] };
+  const missingRexEmployees = employeeValidation.issues.filter((employee) => employee.issue === 'No aparece en el maestro REX+.');
   const batchKey = useMemo(() => [
     'visma-rex-historical',
     mappingScope?.key ?? 'visma:rex',
@@ -254,6 +258,36 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     downloadBlob(output, `REX_informe_visma_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   };
 
+  const downloadMissingEmployeeDraft = () => {
+    setEmployeeDraftError('');
+    if (!employeeTemplateResource?.arrayBuffer || !missingRexEmployees.length) {
+      setEmployeeDraftError('No está disponible la plantilla oficial de empleados REX+ o no hay trabajadores faltantes válidos.');
+      return;
+    }
+
+    try {
+      const { rowEntries, skipped } = buildVismaMissingEmployeeDraft({
+        issues: missingRexEmployees,
+        sourceRows: monthlyRows,
+        templateResource: employeeTemplateResource,
+        companyId,
+      });
+      if (!rowEntries.length) {
+        setEmployeeDraftError('No se pudo preparar un archivo: verifica que los trabajadores tengan RUT válido en el libro.');
+        return;
+      }
+
+      const workbook = buildRexExportWorkbook({ templateResource: employeeTemplateResource, rowEntries });
+      const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      downloadBlob(output, `REX_empleados_pendientes_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      if (skipped.length) {
+        setEmployeeDraftError(`Se prepararon ${rowEntries.length} trabajadores; ${skipped.length} no se incluyeron por falta de fila de origen o RUT válido.`);
+      }
+    } catch (error) {
+      setEmployeeDraftError(error instanceof Error ? error.message : 'No se pudo preparar el archivo de empleados REX+.');
+    }
+  };
+
   if (isBuilding || !model) {
     return (
       <section className="panel p-8">
@@ -377,11 +411,24 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
             </p>
           </div>
           {employeeValidation.issues.length ? (
-            <button type="button" onClick={downloadReport} className="rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">
-              Descargar diferencias
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={downloadReport} className="rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">
+                Descargar diferencias
+              </button>
+              {missingRexEmployees.length ? (
+                <button type="button" onClick={downloadMissingEmployeeDraft} disabled={!employeeTemplateResource?.arrayBuffer} className="rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-400">
+                  Descargar archivo de empleados ({missingRexEmployees.length})
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
+        {missingRexEmployees.length ? (
+          <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+            El archivo usa la plantilla oficial REX+ y prellena sólo datos identificables desde el libro y catálogos con coincidencia exacta. Completa los datos personales y contractuales que falten antes de importarlo.
+          </p>
+        ) : null}
+        {employeeDraftError ? <p className="mt-3 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-800">{employeeDraftError}</p> : null}
         {employeeValidation.issues.length ? (
           <div className="mt-4 overflow-x-auto rounded-2xl border border-rose-200 bg-white">
             <table className="min-w-full text-left text-sm">

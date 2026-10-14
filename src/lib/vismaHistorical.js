@@ -3,6 +3,7 @@ import { cleanCell, normalizeText } from './utils.js';
 import { decryptWorkbook } from './workbookCrypto.js';
 import { getVismaInstitutionKind, resolveVismaInstitution } from './vismaInstitutions.js';
 import { extractVismaHistoricalConceptColumns, isLegacyAutoExcludedVismaConcept } from './vismaHistoricalRules.js';
+import { getVismaSourceValue } from './vismaSourceValues.js';
 
 export const LIQUIDATION_HEADERS = [
   'Fecha de proceso',
@@ -153,7 +154,7 @@ export function validateVismaHistoricalEmployees(sourceRows, employeeCatalog = [
     const hasValidRut = /^\d{6,9}[0-9K]$/i.test(key);
     workers.set(workerKey, {
       id: cleanCell(row.RUT),
-      name: cleanCell(row['APELLIDO Y NOMBRE']),
+      name: getVismaSourceValue(row, 'Apellido y Nombre'),
       sourceFile: cleanCell(row.__sourceFileName),
       sourceRow: row.__sourceRowNumber ?? '',
       contract: employee?.contract ?? '',

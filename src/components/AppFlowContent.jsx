@@ -368,6 +368,8 @@ export default function AppFlowContent({ app }) {
             sourceFile={sourceFile}
             resource={vismaHistoricalResource}
             employeeCatalog={vismaHistoricalEmployeeCatalog}
+            employeeTemplateResource={rexTemplateResource}
+            companyId={vismaTemplateCompanyId}
             mappingScope={mappingScope}
             batchState={historicalBatchState}
             onBatchStateChange={setHistoricalBatchState}
