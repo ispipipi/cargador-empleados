@@ -7,9 +7,11 @@ import {
   buildVismaHistoricalReportRows,
   getVismaHistoricalEmployeeIds,
   summarizeVismaHistoricalDecisions,
+  validateVismaHistoricalInstitutions,
 } from '../lib/vismaHistorical';
 import { normalizeText, todayStamp } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
+import { splitVismaHistoricalRows } from '../lib/vismaHistoricalRows';
 
 const MAPPING_NAMESPACE = 'visma-historical';
 
@@ -23,6 +25,10 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   const [batchSize, setBatchSize] = useState(100);
   const [preparedBatch, setPreparedBatch] = useState(null);
   const [downloadError, setDownloadError] = useState('');
+  const { monthlyRows, finiquitoRows } = useMemo(
+    () => splitVismaHistoricalRows(sourceFile.rows),
+    [sourceFile.rows],
+  );
 
   useEffect(() => {
     let active = true;
@@ -31,7 +37,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
 
     const timerId = window.setTimeout(() => {
       const nextModel = buildVismaHistoricalModel({
-        sourceRows: sourceFile.rows,
+        sourceRows: monthlyRows,
         sourceHeaders: sourceFile.headers,
         resource,
         employeeCatalog,
@@ -57,7 +63,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
       window.clearTimeout(timerId);
       onBusyChange?.(false);
     };
-  }, [employeeCatalog, mappingScope, onBusyChange, resource, sourceFile]);
+  }, [employeeCatalog, mappingScope, monthlyRows, onBusyChange, resource, sourceFile.headers]);
 
   useEffect(() => {
     onBusyChange?.(isBuilding || isDownloading);
@@ -82,18 +88,27 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     batchState?.batchKey === batchKey ? (batchState.completedEmployeeIds ?? []).map(normalizeEmployeeKey) : [],
   ), [batchKey, batchState]);
   const eligibleEmployeeIds = useMemo(() => getVismaHistoricalEmployeeIds({
-    sourceRows: sourceFile.rows,
+    sourceRows: monthlyRows,
     decisions,
     employeeCatalog,
-  }), [decisions, employeeCatalog, sourceFile.rows]);
+  }), [decisions, employeeCatalog, monthlyRows]);
   const remainingEmployeeIds = useMemo(
     () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(normalizeEmployeeKey(employeeId))),
     [completedEmployeeIds, eligibleEmployeeIds],
   );
   const normalizedBatchSize = Math.max(1, Math.min(10000, Number(batchSize) || 1));
   const nextBatchEmployeeIds = remainingEmployeeIds.slice(0, normalizedBatchSize);
+  const institutionValidation = useMemo(() => validateVismaHistoricalInstitutions({
+    sourceRows: monthlyRows,
+    decisions,
+    institutions: resource?.institutions ?? [],
+    employeeCatalog,
+  }), [decisions, employeeCatalog, monthlyRows, resource]);
+  const nextBatchEmployeeKeys = useMemo(() => new Set(nextBatchEmployeeIds.map(normalizeEmployeeKey)), [nextBatchEmployeeIds]);
+  const nextBatchInstitutionIssues = institutionValidation.issues.filter((issue) => nextBatchEmployeeKeys.has(normalizeEmployeeKey(issue.employeeId)));
   const isReadyToDownload = summary.pending + summary.proposals === 0
     && employeeValidation.issues.length === 0
+    && nextBatchInstitutionIssues.length === 0
     && nextBatchEmployeeIds.length > 0;
 
   useEffect(() => {
@@ -162,7 +177,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     window.setTimeout(() => {
       try {
         const csv = buildVismaHistoricalCsv({
-          sourceRows: sourceFile.rows,
+          sourceRows: monthlyRows,
           decisions,
           period: sourceFile.period,
           resource,
@@ -178,6 +193,22 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         setIsDownloading(false);
       }
     }, 40);
+  };
+
+  const downloadFiniquitoRows = () => {
+    if (!finiquitoRows.length) return;
+
+    const sourceHeaders = sourceFile.headers.filter((header) => String(header ?? '').trim());
+    const headers = ['Archivo de origen', 'Fila de origen', 'Tipo de registro', ...sourceHeaders];
+    const rows = finiquitoRows.map((row) => [
+      row.__sourceFileName || sourceFile.fileName,
+      row.__sourceRowNumber ?? '',
+      'Finiquito',
+      ...sourceHeaders.map((header) => formatFiniquitoValue(row[header], header)),
+    ]);
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false });
+    downloadBlob(`\uFEFF${csv}`, `Finiquitos ${periodFileLabel(sourceFile.period)} - revision.csv`, 'text/csv;charset=utf-8');
   };
 
   const handleMarkBatchCompleted = () => {
@@ -206,6 +237,18 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         Fila: employee.sourceRow,
         Motivo: employee.issue,
       }))), 'Trabajadores pendientes');
+    }
+    if (institutionValidation.issues.length) {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(institutionValidation.issues.map((issue) => ({
+        RUT: issue.employeeId,
+        Trabajador: issue.employeeName,
+        Concepto: issue.conceptName,
+        'ID concepto': issue.conceptId,
+        'Institución origen': issue.rawInstitution,
+        Archivo: issue.sourceFile,
+        Fila: issue.sourceRow,
+        Motivo: issue.issue,
+      }))), 'Instituciones pendientes');
     }
     const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     downloadBlob(output, `REX_informe_visma_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -237,11 +280,12 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
               Revisa los haberes y descuentos detectados, confirma sus conceptos REX+ y descarga el CSV del período {sourceFile.period || 'mensual'}.
             </p>
-            <div className="mt-8 grid gap-3 sm:grid-cols-4">
+            <div className="mt-8 grid gap-3 sm:grid-cols-5">
               <Metric label="Conceptos" value={summary.total} />
               <Metric label="Matches" value={summary.exact} tone="green" />
               <Metric label="Pendientes" value={summary.proposals + summary.pending} tone="amber" />
               <Metric label="Trabajadores maestro" value={`${employeeValidation.matched}/${employeeValidation.total}`} tone={employeeValidation.issues.length ? 'amber' : 'green'} />
+              <Metric label="Instituciones lote" value={nextBatchInstitutionIssues.length} tone={nextBatchInstitutionIssues.length ? 'amber' : 'green'} />
             </div>
           </div>
 
@@ -250,10 +294,11 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
               <p className="font-semibold text-slate-900">Reglas aplicadas</p>
               <ul className="mt-3 space-y-2">
                 <li>RUT como identificador y contrato leído desde `contratoActi` del maestro.</li>
-                <li>Fecha de proceso y aplicación: {sourceFile.period || 'AAAA-MM'}.</li>
+                <li>Fecha de proceso: {sourceFile.period || 'AAAA-MM'}; fecha de aplicación: `x` para este histórico regular.</li>
                 <li>Jornada `C`, días trabajados desde Visma y licencias `0`.</li>
-                <li>Conceptos contractuales se excluyen: REX+ los recalcula desde contrato y días trabajados.</li>
-                <li>La columna Afecto se informa como `0`; el CSV conserva las 20 columnas del template.</li>
+                <li>Se cargan todos los conceptos con monto distinto de cero, incluidos los contractuales, previsionales, de salud, impuestos y aportes patronales.</li>
+                <li>Sólo se omiten columnas resumen o bases (totales, líquido, imponible/tributable y costo empresa) para no duplicar importes.</li>
+                <li>La columna Afecto se informa como `0`; se conserva el orden y la cantidad de columnas del template cargado.</li>
               </ul>
             </div>
             <div className={`rounded-3xl border p-5 text-sm ${summary.pending + summary.proposals === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
@@ -263,6 +308,58 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
             </div>
           </div>
         </div>
+      </section>
+
+      {finiquitoRows.length ? (
+        <section className="panel flex flex-wrap items-center justify-between gap-5 border-amber-200 bg-amber-50/70 p-5 sm:p-6">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">Finiquitos separados de la carga mensual</p>
+            <p className="mt-1 text-sm text-amber-800">
+              {finiquitoRows.length.toLocaleString('es-CL')} filas con fecha de baja no se incluirán en los lotes regulares. Este CSV conserva los datos de origen para revisión; aún no es un archivo de importación de finiquitos REX+.
+            </p>
+          </div>
+          <button type="button" onClick={downloadFiniquitoRows} className="rounded-full border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-100">
+            Descargar finiquitos para revisión
+          </button>
+        </section>
+      ) : null}
+
+      <section className={`panel p-5 sm:p-6 ${institutionValidation.issues.length ? 'border-amber-200 bg-amber-50/70' : 'border-emerald-200 bg-emerald-50/50'}`}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className={`text-sm font-semibold ${institutionValidation.issues.length ? 'text-amber-900' : 'text-emerald-800'}`}>
+              {institutionValidation.issues.length
+                ? `${institutionValidation.issues.length.toLocaleString('es-CL')} institución(es) sin asociar a un ID REX+`
+                : `Instituciones verificadas: ${institutionValidation.checked.toLocaleString('es-CL')} registros con código de catálogo`}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              {institutionValidation.issues.length
+                ? 'Los IDs se traducen con el catálogo del template. El lote sólo se bloquea si una diferencia afecta a los trabajadores que se descargarán ahora.'
+                : 'Los IDs exportados se toman exactamente del catálogo de instituciones del template REX+.'}
+            </p>
+          </div>
+          {institutionValidation.issues.length ? (
+            <button type="button" onClick={downloadReport} className="rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">
+              Descargar diferencias
+            </button>
+          ) : null}
+        </div>
+        {institutionValidation.issues.length ? (
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-amber-50 text-xs uppercase tracking-wide text-amber-900"><tr><th className="px-4 py-3">RUT</th><th className="px-4 py-3">Concepto</th><th className="px-4 py-3">Institución en origen</th><th className="px-4 py-3">Problema</th></tr></thead>
+              <tbody className="divide-y divide-amber-100">{institutionValidation.issues.slice(0, 10).map((issue, index) => (
+                <tr key={`${issue.employeeId}-${issue.conceptId}-${issue.sourceFile}-${issue.sourceRow}-${index}`}>
+                  <td className="px-4 py-3 font-mono text-xs">{issue.employeeId}</td>
+                  <td className="px-4 py-3">{issue.conceptName} <span className="font-mono text-xs text-slate-500">({issue.conceptId})</span></td>
+                  <td className="px-4 py-3">{issue.rawInstitution || 'Vacío'}</td>
+                  <td className="px-4 py-3 text-xs">{issue.issue}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+            {institutionValidation.issues.length > 10 ? <p className="px-4 py-3 text-xs text-amber-800">Se muestran 10 de {institutionValidation.issues.length.toLocaleString('es-CL')} diferencias; el informe descargable incluye todas.</p> : null}
+          </div>
+        ) : null}
       </section>
 
       <section className={`panel p-5 sm:p-6 ${employeeValidation.issues.length ? 'border-rose-200 bg-rose-50/70' : 'border-emerald-200 bg-emerald-50/50'}`}>
@@ -379,7 +476,9 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
               ? 'La descarga está bloqueada hasta conciliar todos los trabajadores con el maestro.'
               : summary.pending + summary.proposals > 0
                 ? 'La descarga está bloqueada hasta resolver todos los conceptos.'
-                : 'No hay trabajadores elegibles con montos en los conceptos aprobados.'}
+                : nextBatchInstitutionIssues.length
+                  ? `La descarga del lote está bloqueada: ${nextBatchInstitutionIssues.length} registro(s) no tienen una institución válida del catálogo.`
+                  : 'No hay trabajadores elegibles con montos en los conceptos aprobados.'}
           </p>
         ) : preparedBatch ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
@@ -477,4 +576,19 @@ function periodFileLabel(period) {
   const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const monthLabel = months[Number(month) - 1] ?? 'mes';
   return `${monthLabel} ${year.slice(-2)}`;
+}
+
+function formatFiniquitoValue(value, header) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === 'number' && /fecha/i.test(header)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+    }
+  }
+
+  return value ?? '';
 }

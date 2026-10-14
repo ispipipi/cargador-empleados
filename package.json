@@ -8,6 +8,7 @@
     "proxy:geovictoria": "node proxy/geovictoria-proxy.mjs",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --max-warnings 0",
+    "test": "node --test tests/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

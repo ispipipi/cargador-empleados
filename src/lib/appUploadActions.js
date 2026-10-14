@@ -8,6 +8,7 @@ import { parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './conc
 import { getMeta4MissingColumns } from '../connectors/origins/meta4';
 import { parseVismaHistoricalTemplate } from './vismaHistorical';
 import { parseVismaHistoricalEmployeeMaster } from './vismaHistoricalEmployeeMaster';
+import { splitVismaHistoricalRows } from './vismaHistoricalRows';
 import { saveCloudConceptCatalog, saveCloudVismaConceptCatalog } from './cloudMemory';
 import {
   createSessionId,
@@ -421,10 +422,11 @@ export function createAppUploadActions(context) {
         ...row,
         __sourceFileName: file.name,
       })));
-      const employeeIds = rows.map((row) => normalizeHistoricalRut(row.RUT)).filter(Boolean);
+      const { monthlyRows, finiquitoRows } = splitVismaHistoricalRows(rows);
+      const employeeIds = monthlyRows.map((row) => normalizeHistoricalRut(row.RUT)).filter(Boolean);
       const duplicates = employeeIds.length - new Set(employeeIds).size;
       if (duplicates > 0) {
-        throw new Error(`Hay ${duplicates.toLocaleString('es-CL')} RUT repetidos entre los libros. Corrige la selección para evitar duplicar montos.`);
+        throw new Error(`Hay ${duplicates.toLocaleString('es-CL')} RUT repetidos entre las filas mensuales. Corrige la selección para evitar duplicar montos.`);
       }
 
       const fileNames = books.map(({ file }) => file.name);
@@ -445,7 +447,7 @@ export function createAppUploadActions(context) {
         isValid: true,
         missingColumns: [],
         formatIssues: [],
-        message: `${books.length} libro(s) listos para ${period}. Se detectaron ${new Set(employeeIds).size.toLocaleString('es-CL')} trabajadores sin RUT duplicado.`,
+        message: `${books.length} libro(s) listos para ${period}. ${new Set(employeeIds).size.toLocaleString('es-CL')} trabajadores mensuales; ${finiquitoRows.length.toLocaleString('es-CL')} filas con fecha de baja se descargarán aparte como finiquitos.`,
       });
     } catch (error) {
       setSourceFile(null);

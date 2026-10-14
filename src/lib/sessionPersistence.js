@@ -1,4 +1,4 @@
-import { normalizeText } from './utils';
+import { normalizeText } from './utils.js';
 
 const DATABASE_NAME = 'maper-local-memory';
 const DATABASE_VERSION = 1;
@@ -301,6 +301,10 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
   }
 
   if (stored.excluded) {
+    if (decision.ignoreLegacyStoredExclusion) {
+      return decision;
+    }
+
     return {
       ...decision,
       action: 'exclude',

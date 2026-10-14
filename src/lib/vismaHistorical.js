@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
-import { cleanCell, normalizeText } from './utils';
-import { decryptWorkbook } from './workbookCrypto';
+import { cleanCell, normalizeText } from './utils.js';
+import { decryptWorkbook } from './workbookCrypto.js';
+import { getVismaInstitutionKind, resolveVismaInstitution } from './vismaInstitutions.js';
+import { extractVismaHistoricalConceptColumns, isLegacyAutoExcludedVismaConcept } from './vismaHistoricalRules.js';
 
 export const LIQUIDATION_HEADERS = [
   'Fecha de proceso',
@@ -26,7 +28,7 @@ export const LIQUIDATION_HEADERS = [
 ];
 const LEGACY_LIQUIDATION_HEADERS = LIQUIDATION_HEADERS.slice(0, 18);
 
-const VISMA_TEMPLATE_PATH = `${import.meta.env.BASE_URL}templates/rex-liquidaciones-detalle-template.xlsx`;
+const VISMA_TEMPLATE_PATH = `${import.meta.env?.BASE_URL ?? '/'}templates/rex-liquidaciones-detalle-template.xlsx`;
 export const VISMA_CATALOG_SCOPES = [
   { id: 'ola-1', label: 'Ola 1' },
   { id: 'enaco', label: 'Enaco' },
@@ -34,93 +36,6 @@ export const VISMA_CATALOG_SCOPES = [
   { id: 'patria', label: 'Patria' },
   { id: 'fruticola', label: 'Frutícola' },
 ];
-const FIXED_SOURCE_HEADERS = new Set([
-  'PERÍODO',
-  'EMPLEADO',
-  'APELLIDO Y NOMBRE',
-  'RUT',
-  'FECHA DE ALTA',
-  'FECHA DE BAJA',
-  'AFP',
-  'ISAPRE',
-  'ID CENTRO DE COSTO',
-  'NOMBRE C. COSTO',
-  'CARGO',
-  'CATEGORÍA',
-  'TIPO DE EMPLEADO',
-  'DEPARTAMENTO',
-  'SAP',
-  'DÍAS TRABAJADOS',
-  'SUELDO',
-  'PLAN UF',
-]);
-
-const EXCLUDED_SOURCE_PATTERNS = [
-  /^TOTAL HABERES$/,
-  /^TOTAL DESCUENTOS$/,
-  /^LIQUIDO(?: FINIQUITO)?$/,
-  /^TRIBUTABLE$/,
-  /^IMPONIBLE/,
-  /^\*/,
-  /^A\.F\.P\.?$/,
-  /^PENSION(?: |$)/,
-  /^SALUD(?: |$)/,
-  /^ADICIONAL SALUD$/,
-  /^SEGURO DE CESANTIA$/,
-  /^PLAN AUGE$/,
-  /^SALUD EMPART/,
-  /^SALUD INP$/,
-  /^AFP RELIQ/,
-  /^ISAPRE RELIQ/,
-  /^CESANTIA RELIQ/,
-  /^TRABAJO PESADO/,
-  /^LEY SANNA/,
-  /^SIS(?: |$)/,
-  /^FDO\.?\s*SOLIDARIO/,
-  /^PROV\.?IDEM/,
-  /^PROV\.? /,
-  /^APORTE (?:PATRONAL|EMPLEADOR)/,
-  /^COSTO EMPRESA/,
-  /^MUTUAL/,
-  /^IMPUESTO/,
-];
-
-const CONTRACTUAL_SOURCE_PATTERNS = [
-  /^SUELDO(?: BASE| GANADO)?$/,
-  /^GRATIFICACION/,
-  /^ASIG\.?\s*COLACION CONTRACTUAL$/,
-  /^ASIG\.?\s*MOVILIZACION CONTRACTUAL$/,
-  /^ASIGNACION COLACION$/,
-  /^ISAPRE$/,
-];
-
-const CONTRACTUAL_TARGET_IDS = new Set([
-  'sueldobase',
-  'gratificacion',
-  'asigcolacioncontract',
-  'asigmovcontractual',
-  'asignacioncolacion',
-  'isapre',
-]);
-
-const LOS_ANDES_CONCEPT_IDS = new Set(['cajaahor', 'cajacred', 'cajasegu']);
-
-const AFP_INSTITUTION_IDS = [
-  ['capital', 'AFP Capital', '33'],
-  ['cuprum', 'AFP Cuprum', '03'],
-  ['habitat', 'AFP Habitat', '05'],
-  ['modelo', 'AFP Modelo', '34'],
-  ['planvital', 'AFP Planvital', '29'],
-  ['provida', 'AFP Provida', '08'],
-  ['uno', 'AFP UNO', '35'],
-  ['canaempu', 'Canaemput', '1405'],
-  ['capremer', 'Capremer', '0601'],
-  ['empart', 'Empart', '0101'],
-  ['sss', 'Servicio Seguro Social', '0901'],
-  ['afp', 'Sin definir', '00'],
-  ['triomar', 'Triomar', '0702'],
-];
-
 const VISMA_ALIASES = new Map([
   ['SUELDO GANADO', 'sueldoBase'],
   ['HORAS EXTRAS NORMALES AL 50', 'horasEx50'],
@@ -213,7 +128,7 @@ export async function parseVismaHistoricalTemplate(arrayBuffer, password = '') {
 
 export function buildVismaHistoricalModel({ sourceRows, sourceHeaders, resource, employeeCatalog = [] }) {
   const catalog = resource?.conceptCatalog ?? [];
-  const conceptColumns = extractConceptColumns(sourceRows, sourceHeaders);
+  const conceptColumns = extractVismaHistoricalConceptColumns(sourceRows, sourceHeaders);
   const decisions = conceptColumns.map((column, index) => buildDecision(column, index, catalog));
   const employeeValidation = validateVismaHistoricalEmployees(sourceRows, employeeCatalog);
 
@@ -271,6 +186,58 @@ export function getVismaHistoricalEmployeeIds({ sourceRows, decisions, employeeC
   return [...ids];
 }
 
+export function validateVismaHistoricalInstitutions({ sourceRows, decisions, institutions = [], employeeCatalog = [], employeeIds = null }) {
+  const employees = new Map(employeeCatalog.map((employee) => [normalizeEmployeeKey(employee.id), employee]));
+  const selectedEmployeeKeys = employeeIds ? new Set(employeeIds.map(normalizeEmployeeKey)) : null;
+  const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
+  const issues = [];
+  const institutionsByEmployeeConcept = new Map();
+  let checked = 0;
+
+  approvedDecisions.forEach((decision) => {
+    if (!getVismaInstitutionKind(decision.targetId)) return;
+
+    sourceRows.forEach((sourceRow) => {
+      const amount = parseVismaAmount(sourceRow[decision.sourceKey]);
+      if (amount === null || amount === 0) return;
+
+      const employeeKey = normalizeEmployeeKey(sourceRow.RUT);
+      if (selectedEmployeeKeys && !selectedEmployeeKeys.has(employeeKey)) return;
+      checked += 1;
+
+      const resolution = resolveVismaInstitution(decision.targetId, sourceRow, institutions);
+      const employee = employees.get(employeeKey);
+      const issueBase = {
+        employeeId: cleanCell(sourceRow.RUT),
+        employeeName: cleanCell(sourceRow['APELLIDO Y NOMBRE']) || cleanCell(employee?.name),
+        conceptId: decision.targetId,
+        conceptName: decision.targetName || decision.sourceName,
+        sourceFile: cleanCell(sourceRow.__sourceFileName),
+        sourceRow: sourceRow.__sourceRowNumber ?? '',
+        rawInstitution: resolution.rawValue,
+      };
+
+      if (!resolution.id) {
+        issues.push({ ...issueBase, issue: resolution.issue });
+        return;
+      }
+
+      const rowKey = `${employeeKey}::${decision.targetId}`;
+      const previousInstitutionId = institutionsByEmployeeConcept.get(rowKey);
+      if (previousInstitutionId && previousInstitutionId !== resolution.id) {
+        issues.push({
+          ...issueBase,
+          issue: `El mismo trabajador y concepto tienen instituciones distintas (${previousInstitutionId} y ${resolution.id}) en los libros cargados.`,
+        });
+        return;
+      }
+      institutionsByEmployeeConcept.set(rowKey, resolution.id);
+    });
+  });
+
+  return { checked, valid: issues.length === 0, issues };
+}
+
 export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource, employeeCatalog = [], employeeIds = null }) {
   const rowsByKey = new Map();
   const companies = resource?.companies ?? [];
@@ -296,15 +263,23 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
       }
 
       const amount = parseVismaAmount(sourceRow[decision.sourceKey]);
-      const institutionId = resolveInstitutionId(decision.targetId, sourceRow);
       if (amount === null || amount === 0) {
         return;
+      }
+
+      const institution = resolveVismaInstitution(decision.targetId, sourceRow, resource?.institutions ?? []);
+      if (institution.issue) {
+        const sourceRowLabel = sourceRow.__sourceRowNumber ? `, fila ${sourceRow.__sourceRowNumber}` : '';
+        throw new Error(`No se puede generar la carga: ${institution.issue} RUT ${cleanCell(sourceRow.RUT)}${sourceRowLabel}.`);
       }
 
       const employeeId = normalizeEmployeeId(employee.id);
       const rowKey = `${employeeKey}::${decision.targetId}`;
       const current = rowsByKey.get(rowKey);
       if (current) {
+        if (current[6] !== institution.id) {
+          throw new Error(`No se puede consolidar ${decision.targetId} para el RUT ${cleanCell(sourceRow.RUT)}: los libros contienen instituciones distintas (${current[6] || 'vacío'} y ${institution.id || 'vacío'}).`);
+        }
         current[4] = Number(current[4]) + amount;
         return;
       }
@@ -316,11 +291,11 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         decision.targetId,
         amount,
         0,
-        institutionId,
+        institution.id,
         '',
         0,
         parseDays(sourceRow['Días Trabajados']),
-        period || extractPeriodFromRow(sourceRow) || '',
+        'x',
         companyId,
         0,
         0,
@@ -374,7 +349,7 @@ function buildDecision(column, index, catalog) {
   const exact = column.isDuplicateHeader ? null : findExactConcept(sourceName, catalog);
   const suggestedMatches = findSuggestedMatches(sourceName, catalog);
   const target = exact ?? null;
-  const isContractual = isContractualSourceHeader(sourceName) || isContractualTargetId(target?.id);
+  const restoreLegacyExclusion = isLegacyAutoExcludedVismaConcept(sourceName, target?.id);
 
   return {
     id: `${index + 1}-${column.sourceKey}`,
@@ -389,42 +364,15 @@ function buildDecision(column, index, catalog) {
     targetName: target?.name ?? '',
     targetConcept: target,
     proposedId: buildProposedId(sourceName, index),
-    suggestedMatches: isContractual ? [] : suggestedMatches,
-    matchStatus: isContractual ? 'excluded' : target ? 'exact' : suggestedMatches.length ? 'proposal' : 'pending',
-    action: isContractual ? 'exclude' : target ? 'reuse' : 'pending',
-    approved: Boolean(target) || isContractual,
-    excluded: isContractual,
-    autoExcluded: isContractual,
-    exclusionReason: isContractual ? 'Concepto contractual calculado por REX+ desde contrato/días trabajados' : '',
+    suggestedMatches,
+    matchStatus: target ? 'exact' : suggestedMatches.length ? 'proposal' : 'pending',
+    action: target ? 'reuse' : 'pending',
+    approved: Boolean(target),
+    excluded: false,
+    autoExcluded: false,
+    ignoreLegacyStoredExclusion: restoreLegacyExclusion,
+    exclusionReason: '',
   };
-}
-
-function extractConceptColumns(sourceRows, sourceHeaders) {
-  const headerCounts = new Map();
-  sourceHeaders.forEach((sourceKey) => {
-    const base = stripDuplicateHeaderSuffix(sourceKey);
-    headerCounts.set(base, (headerCounts.get(base) ?? 0) + 1);
-  });
-
-  return sourceHeaders
-    .map((sourceKey, index) => ({
-      sourceKey,
-      index,
-      sourceColumn: columnLabel(index),
-      isDuplicateHeader: (headerCounts.get(stripDuplicateHeaderSuffix(sourceKey)) ?? 0) > 1,
-    }))
-    .filter(({ sourceKey, index }) => index >= 18 && sourceKey && !FIXED_SOURCE_HEADERS.has(stripDuplicateHeaderSuffix(sourceKey)))
-    .map((column) => {
-      const values = sourceRows.map((row) => parseVismaAmount(row[column.sourceKey])).filter((value) => value !== null && value !== 0);
-      return {
-        ...column,
-        sourceName: stripDuplicateHeaderSuffix(column.sourceKey),
-        nonZeroCount: values.length,
-        sampleValue: values[0] ?? '',
-      };
-    })
-    .filter((column) => column.nonZeroCount > 0)
-    .filter((column) => !isExcludedSourceHeader(column.sourceName));
 }
 
 function findExactConcept(sourceName, catalog) {
@@ -474,80 +422,6 @@ function buildProposedId(value, index) {
   return (id || `concepto${index + 1}`).slice(0, 20);
 }
 
-function isExcludedSourceHeader(value) {
-  const normalizedValue = cleanCell(value)
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  return EXCLUDED_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedValue));
-}
-
-function isContractualSourceHeader(value) {
-  const normalizedValue = cleanCell(value)
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  return CONTRACTUAL_SOURCE_PATTERNS.some((pattern) => pattern.test(normalizedValue));
-}
-
-function isContractualTargetId(value) {
-  return CONTRACTUAL_TARGET_IDS.has(normalizeText(value).replace(/[^a-z0-9]+/g, ''));
-}
-
-function resolveInstitutionId(conceptId, sourceRow) {
-  const normalizedConceptId = normalizeText(conceptId).replace(/[^a-z0-9]+/g, '');
-
-  if (LOS_ANDES_CONCEPT_IDS.has(normalizedConceptId)) {
-    return 'losandes';
-  }
-
-  if (normalizedConceptId === 'apvi') {
-    return resolveAfpInstitutionId(firstSourceValue(sourceRow, ['CÓDIGO AFP', 'CODIGO AFP', 'ID AFP', 'AFP']));
-  }
-
-  if (normalizedConceptId === 'isapre') {
-    return firstSourceValue(sourceRow, ['CÓDIGO ISAPRE', 'CODIGO ISAPRE', 'ID ISAPRE', 'ISAPRE']);
-  }
-
-  return '';
-}
-
-function resolveAfpInstitutionId(value) {
-  const rawValue = cleanCell(value);
-  const normalizedValue = normalizeText(rawValue).replace(/^afp\s+/, '');
-  const normalizedCode = rawValue.replace(/\D/g, '').replace(/^0+/, '') || '0';
-
-  const match = AFP_INSTITUTION_IDS.find(([id, name, code]) => (
-    normalizeText(id) === normalizedValue ||
-    normalizeText(name).replace(/^afp\s+/, '') === normalizedValue ||
-    code.replace(/^0+/, '') === normalizedCode
-  ));
-
-  return match?.[0] ?? rawValue;
-}
-
-function firstSourceValue(sourceRow, keys) {
-  const normalizedEntries = Object.entries(sourceRow ?? {}).map(([key, value]) => [normalizeText(key), value]);
-
-  for (const key of keys) {
-    const value = cleanCell(sourceRow?.[key]);
-    if (value) {
-      return value;
-    }
-
-    const normalizedKey = normalizeText(key);
-    const entry = normalizedEntries.find(([sourceKey]) => sourceKey === normalizedKey);
-    const normalizedValue = cleanCell(entry?.[1]);
-    if (normalizedValue) {
-      return normalizedValue;
-    }
-  }
-
-  return '';
-}
-
 function stripDuplicateHeaderSuffix(value) {
   return cleanCell(value).replace(/\s+\[\d+\]$/, '');
 }
@@ -584,17 +458,6 @@ function normalizeEmployeeKey(value) {
 
 function matchesHeaders(headers, expectedHeaders) {
   return expectedHeaders.every((header, index) => normalizeText(headers[index]) === normalizeText(header));
-}
-
-function columnLabel(index) {
-  let value = index + 1;
-  let label = '';
-  while (value > 0) {
-    value -= 1;
-    label = String.fromCharCode(65 + value % 26) + label;
-    value = Math.floor(value / 26);
-  }
-  return label;
 }
 
 function extractPeriodFromRow(row) {
