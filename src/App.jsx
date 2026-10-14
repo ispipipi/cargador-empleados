@@ -315,21 +315,38 @@ export default function App() {
         sourceFile,
         step,
       });
+      const sessionData = {
+        selectedModule,
+        selectedOrigin,
+        selectedDestination,
+        mappingCompany,
+        parameters,
+        sourceFile,
+        validation,
+        result,
+        rexCompanyMasterResource,
+        historicalBatchState,
+        step,
+      };
+      const vismaHistoricalSetup = isVismaHistoricalFlow ? {
+        catalogScope: vismaCatalogScope,
+        catalog: vismaHistoricalCatalog,
+        catalogFileName: vismaHistoricalCatalogFileName,
+        catalogValidation: vismaHistoricalCatalogValidation,
+        templateResource: vismaHistoricalTemplateResource,
+        templateFileName: vismaHistoricalTemplateFileName,
+        templateValidation: vismaHistoricalTemplateValidation,
+        employeeCatalog: vismaHistoricalEmployeeCatalog,
+        employeeMasterFileName: vismaEmployeeMasterFileName,
+        employeeMasterValidation: vismaEmployeeMasterValidation,
+        companyId: vismaTemplateCompanyId,
+      } : null;
 
       saveSession({
         metadata,
         data: {
-          selectedModule,
-          selectedOrigin,
-          selectedDestination,
-          mappingCompany,
-          parameters,
-          sourceFile,
-          validation,
-          result,
-          rexCompanyMasterResource,
-          historicalBatchState,
-          step,
+          ...sessionData,
+          ...(vismaHistoricalSetup ? { vismaHistoricalSetup } : {}),
         },
       })
         .then(() => {
@@ -340,19 +357,7 @@ export default function App() {
 
           return saveCloudSession(authUser, {
             metadata,
-            data: {
-              selectedModule,
-              selectedOrigin,
-              selectedDestination,
-              mappingCompany,
-              parameters,
-              sourceFile,
-              validation,
-              result,
-              rexCompanyMasterResource,
-              historicalBatchState,
-              step,
-            },
+            data: sessionData,
           });
         })
         .then(() => {
@@ -383,6 +388,18 @@ export default function App() {
     rexCompanyMasterResource,
     historicalBatchState,
     authUser,
+    isVismaHistoricalFlow,
+    vismaCatalogScope,
+    vismaHistoricalCatalog,
+    vismaHistoricalCatalogFileName,
+    vismaHistoricalCatalogValidation,
+    vismaHistoricalTemplateResource,
+    vismaHistoricalTemplateFileName,
+    vismaHistoricalTemplateValidation,
+    vismaHistoricalEmployeeCatalog,
+    vismaEmployeeMasterFileName,
+    vismaEmployeeMasterValidation,
+    vismaTemplateCompanyId,
   ]);
 
   const activeConfigurationId = activeConfiguration?.id ?? null;
@@ -590,6 +607,17 @@ export default function App() {
     setSourceFile,
     setStep,
     setValidation,
+    setVismaCatalogScope,
+    setVismaHistoricalCatalog,
+    setVismaHistoricalCatalogFileName,
+    setVismaHistoricalCatalogValidation,
+    setVismaHistoricalTemplateResource,
+    setVismaHistoricalTemplateFileName,
+    setVismaHistoricalTemplateValidation,
+    setVismaHistoricalEmployeeCatalog,
+    setVismaEmployeeMasterFileName,
+    setVismaEmployeeMasterValidation,
+    setVismaTemplateCompanyId,
   });
 
   useEffect(() => {

@@ -43,6 +43,17 @@ export function createAppConfigurationActions(context) {
     setSourceFile,
     setStep,
     setValidation,
+    setVismaCatalogScope,
+    setVismaHistoricalCatalog,
+    setVismaHistoricalCatalogFileName,
+    setVismaHistoricalCatalogValidation,
+    setVismaHistoricalTemplateResource,
+    setVismaHistoricalTemplateFileName,
+    setVismaHistoricalTemplateValidation,
+    setVismaHistoricalEmployeeCatalog,
+    setVismaEmployeeMasterFileName,
+    setVismaEmployeeMasterValidation,
+    setVismaTemplateCompanyId,
   } = context;
 
   const handleSaveConfiguration = (name) => {
@@ -134,6 +145,26 @@ export function createAppConfigurationActions(context) {
       const restoredDestination = normalizeDestination(data.selectedDestination ?? metadata.selectedDestination);
       const restoredModule = data.selectedModule ?? metadata.selectedModule ?? 'empleados';
       const restoredCompanyMaster = data.rexCompanyMasterResource ?? null;
+      const vismaSetup = data.vismaHistoricalSetup;
+      const canRestoreVismaReview = Boolean(
+        vismaSetup?.catalog?.length
+        && vismaSetup?.templateResource
+        && vismaSetup?.employeeCatalog?.length,
+      );
+
+      if (restoredModule === 'libros-historicos') {
+        setVismaCatalogScope(vismaSetup?.catalogScope ?? 'fruticola');
+        if (vismaSetup?.catalog) setVismaHistoricalCatalog(vismaSetup.catalog);
+        setVismaHistoricalCatalogFileName(vismaSetup?.catalogFileName ?? '');
+        setVismaHistoricalCatalogValidation(vismaSetup?.catalogValidation ?? null);
+        setVismaHistoricalTemplateResource(vismaSetup?.templateResource ?? null);
+        setVismaHistoricalTemplateFileName(vismaSetup?.templateFileName ?? '');
+        setVismaHistoricalTemplateValidation(vismaSetup?.templateValidation ?? null);
+        setVismaHistoricalEmployeeCatalog(vismaSetup?.employeeCatalog ?? null);
+        setVismaEmployeeMasterFileName(vismaSetup?.employeeMasterFileName ?? '');
+        setVismaEmployeeMasterValidation(vismaSetup?.employeeMasterValidation ?? null);
+        setVismaTemplateCompanyId(vismaSetup?.companyId ?? '');
+      }
 
       setSessionId(metadata.id);
       setSelectedModule(restoredModule);
@@ -152,6 +183,8 @@ export function createAppConfigurationActions(context) {
       setStep(
         restoredModule === 'visma-empleados' && !restoredCompanyMaster
           ? STEPS.vismaEmployeesReview
+          : restoredModule === 'libros-historicos' && !canRestoreVismaReview
+            ? STEPS.upload
           : data.step ?? metadata.step ?? STEPS.upload,
       );
       setGlobalError('');
