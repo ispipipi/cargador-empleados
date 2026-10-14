@@ -1,8 +1,8 @@
-import * as XLSX from 'xlsx';
-import { cleanCell, extractValidEmail } from '../../../lib/utils';
-import { SEDE_NAME_ALIASES } from './catalogs';
-import { buildPendingItem, isIntentionalBlankCorrection } from './pending';
-import { normalizeLooseText, normalizeSedeName } from './normalizers';
+import * as XLSX from 'xlsx/xlsx.mjs';
+import { cleanCell, extractValidEmail } from '../../../lib/utils.js';
+import { SEDE_NAME_ALIASES } from './catalogs.js';
+import { buildPendingItem, isIntentionalBlankCorrection } from './pending.js';
+import { normalizeLooseText, normalizeSedeName } from './normalizers.js';
 
 export function resolveVacationStartDate(sourceRow) {
   const seniorityDate = toDateOnly(sourceRow['FECHA ANTIGUEDAD']);

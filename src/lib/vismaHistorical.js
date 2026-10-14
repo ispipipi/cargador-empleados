@@ -1,7 +1,7 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx/xlsx.mjs';
 import { cleanCell, normalizeText } from './utils.js';
 import { decryptWorkbook } from './workbookCrypto.js';
-import { getVismaInstitutionKind, resolveVismaInstitution } from './vismaInstitutions.js';
+import { getVismaInstitutionKind, getVismaInstitutionMappingKey, resolveVismaInstitution } from './vismaInstitutions.js';
 import { extractVismaHistoricalConceptColumns, isLegacyAutoExcludedVismaConcept } from './vismaHistoricalRules.js';
 import { getVismaSourceValue } from './vismaSourceValues.js';
 
@@ -187,7 +187,7 @@ export function getVismaHistoricalEmployeeIds({ sourceRows, decisions, employeeC
   return [...ids];
 }
 
-export function validateVismaHistoricalInstitutions({ sourceRows, decisions, institutions = [], employeeCatalog = [], employeeIds = null }) {
+export function validateVismaHistoricalInstitutions({ sourceRows, decisions, institutions = [], employeeCatalog = [], employeeIds = null, manualInstitutionMappings = {} }) {
   const employees = new Map(employeeCatalog.map((employee) => [normalizeEmployeeKey(employee.id), employee]));
   const selectedEmployeeKeys = employeeIds ? new Set(employeeIds.map(normalizeEmployeeKey)) : null;
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
@@ -206,7 +206,7 @@ export function validateVismaHistoricalInstitutions({ sourceRows, decisions, ins
       if (selectedEmployeeKeys && !selectedEmployeeKeys.has(employeeKey)) return;
       checked += 1;
 
-      const resolution = resolveVismaInstitution(decision.targetId, sourceRow, institutions);
+      const resolution = resolveVismaInstitution(decision.targetId, sourceRow, institutions, manualInstitutionMappings);
       const employee = employees.get(employeeKey);
       const issueBase = {
         employeeId: cleanCell(sourceRow.RUT),
@@ -216,6 +216,9 @@ export function validateVismaHistoricalInstitutions({ sourceRows, decisions, ins
         sourceFile: cleanCell(sourceRow.__sourceFileName),
         sourceRow: sourceRow.__sourceRowNumber ?? '',
         rawInstitution: resolution.rawValue,
+        institutionKind: getVismaInstitutionKind(decision.targetId),
+        institutionMappingKey: getVismaInstitutionMappingKey(getVismaInstitutionKind(decision.targetId), resolution.rawValue),
+        institutionMappingRequired: !resolution.id && Boolean(resolution.rawValue),
       };
 
       if (!resolution.id) {
@@ -239,7 +242,7 @@ export function validateVismaHistoricalInstitutions({ sourceRows, decisions, ins
   return { checked, valid: issues.length === 0, issues };
 }
 
-export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource, employeeCatalog = [], employeeIds = null }) {
+export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resource, employeeCatalog = [], employeeIds = null, manualInstitutionMappings = {} }) {
   const rowsByKey = new Map();
   const companies = resource?.companies ?? [];
   const [company] = companies;
@@ -268,7 +271,7 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         return;
       }
 
-      const institution = resolveVismaInstitution(decision.targetId, sourceRow, resource?.institutions ?? []);
+      const institution = resolveVismaInstitution(decision.targetId, sourceRow, resource?.institutions ?? [], manualInstitutionMappings);
       if (institution.issue) {
         const sourceRowLabel = sourceRow.__sourceRowNumber ? `, fila ${sourceRow.__sourceRowNumber}` : '';
         throw new Error(`No se puede generar la carga: ${institution.issue} RUT ${cleanCell(sourceRow.RUT)}${sourceRowLabel}.`);

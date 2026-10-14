@@ -1,4 +1,4 @@
-import { cleanCell } from '../../../lib/utils';
+import { cleanCell } from '../../../lib/utils.js';
 
 export function buildPendingItem({
   key,

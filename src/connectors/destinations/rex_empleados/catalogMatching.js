@@ -2,13 +2,13 @@ import {
   CATEGORY_INE_RULES,
   COMPANY_OCCUPATION_PROFILES,
   OCCUPATIONAL_LEVEL_RULES,
-} from './catalogs';
+} from './catalogs.js';
 import {
   normalizeCargoName,
   normalizeLooseText,
   tokenizeCargoName,
   tokenizeNormalized,
-} from './normalizers';
+} from './normalizers.js';
 
 export function inferFromKeywordRules({ normalizedSource, normalizedArea, rules }) {
   const combinedSource = `${normalizedSource} ${normalizedArea}`.trim();

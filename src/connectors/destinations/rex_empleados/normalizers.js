@@ -1,5 +1,5 @@
-import { cleanCell, normalizeText } from '../../../lib/utils';
-import { CARGO_TOKEN_STOPWORDS } from './catalogs';
+import { cleanCell, normalizeText } from '../../../lib/utils.js';
+import { CARGO_TOKEN_STOPWORDS } from './catalogs.js';
 
 export function normalizeLooseText(value) {
   return normalizeText(repairCommonMojibake(value))

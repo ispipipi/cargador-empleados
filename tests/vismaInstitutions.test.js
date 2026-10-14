@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveVismaInstitution } from '../src/lib/vismaInstitutions.js';
+import { getVismaInstitutionMappingKey, resolveVismaInstitution } from '../src/lib/vismaInstitutions.js';
 
 const institutions = [
   { id: 'capital', name: 'AFP Capital' },
@@ -34,6 +34,17 @@ test('unknown or underspecified institutions are rejected instead of exported as
   assert.ok(resolveVismaInstitution('isapre', { ISAPRE: 'Isapre regional desconocida' }, institutions).issue);
   assert.ok(resolveVismaInstitution('isapre', { ISAPRE: 'ISAPRE' }, institutions).issue);
   assert.ok(resolveVismaInstitution('apvi', { AFP: 'AFP' }, institutions).issue);
+});
+
+test('manual institution ID mappings override automatic matching and are checked against the catalog', () => {
+  const key = getVismaInstitutionMappingKey('health', 'Nueva Más Vida');
+  assert.equal(key, 'health:nuevamasvida');
+  assert.equal(resolveVismaInstitution('isapre', { ISAPRE: 'Nueva Más Vida' }, institutions, {
+    [key]: { id: 'banmedica' },
+  }).id, 'banmedica');
+  assert.match(resolveVismaInstitution('isapre', { ISAPRE: 'Nueva Más Vida' }, institutions, {
+    [key]: { id: 'missing-id' },
+  }).issue, /ya no existe en el catálogo/);
 });
 
 test('non-institution concepts remain blank', () => {

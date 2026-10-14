@@ -136,6 +136,12 @@ export default function AppFlowContent({ app }) {
       conceptCatalog: vismaHistoricalCatalog,
     };
   }, [vismaHistoricalCatalog, vismaHistoricalTemplateResource, vismaTemplateCompanyId]);
+  const selectedVismaCompany = vismaHistoricalTemplateResource?.companies.find(
+    (company) => String(company.id) === String(vismaTemplateCompanyId),
+  );
+  const vismaEmployeeTemplateResource = /frut[ií]cola/i.test(selectedVismaCompany?.name ?? '')
+    ? rexTemplateResource?.vismaFruticolaEmployeeTemplate
+    : rexTemplateResource;
 
   return (
     <VismaWorkspaceProvider>
@@ -373,7 +379,7 @@ export default function AppFlowContent({ app }) {
             sourceFile={sourceFile}
             resource={vismaHistoricalResource}
             employeeCatalog={vismaHistoricalEmployeeCatalog}
-            employeeTemplateResource={rexTemplateResource}
+            employeeTemplateResource={vismaEmployeeTemplateResource}
             sourceEmployeeMaster={vismaSourceEmployeeMaster}
             sourceEmployeeMasterFileName={vismaSourceEmployeeMasterFileName}
             sourceEmployeeMasterValidation={vismaSourceEmployeeMasterValidation}

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyStoredHistoricalMapping } from '../src/lib/sessionPersistence.js';
+import { applyStoredHistoricalMapping, loadVismaInstitutionMappings, saveVismaInstitutionMappings } from '../src/lib/sessionPersistence.js';
 import { extractVismaHistoricalConceptColumns, isLegacyAutoExcludedVismaConcept } from '../src/lib/vismaHistoricalRules.js';
+import { buildVismaHistoricalCsv, LIQUIDATION_HEADERS, validateVismaHistoricalInstitutions } from '../src/lib/vismaHistorical.js';
 
 const conceptHeaders = [
   'SUELDO BASE',
@@ -87,5 +88,48 @@ test('does not bring forward the old automatic exclusions, but preserves explici
     } else {
       globalThis.window = originalWindow;
     }
+  }
+});
+
+test('manual institution matches unblock validation and export the selected catalog ID', () => {
+  const row = { RUT: '12345678-5', 'Días Trabajados': 30, ISAPRE: 'Nueva Más Vida', SALUD: 42000 };
+  const decision = { sourceKey: 'SALUD', sourceName: 'SALUD', targetId: 'isapre', targetName: 'Isapre', approved: true, excluded: false };
+  const employeeCatalog = [{ id: '12345678-5', contract: '1' }];
+  const resource = {
+    companies: [{ id: '1', name: 'Frutícola' }],
+    institutions: [{ id: 'nuevamasvida', name: 'Isapre Nueva Más Vida' }],
+    headers: LIQUIDATION_HEADERS,
+  };
+  const manualInstitutionMappings = {
+    'health:nuevamasvida': { id: 'nuevamasvida', kind: 'health', rawValue: 'Nueva Más Vida' },
+  };
+  const validation = validateVismaHistoricalInstitutions({
+    sourceRows: [row], decisions: [decision], institutions: resource.institutions, employeeCatalog,
+    manualInstitutionMappings,
+  });
+
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.issues, []);
+  const csv = buildVismaHistoricalCsv({
+    sourceRows: [row], decisions: [decision], period: '2025-12', resource, employeeCatalog,
+    manualInstitutionMappings,
+  });
+  assert.match(csv, /2025-12;12345678-5;1;isapre;42000;0;nuevamasvida/);
+});
+
+test('manual institution matches persist separately for each origin, destination, and company scope', () => {
+  const originalWindow = globalThis.window;
+  const values = new Map();
+  globalThis.window = { localStorage: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) } };
+  const fruticola = { origin: 'visma', destination: 'rex', company: 'fruticola:1' };
+  const consorcio = { origin: 'visma', destination: 'rex', company: 'consorcio:1' };
+
+  try {
+    saveVismaInstitutionMappings(fruticola, { 'health:nuevamasvida': { id: 'nuevamasvida', rawValue: 'Nueva Más Vida' } });
+    assert.equal(loadVismaInstitutionMappings(fruticola)['health:nuevamasvida'].id, 'nuevamasvida');
+    assert.deepEqual(loadVismaInstitutionMappings(consorcio), {});
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });

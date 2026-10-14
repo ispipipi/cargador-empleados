@@ -1,13 +1,13 @@
-import { cleanCell } from '../../../lib/utils';
+import { cleanCell } from '../../../lib/utils.js';
 import {
   COMUNA_ALIASES,
   LOCATION_COMUNA_ALIASES,
-} from './catalogs';
+} from './catalogs.js';
 import {
   normalizeLooseText,
   repairCommonMojibake,
   tokenizeNormalized,
-} from './normalizers';
+} from './normalizers.js';
 
 function findCatalogMatch({ catalog, candidate, normalizer }) {
   const normalizedCandidate = normalizer(candidate);

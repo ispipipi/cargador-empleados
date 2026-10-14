@@ -233,6 +233,7 @@ export const BANK_NAME_ALIASES = {
   chile: 'Banco de CHILE',
   'banco chile': 'Banco de CHILE',
   'estado de chile': 'Banco del Estado de Chile',
+  'banco del estado': 'Banco del Estado de Chile',
   estado: 'Banco del Estado de Chile',
   'banco estado': 'Banco del Estado de Chile',
   santander: 'Banco Santander Chile',

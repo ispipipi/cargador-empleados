@@ -1,11 +1,11 @@
-import { cleanCell } from '../../../lib/utils';
+import { cleanCell } from '../../../lib/utils.js';
 import {
   findCatalogMatch,
   findHeuristicCatalogMatch,
   findScoredCatalogMatch,
   getCatalogItemName,
-} from './catalogMatching';
-import { buildPendingContext, buildPendingItem, isIntentionalBlankCorrection } from './pending';
+} from './catalogMatching.js';
+import { buildPendingContext, buildPendingItem, isIntentionalBlankCorrection } from './pending.js';
 import {
   buildComunaCandidates,
   findAddressComunaMatch,
@@ -19,8 +19,8 @@ import {
   parseAddress,
   resolveCityIdForRegion,
   sanitizeStreetSegment,
-} from './geography';
-import { normalizeLooseText } from './normalizers';
+} from './geography.js';
+import { normalizeLooseText } from './normalizers.js';
 
 export function resolveAddress({ sourceValue, corrections }) {
   const shouldKeepStreetNameBlank = isIntentionalBlankCorrection(corrections?.streetName);

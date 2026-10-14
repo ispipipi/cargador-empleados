@@ -4,6 +4,7 @@ import { cleanCell, extractValidEmail } from './utils';
 const BUK_COLABORADORES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-colaboradores-template.xlsx`;
 const BUK_TRABAJOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/buk-trabajos-template.xlsx`;
 const REX_EMPLEADOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-empleados-template.xlsx`;
+const REX_VISMA_FRUTICOLA_EMPLOYEE_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-visma-fruticola-empleados-template.xlsx`;
 const REX_CORREOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-correos-finning.xlsx`;
 const REX_CARGOS_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-cargos-finning.xlsx`;
 const REX_SEDES_TEMPLATE_ASSET_PATH = `${import.meta.env.BASE_URL}templates/rex-sedes-finning.xlsx`;
@@ -150,11 +151,12 @@ export async function loadBukTrabajosTemplateResource() {
 }
 
 export async function loadRexTemplateResource() {
-  const [templateResponse, emailResponse, cargosResponse, sedesResponse] = await Promise.all([
+  const [templateResponse, emailResponse, cargosResponse, sedesResponse, vismaFruticolaResponse] = await Promise.all([
     fetch(REX_EMPLEADOS_TEMPLATE_ASSET_PATH),
     fetch(REX_CORREOS_TEMPLATE_ASSET_PATH),
     fetch(REX_CARGOS_TEMPLATE_ASSET_PATH),
     fetch(REX_SEDES_TEMPLATE_ASSET_PATH),
+    fetch(REX_VISMA_FRUTICOLA_EMPLOYEE_TEMPLATE_ASSET_PATH),
   ]);
 
   if (!templateResponse.ok) {
@@ -173,15 +175,21 @@ export async function loadRexTemplateResource() {
     throw new Error('No fue posible cargar el maestro embebido de sedes Finning.');
   }
 
-  const [arrayBuffer, emailArrayBuffer, cargosArrayBuffer, sedesArrayBuffer] = await Promise.all([
+  if (!vismaFruticolaResponse.ok) {
+    throw new Error('No fue posible cargar la plantilla vigente de empleados REX+ para Frutícola.');
+  }
+
+  const [arrayBuffer, emailArrayBuffer, cargosArrayBuffer, sedesArrayBuffer, vismaFruticolaArrayBuffer] = await Promise.all([
     templateResponse.arrayBuffer(),
     emailResponse.arrayBuffer(),
     cargosResponse.arrayBuffer(),
     sedesResponse.arrayBuffer(),
+    vismaFruticolaResponse.arrayBuffer(),
   ]);
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const cargosWorkbook = XLSX.read(cargosArrayBuffer, { type: 'array' });
   const sedesWorkbook = XLSX.read(sedesArrayBuffer, { type: 'array' });
+  const vismaFruticolaEmployeeTemplate = parseRexEmployeeImportTemplate(vismaFruticolaArrayBuffer);
   const employeeSheetName = 'Ejemplo';
   const employeeRows = getSheetRows(workbook.Sheets[employeeSheetName]);
 
@@ -233,7 +241,30 @@ export async function loadRexTemplateResource() {
     sheetRowsByName,
     catalogs,
     emailCatalog: buildRexEmailCatalog(emailArrayBuffer),
+    vismaFruticolaEmployeeTemplate,
   };
+}
+
+function parseRexEmployeeImportTemplate(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const employeeSheetName = 'Ejemplo';
+  const employeeRows = getSheetRows(workbook.Sheets[employeeSheetName]);
+
+  if (employeeRows.length < 2 || !employeeRows[1]?.length) {
+    throw new Error('La plantilla de empleados REX+ para Frutícola no contiene encabezados válidos.');
+  }
+
+  const employeeHeaders = employeeRows[1].map(cleanCell);
+  const sheetRowsByName = workbook.SheetNames.reduce((lookup, sheetName) => {
+    lookup[sheetName] = getSheetRows(workbook.Sheets[sheetName]);
+    return lookup;
+  }, {});
+  const catalogs = workbook.SheetNames.reduce((lookup, sheetName) => {
+    if (sheetName !== employeeSheetName) lookup[sheetName] = buildRexCatalog(sheetRowsByName[sheetName]);
+    return lookup;
+  }, {});
+
+  return { arrayBuffer, employeeSheetName, employeeHeaders, sheetRowsByName, catalogs };
 }
 
 export function parseRexCompanyMasterWorkbook(arrayBuffer, fileName = '') {

@@ -54,7 +54,16 @@ export function getVismaInstitutionKind(conceptId) {
   return '';
 }
 
-export function resolveVismaInstitution(conceptId, sourceRow, institutions = []) {
+export function getVismaInstitutionMappingKey(kind, rawValue) {
+  const normalizedValue = compactInstitutionName(rawValue);
+  return kind && normalizedValue ? `${kind}:${normalizedValue}` : '';
+}
+
+export function getVismaInstitutionKindLabel(kind) {
+  return { afp: 'AFP', health: 'Isapre / salud', mutual: 'Mutual', ccaf: 'Caja de compensación' }[kind] ?? 'Institución';
+}
+
+export function resolveVismaInstitution(conceptId, sourceRow, institutions = [], manualMappings = {}) {
   const kind = getVismaInstitutionKind(conceptId);
   if (!kind) return { id: '', rawValue: '', issue: '' };
 
@@ -67,6 +76,15 @@ export function resolveVismaInstitution(conceptId, sourceRow, institutions = [])
   }
 
   const catalog = institutions.filter((entry) => cleanCell(entry.id));
+  const mappingKey = getVismaInstitutionMappingKey(kind, rawValue);
+  const savedMapping = manualMappings[mappingKey];
+  const manualId = cleanCell(typeof savedMapping === 'object' ? savedMapping?.id : savedMapping);
+  if (manualId) {
+    const manualMatch = catalog.find((entry) => compactInstitutionName(entry.id) === compactInstitutionName(manualId));
+    if (manualMatch) return { id: manualMatch.id, rawValue, issue: '' };
+    return { id: '', rawValue, issue: `El ID manual “${manualId}” ya no existe en el catálogo REX+ cargado.` };
+  }
+
   let requestedId = rawValue;
 
   if (kind === 'afp') {

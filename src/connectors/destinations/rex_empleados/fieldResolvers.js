@@ -1,4 +1,4 @@
-import { cleanCell } from '../../../lib/utils';
+import { cleanCell } from '../../../lib/utils.js';
 import {
   AFP_NAME_ALIASES,
   BANK_NAME_ALIASES,
@@ -6,27 +6,27 @@ import {
   CONTRACT_TYPE_ALIASES,
   HEALTH_NAME_ALIASES,
   REX_DEFAULT_PRIMARY_PHONE,
-} from './catalogs';
+} from './catalogs.js';
 import {
   findCatalogMatch,
   findHeuristicCatalogMatch,
   findScoredCatalogMatch,
   findScoredCargoCatalogMatch,
-} from './catalogMatching';
-import { buildPendingItem, isIntentionalBlankCorrection } from './pending';
+} from './catalogMatching.js';
+import { buildPendingItem, isIntentionalBlankCorrection } from './pending.js';
 import {
   buildSedeCandidates,
   inferContractTypeId,
   normalizeEmailValue,
   normalizePhone,
-} from './contractValues';
+} from './contractValues.js';
 import {
   normalizeAfpName,
   normalizeBankName,
   normalizeHealthName,
   normalizeLooseText,
   normalizeSedeName,
-} from './normalizers';
+} from './normalizers.js';
 
 export function resolveCatalogField({
   key,

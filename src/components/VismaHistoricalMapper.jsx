@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import ConceptSearchPicker from './ConceptSearchPicker';
+import VismaInstitutionResolver from './VismaInstitutionResolver';
 import {
   buildVismaHistoricalCsv,
   buildVismaHistoricalModel,
@@ -11,10 +12,15 @@ import {
 } from '../lib/vismaHistorical';
 import { normalizeText, todayStamp } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
+import { useVismaInstitutionMappings } from '../lib/useVismaInstitutionMappings';
 import { splitVismaHistoricalRows } from '../lib/vismaHistoricalRows';
-import { buildVismaMissingEmployeeDraft } from '../lib/vismaEmployeeDraft';
-import { buildRexExportWorkbook } from '../lib/template';
+import {
+  buildVismaEmployeeImportCsv,
+  buildVismaEmployeeRequiredFieldsReportCsv,
+  buildVismaMissingEmployeeDraft,
+} from '../lib/vismaEmployeeDraft';
 import VismaMissingEmployeeMasterUpload from './VismaMissingEmployeeMasterUpload';
+import VismaEmployeeDraftStatus from './VismaEmployeeDraftStatus';
 
 const MAPPING_NAMESPACE = 'visma-historical';
 
@@ -29,6 +35,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   const [preparedBatch, setPreparedBatch] = useState(null);
   const [downloadError, setDownloadError] = useState('');
   const [employeeDraftError, setEmployeeDraftError] = useState('');
+  const { institutionMappings, assignInstitution } = useVismaInstitutionMappings(mappingScope);
   const { monthlyRows, finiquitoRows } = useMemo(
     () => splitVismaHistoricalRows(sourceFile.rows),
     [sourceFile.rows],
@@ -91,7 +98,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         templateResource: employeeTemplateResource,
         companyId,
       })
-    : { rowEntries: [], skipped: [] }, [companyId, employeeTemplateResource, missingRexEmployees, sourceEmployeeMaster]);
+    : { rowEntries: [], skipped: [], incomplete: [], missingHeaders: [] }, [companyId, employeeTemplateResource, missingRexEmployees, sourceEmployeeMaster]);
   const batchKey = useMemo(() => [
     'visma-rex-historical',
     mappingScope?.key ?? 'visma:rex',
@@ -119,7 +126,8 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     decisions,
     institutions: resource?.institutions ?? [],
     employeeCatalog,
-  }), [decisions, employeeCatalog, monthlyRows, resource]);
+    manualInstitutionMappings: institutionMappings,
+  }), [decisions, employeeCatalog, institutionMappings, monthlyRows, resource]);
   const nextBatchEmployeeKeys = useMemo(() => new Set(nextBatchEmployeeIds.map(normalizeEmployeeKey)), [nextBatchEmployeeIds]);
   const nextBatchInstitutionIssues = institutionValidation.issues.filter((issue) => nextBatchEmployeeKeys.has(normalizeEmployeeKey(issue.employeeId)));
   const isReadyToDownload = summary.pending + summary.proposals === 0
@@ -199,6 +207,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
           resource,
           employeeCatalog,
           employeeIds,
+          manualInstitutionMappings: institutionMappings,
         });
         const cumulativeCount = completedEmployeeIds.size + employeeIds.length;
         downloadBlob(csv, `${cumulativeCount} ${periodFileLabel(sourceFile.period)}.csv`, 'text/csv;charset=utf-8');
@@ -278,21 +287,34 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     }
 
     try {
-      const { rowEntries, skipped } = employeeDraft;
+      const { rowEntries, skipped, incomplete, missingHeaders } = employeeDraft;
+      if (missingHeaders.length) {
+        setEmployeeDraftError(`La plantilla REX+ no tiene los encabezados obligatorios: ${missingHeaders.join(', ')}.`);
+        return;
+      }
+      if (incomplete.length) {
+        setEmployeeDraftError(`No se generó el archivo: ${incomplete.length} trabajador(es) todavía tienen campos obligatorios vacíos o con IDs que no existen en el catálogo REX+.`);
+        return;
+      }
       if (!rowEntries.length) {
         setEmployeeDraftError('No se pudo preparar el archivo: revisa que los RUT faltantes estén en el maestro VISMA y no tengan registros ambiguos.');
         return;
       }
 
-      const workbook = buildRexExportWorkbook({ templateResource: employeeTemplateResource, rowEntries });
-      const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-      downloadBlob(output, `REX_empleados_pendientes_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      const output = buildVismaEmployeeImportCsv({ templateResource: employeeTemplateResource, rowEntries });
+      downloadBlob(output, `REX_empleados_${periodFileLabel(sourceFile.period || todayStamp())}.csv`, 'text/csv;charset=utf-8');
       if (skipped.length) {
         setEmployeeDraftError(`Se prepararon ${rowEntries.length} altas. ${skipped.length} RUT no se incluyeron porque faltan en el maestro o tienen más de un registro distinto.`);
       }
     } catch (error) {
       setEmployeeDraftError(error instanceof Error ? error.message : 'No se pudo preparar el archivo de empleados REX+.');
     }
+  };
+
+  const downloadEmployeeRequiredFieldReport = () => {
+    if (!employeeDraft.incomplete.length) return;
+    const csv = buildVismaEmployeeRequiredFieldsReportCsv(employeeDraft.incomplete);
+    downloadBlob(csv, `REX_empleados_campos_pendientes_${periodFileLabel(sourceFile.period || todayStamp())}.csv`, 'text/csv;charset=utf-8');
   };
 
   if (isBuilding || !model) {
@@ -365,43 +387,14 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         </section>
       ) : null}
 
-      <section className={`panel p-5 sm:p-6 ${institutionValidation.issues.length ? 'border-amber-200 bg-amber-50/70' : 'border-emerald-200 bg-emerald-50/50'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className={`text-sm font-semibold ${institutionValidation.issues.length ? 'text-amber-900' : 'text-emerald-800'}`}>
-              {institutionValidation.issues.length
-                ? `${institutionValidation.issues.length.toLocaleString('es-CL')} institución(es) sin asociar a un ID REX+`
-                : `Instituciones verificadas: ${institutionValidation.checked.toLocaleString('es-CL')} registros con código de catálogo`}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              {institutionValidation.issues.length
-                ? 'Los IDs se traducen con el catálogo del template. El lote sólo se bloquea si una diferencia afecta a los trabajadores que se descargarán ahora.'
-                : 'Los IDs exportados se toman exactamente del catálogo de instituciones del template REX+.'}
-            </p>
-          </div>
-          {institutionValidation.issues.length ? (
-            <button type="button" onClick={downloadReport} className="rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">
-              Descargar diferencias
-            </button>
-          ) : null}
-        </div>
-        {institutionValidation.issues.length ? (
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-amber-200 bg-white">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-amber-50 text-xs uppercase tracking-wide text-amber-900"><tr><th className="px-4 py-3">RUT</th><th className="px-4 py-3">Concepto</th><th className="px-4 py-3">Institución en origen</th><th className="px-4 py-3">Problema</th></tr></thead>
-              <tbody className="divide-y divide-amber-100">{institutionValidation.issues.slice(0, 10).map((issue, index) => (
-                <tr key={`${issue.employeeId}-${issue.conceptId}-${issue.sourceFile}-${issue.sourceRow}-${index}`}>
-                  <td className="px-4 py-3 font-mono text-xs">{issue.employeeId}</td>
-                  <td className="px-4 py-3">{issue.conceptName} <span className="font-mono text-xs text-slate-500">({issue.conceptId})</span></td>
-                  <td className="px-4 py-3">{issue.rawInstitution || 'Vacío'}</td>
-                  <td className="px-4 py-3 text-xs">{issue.issue}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-            {institutionValidation.issues.length > 10 ? <p className="px-4 py-3 text-xs text-amber-800">Se muestran 10 de {institutionValidation.issues.length.toLocaleString('es-CL')} diferencias; el informe descargable incluye todas.</p> : null}
-          </div>
-        ) : null}
-      </section>
+      <VismaInstitutionResolver
+        issues={institutionValidation.issues}
+        checked={institutionValidation.checked}
+        institutions={resource?.institutions ?? []}
+        mappings={institutionMappings}
+        onAssign={assignInstitution}
+        onDownloadReport={downloadReport}
+      />
 
       <section className={`panel p-5 sm:p-6 ${employeeValidation.issues.length ? 'border-rose-200 bg-rose-50/70' : 'border-emerald-200 bg-emerald-50/50'}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -437,35 +430,16 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
               onFileSelected={onSourceEmployeeMasterSelected}
             />
             {sourceEmployeeMaster?.length ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                <p className="text-sm text-slate-700">
-                  <strong>{employeeDraft.rowEntries.length.toLocaleString('es-CL')}</strong> de {missingRexEmployees.length.toLocaleString('es-CL')} RUT tienen datos en el maestro VISMA.
-                  {employeeDraft.skipped.length ? ` ${employeeDraft.skipped.length.toLocaleString('es-CL')} requieren revisión.` : ''}
-                </p>
-                <button
-                  type="button"
-                  onClick={downloadMissingEmployeeDraft}
-                  disabled={!employeeTemplateResource?.arrayBuffer || !employeeDraft.rowEntries.length}
-                  className="rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  Descargar altas REX+ ({employeeDraft.rowEntries.length.toLocaleString('es-CL')})
-                </button>
-              </div>
-            ) : null}
-            {employeeDraft.skipped.length ? (
-              <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-                Pendientes: {employeeDraft.skipped.slice(0, 5).map((item) => `${item.id}: ${item.reason}`).join(' · ')}
-                {employeeDraft.skipped.length > 5 ? ` · y ${employeeDraft.skipped.length - 5} más.` : ''}
-              </p>
-            ) : null}
-            {sourceEmployeeMaster?.length && employeeDraft.rowEntries.length ? (
-              <p className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
-                Se exportará con la plantilla oficial REX+. Confirma los campos que el maestro VISMA no informa antes de importar, como forma de pago, ubicación y algunos datos administrativos.
-              </p>
+              <VismaEmployeeDraftStatus
+                draft={employeeDraft}
+                templateReady={Boolean(employeeTemplateResource?.employeeHeaders?.length)}
+                onDownload={downloadMissingEmployeeDraft}
+                onDownloadReport={downloadEmployeeRequiredFieldReport}
+                error={employeeDraftError}
+              />
             ) : null}
           </>
         ) : null}
-        {employeeDraftError ? <p className="mt-3 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-800">{employeeDraftError}</p> : null}
         {employeeValidation.issues.length ? (
           <div className="mt-4 overflow-x-auto rounded-2xl border border-rose-200 bg-white">
             <table className="min-w-full text-left text-sm">
