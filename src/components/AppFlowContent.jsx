@@ -59,6 +59,10 @@ export default function AppFlowContent({ app }) {
     vismaEmployeeMasterFileName,
     vismaEmployeeMasterValidation,
     isReadingVismaEmployeeMaster,
+    vismaSourceEmployeeMaster,
+    vismaSourceEmployeeMasterFileName,
+    vismaSourceEmployeeMasterValidation,
+    isReadingVismaSourceEmployeeMaster,
     vismaTemplateCompanyId,
     vismaHistoricalTemplateResource,
     setVismaTemplateCompanyId,
@@ -96,6 +100,7 @@ export default function AppFlowContent({ app }) {
     handleVismaHistoricalCatalogSelected,
     handleVismaHistoricalTemplateSelected,
     handleVismaHistoricalEmployeeMasterSelected,
+    handleVismaSourceEmployeeMasterSelected,
     handleVismaHistoricalBooksSelected,
     handleVismaCatalogScopeChange,
     handleModuleChange,
@@ -369,6 +374,11 @@ export default function AppFlowContent({ app }) {
             resource={vismaHistoricalResource}
             employeeCatalog={vismaHistoricalEmployeeCatalog}
             employeeTemplateResource={rexTemplateResource}
+            sourceEmployeeMaster={vismaSourceEmployeeMaster}
+            sourceEmployeeMasterFileName={vismaSourceEmployeeMasterFileName}
+            sourceEmployeeMasterValidation={vismaSourceEmployeeMasterValidation}
+            isReadingSourceEmployeeMaster={isReadingVismaSourceEmployeeMaster}
+            onSourceEmployeeMasterSelected={handleVismaSourceEmployeeMasterSelected}
             companyId={vismaTemplateCompanyId}
             mappingScope={mappingScope}
             batchState={historicalBatchState}

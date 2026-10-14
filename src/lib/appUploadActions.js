@@ -8,6 +8,7 @@ import { parseConceptCatalogWorkbook, parseEmployeeMasterWorkbook } from './conc
 import { getMeta4MissingColumns } from '../connectors/origins/meta4';
 import { parseVismaHistoricalTemplate } from './vismaHistorical';
 import { parseVismaHistoricalEmployeeMaster } from './vismaHistoricalEmployeeMaster';
+import { parseVismaSourceEmployeeMaster } from './vismaSourceEmployeeMaster';
 import { splitVismaHistoricalRows } from './vismaHistoricalRows';
 import { saveCloudConceptCatalog, saveCloudVismaConceptCatalog } from './cloudMemory';
 import {
@@ -60,6 +61,10 @@ export function createAppUploadActions(context) {
     setVismaEmployeeMasterFileName,
     setVismaEmployeeMasterValidation,
     setIsReadingVismaEmployeeMaster,
+    setVismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterValidation,
+    setIsReadingVismaSourceEmployeeMaster,
     setVismaHistoricalTemplateFileName,
     setVismaHistoricalTemplateResource,
     setVismaHistoricalTemplateValidation,
@@ -347,6 +352,9 @@ export function createAppUploadActions(context) {
     if (!file) return;
 
     setVismaHistoricalEmployeeCatalog(null);
+    setVismaSourceEmployeeMaster(null);
+    setVismaSourceEmployeeMasterFileName('');
+    setVismaSourceEmployeeMasterValidation(null);
     setVismaEmployeeMasterFileName(file.name);
     setVismaEmployeeMasterValidation(null);
     if (!/\.(xls|xlsx)$/i.test(file.name)) {
@@ -378,6 +386,41 @@ export function createAppUploadActions(context) {
     }
   };
 
+  const handleVismaSourceEmployeeMasterSelected = async (file, password = '') => {
+    if (!file) return;
+
+    setVismaSourceEmployeeMaster(null);
+    setVismaSourceEmployeeMasterFileName(file.name);
+    setVismaSourceEmployeeMasterValidation(null);
+    if (!/\.(xls|xlsx)$/i.test(file.name)) {
+      setVismaSourceEmployeeMasterValidation({ isValid: false, message: 'El maestro VISMA debe ser .xls o .xlsx.' });
+      return;
+    }
+
+    setGlobalError('');
+    setIsReadingVismaSourceEmployeeMaster(true);
+    try {
+      const employees = await parseVismaSourceEmployeeMaster(await file.arrayBuffer(), password);
+      setVismaSourceEmployeeMaster(employees);
+      const uniqueRutCount = new Set(employees.map((employee) => normalizeEmployeeId(employee.id))).size;
+      setVismaSourceEmployeeMasterValidation({
+        isValid: true,
+        message: `Maestro VISMA listo: ${uniqueRutCount.toLocaleString('es-CL')} RUT únicos en ${employees.length.toLocaleString('es-CL')} filas.`,
+      });
+    } catch (error) {
+      setVismaSourceEmployeeMasterValidation({
+        isValid: false,
+        requiresPassword: error.code === 'PASSWORD_REQUIRED',
+        invalidPassword: error.code === 'INVALID_PASSWORD',
+        message: error.code === 'PASSWORD_REQUIRED' || error.code === 'INVALID_PASSWORD'
+          ? error.message
+          : `No se pudo leer el maestro VISMA: ${error.message}`,
+      });
+    } finally {
+      setIsReadingVismaSourceEmployeeMaster(false);
+    }
+  };
+
   const handleVismaHistoricalBooksSelected = async (files, password = '') => {
     const selectedFiles = Array.from(files ?? []);
     if (!selectedFiles.length) return;
@@ -390,6 +433,9 @@ export function createAppUploadActions(context) {
     setGlobalError('');
     setSourceFile(null);
     setValidation(null);
+    setVismaSourceEmployeeMaster(null);
+    setVismaSourceEmployeeMasterFileName('');
+    setVismaSourceEmployeeMasterValidation(null);
     setHistoricalBatchState({ completedEmployeeIds: [] });
     setIsReadingFile(true);
 
@@ -469,6 +515,9 @@ export function createAppUploadActions(context) {
   const handleVismaCatalogScopeChange = (scope) => {
     const localCatalog = loadVismaConceptCatalogMemory(scope);
     setVismaCatalogScope(scope);
+    setVismaSourceEmployeeMaster(null);
+    setVismaSourceEmployeeMasterFileName('');
+    setVismaSourceEmployeeMasterValidation(null);
     setGlobalError('');
     setVismaHistoricalCatalog(localCatalog);
     setVismaHistoricalCatalogFileName('');
@@ -516,6 +565,9 @@ export function createAppUploadActions(context) {
       setMappingCompany('');
       setSourceFile(null);
       setValidation(null);
+      setVismaSourceEmployeeMaster(null);
+      setVismaSourceEmployeeMasterFileName('');
+      setVismaSourceEmployeeMasterValidation(null);
       setVismaHistoricalTemplateResource(null);
       setVismaTemplateCompanyId('');
       setVismaHistoricalTemplateFileName('');
@@ -622,6 +674,7 @@ export function createAppUploadActions(context) {
     handleVismaHistoricalCatalogSelected,
     handleVismaHistoricalTemplateSelected,
     handleVismaHistoricalEmployeeMasterSelected,
+    handleVismaSourceEmployeeMasterSelected,
     handleVismaHistoricalBooksSelected,
     handleVismaCatalogScopeChange,
     handleModuleChange,

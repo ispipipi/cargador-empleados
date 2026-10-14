@@ -17,6 +17,10 @@ export function useVismaHistoricalState(authUser) {
   const [vismaEmployeeMasterFileName, setVismaEmployeeMasterFileName] = useState('');
   const [vismaEmployeeMasterValidation, setVismaEmployeeMasterValidation] = useState(null);
   const [isReadingVismaEmployeeMaster, setIsReadingVismaEmployeeMaster] = useState(false);
+  const [vismaSourceEmployeeMaster, setVismaSourceEmployeeMaster] = useState(null);
+  const [vismaSourceEmployeeMasterFileName, setVismaSourceEmployeeMasterFileName] = useState('');
+  const [vismaSourceEmployeeMasterValidation, setVismaSourceEmployeeMasterValidation] = useState(null);
+  const [isReadingVismaSourceEmployeeMaster, setIsReadingVismaSourceEmployeeMaster] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -91,5 +95,13 @@ export function useVismaHistoricalState(authUser) {
     setVismaEmployeeMasterValidation,
     isReadingVismaEmployeeMaster,
     setIsReadingVismaEmployeeMaster,
+    vismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMaster,
+    vismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterFileName,
+    vismaSourceEmployeeMasterValidation,
+    setVismaSourceEmployeeMasterValidation,
+    isReadingVismaSourceEmployeeMaster,
+    setIsReadingVismaSourceEmployeeMaster,
   };
 }

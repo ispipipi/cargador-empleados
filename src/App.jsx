@@ -131,6 +131,14 @@ export default function App() {
     setVismaEmployeeMasterValidation,
     isReadingVismaEmployeeMaster,
     setIsReadingVismaEmployeeMaster,
+    vismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMaster,
+    vismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterFileName,
+    vismaSourceEmployeeMasterValidation,
+    setVismaSourceEmployeeMasterValidation,
+    isReadingVismaSourceEmployeeMaster,
+    setIsReadingVismaSourceEmployeeMaster,
   } = vismaHistoricalState;
 
   const rexTemplateResource = useMemo(
@@ -339,6 +347,9 @@ export default function App() {
         employeeCatalog: vismaHistoricalEmployeeCatalog,
         employeeMasterFileName: vismaEmployeeMasterFileName,
         employeeMasterValidation: vismaEmployeeMasterValidation,
+        sourceEmployeeMaster: vismaSourceEmployeeMaster,
+        sourceEmployeeMasterFileName: vismaSourceEmployeeMasterFileName,
+        sourceEmployeeMasterValidation: vismaSourceEmployeeMasterValidation,
         companyId: vismaTemplateCompanyId,
       } : null;
 
@@ -399,6 +410,9 @@ export default function App() {
     vismaHistoricalEmployeeCatalog,
     vismaEmployeeMasterFileName,
     vismaEmployeeMasterValidation,
+    vismaSourceEmployeeMaster,
+    vismaSourceEmployeeMasterFileName,
+    vismaSourceEmployeeMasterValidation,
     vismaTemplateCompanyId,
   ]);
 
@@ -539,6 +553,10 @@ export default function App() {
     setVismaEmployeeMasterFileName,
     setVismaEmployeeMasterValidation,
     setIsReadingVismaEmployeeMaster,
+    setVismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterValidation,
+    setIsReadingVismaSourceEmployeeMaster,
     setVismaHistoricalTemplateFileName,
     setVismaHistoricalTemplateResource,
     setVismaHistoricalTemplateValidation,
@@ -618,6 +636,9 @@ export default function App() {
     setVismaEmployeeMasterFileName,
     setVismaEmployeeMasterValidation,
     setVismaTemplateCompanyId,
+    setVismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterValidation,
   });
 
   useEffect(() => {
@@ -666,6 +687,10 @@ export default function App() {
         vismaEmployeeMasterFileName,
         vismaEmployeeMasterValidation,
         isReadingVismaEmployeeMaster,
+        vismaSourceEmployeeMaster,
+        vismaSourceEmployeeMasterFileName,
+        vismaSourceEmployeeMasterValidation,
+        isReadingVismaSourceEmployeeMaster,
         vismaTemplateCompanyId,
         vismaHistoricalTemplateResource,
         setVismaTemplateCompanyId,

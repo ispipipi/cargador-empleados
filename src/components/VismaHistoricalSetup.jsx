@@ -49,7 +49,7 @@ export default function VismaHistoricalSetup({
         <p className="text-xs font-semibold uppercase tracking-[0.28em] text-brand-600">Visma → REX+ · Preparación</p>
         <h2 className="mt-2 text-2xl font-bold text-slate-950">Prepara la carga del libro histórico</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          Selecciona el ámbito de Visma. Carga el catálogo, template, maestro de trabajadores y todos los libros que componen el mismo período.
+          Selecciona el ámbito de Visma y carga el catálogo, template, maestro REX+ de contratos y libros del período. Si aparecen trabajadores nuevos, el sistema pedirá el maestro VISMA en el análisis.
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -109,8 +109,8 @@ export default function VismaHistoricalSetup({
         />
 
         <WorkbookUpload
-          title="Maestro de personal"
-          description="Se usa empleado → contratoActi para asociar cada RUT al contrato que informa el maestro. No se asume contrato 1."
+          title="Maestro REX+ de contratos"
+          description="Se usa empleado → contratoActi para validar cada RUT y asociar su contrato REX+. No se asume contrato 1."
           fileName={employeeMasterFileName}
           isReady={Boolean(employeeCatalog?.length)}
           isReading={isReadingEmployeeMaster}

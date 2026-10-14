@@ -53,6 +53,9 @@ export function createAppConfigurationActions(context) {
     setVismaHistoricalEmployeeCatalog,
     setVismaEmployeeMasterFileName,
     setVismaEmployeeMasterValidation,
+    setVismaSourceEmployeeMaster,
+    setVismaSourceEmployeeMasterFileName,
+    setVismaSourceEmployeeMasterValidation,
     setVismaTemplateCompanyId,
   } = context;
 
@@ -163,6 +166,9 @@ export function createAppConfigurationActions(context) {
         setVismaHistoricalEmployeeCatalog(vismaSetup?.employeeCatalog ?? null);
         setVismaEmployeeMasterFileName(vismaSetup?.employeeMasterFileName ?? '');
         setVismaEmployeeMasterValidation(vismaSetup?.employeeMasterValidation ?? null);
+        setVismaSourceEmployeeMaster(vismaSetup?.sourceEmployeeMaster ?? null);
+        setVismaSourceEmployeeMasterFileName(vismaSetup?.sourceEmployeeMasterFileName ?? '');
+        setVismaSourceEmployeeMasterValidation(vismaSetup?.sourceEmployeeMasterValidation ?? null);
         setVismaTemplateCompanyId(vismaSetup?.companyId ?? '');
       }
 

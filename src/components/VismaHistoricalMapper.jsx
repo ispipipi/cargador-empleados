@@ -14,10 +14,11 @@ import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/se
 import { splitVismaHistoricalRows } from '../lib/vismaHistoricalRows';
 import { buildVismaMissingEmployeeDraft } from '../lib/vismaEmployeeDraft';
 import { buildRexExportWorkbook } from '../lib/template';
+import VismaMissingEmployeeMasterUpload from './VismaMissingEmployeeMasterUpload';
 
 const MAPPING_NAMESPACE = 'visma-historical';
 
-export default function VismaHistoricalMapper({ sourceFile, resource, employeeCatalog = [], employeeTemplateResource, companyId, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
+export default function VismaHistoricalMapper({ sourceFile, resource, employeeCatalog = [], employeeTemplateResource, sourceEmployeeMaster, sourceEmployeeMasterFileName, sourceEmployeeMasterValidation, isReadingSourceEmployeeMaster, onSourceEmployeeMasterSelected, companyId, mappingScope, batchState, onBatchStateChange, onBack, onBusyChange }) {
   const [model, setModel] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
@@ -79,7 +80,18 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   const summary = summarizeVismaHistoricalDecisions(decisions);
   const catalog = model?.catalog ?? [];
   const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, issues: [] };
-  const missingRexEmployees = employeeValidation.issues.filter((employee) => employee.issue === 'No aparece en el maestro REX+.');
+  const missingRexEmployees = useMemo(
+    () => employeeValidation.issues.filter((employee) => employee.issue === 'No aparece en el maestro REX+.'),
+    [employeeValidation.issues],
+  );
+  const employeeDraft = useMemo(() => sourceEmployeeMaster?.length
+    ? buildVismaMissingEmployeeDraft({
+        issues: missingRexEmployees,
+        sourceEmployeeMaster,
+        templateResource: employeeTemplateResource,
+        companyId,
+      })
+    : { rowEntries: [], skipped: [] }, [companyId, employeeTemplateResource, missingRexEmployees, sourceEmployeeMaster]);
   const batchKey = useMemo(() => [
     'visma-rex-historical',
     mappingScope?.key ?? 'visma:rex',
@@ -260,20 +272,15 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
 
   const downloadMissingEmployeeDraft = () => {
     setEmployeeDraftError('');
-    if (!employeeTemplateResource?.arrayBuffer || !missingRexEmployees.length) {
+    if (!employeeTemplateResource?.arrayBuffer || !missingRexEmployees.length || !sourceEmployeeMaster?.length) {
       setEmployeeDraftError('No está disponible la plantilla oficial de empleados REX+ o no hay trabajadores faltantes válidos.');
       return;
     }
 
     try {
-      const { rowEntries, skipped } = buildVismaMissingEmployeeDraft({
-        issues: missingRexEmployees,
-        sourceRows: monthlyRows,
-        templateResource: employeeTemplateResource,
-        companyId,
-      });
+      const { rowEntries, skipped } = employeeDraft;
       if (!rowEntries.length) {
-        setEmployeeDraftError('No se pudo preparar un archivo: verifica que los trabajadores tengan RUT válido en el libro.');
+        setEmployeeDraftError('No se pudo preparar el archivo: revisa que los RUT faltantes estén en el maestro VISMA y no tengan registros ambiguos.');
         return;
       }
 
@@ -281,7 +288,7 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
       const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       downloadBlob(output, `REX_empleados_pendientes_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       if (skipped.length) {
-        setEmployeeDraftError(`Se prepararon ${rowEntries.length} trabajadores; ${skipped.length} no se incluyeron por falta de fila de origen o RUT válido.`);
+        setEmployeeDraftError(`Se prepararon ${rowEntries.length} altas. ${skipped.length} RUT no se incluyeron porque faltan en el maestro o tienen más de un registro distinto.`);
       }
     } catch (error) {
       setEmployeeDraftError(error instanceof Error ? error.message : 'No se pudo preparar el archivo de empleados REX+.');
@@ -416,17 +423,47 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
                 Descargar diferencias
               </button>
               {missingRexEmployees.length ? (
-                <button type="button" onClick={downloadMissingEmployeeDraft} disabled={!employeeTemplateResource?.arrayBuffer} className="rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-400">
-                  Descargar archivo de empleados ({missingRexEmployees.length})
-                </button>
+                <span className="rounded-full bg-rose-100 px-4 py-2 text-sm font-semibold text-rose-900">{missingRexEmployees.length.toLocaleString('es-CL')} altas por preparar</span>
               ) : null}
             </div>
           ) : null}
         </div>
         {missingRexEmployees.length ? (
-          <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-            El archivo usa la plantilla oficial REX+ y prellena sólo datos identificables desde el libro y catálogos con coincidencia exacta. Completa los datos personales y contractuales que falten antes de importarlo.
-          </p>
+          <>
+            <VismaMissingEmployeeMasterUpload
+              fileName={sourceEmployeeMasterFileName}
+              isReading={isReadingSourceEmployeeMaster}
+              validation={sourceEmployeeMasterValidation}
+              onFileSelected={onSourceEmployeeMasterSelected}
+            />
+            {sourceEmployeeMaster?.length ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <p className="text-sm text-slate-700">
+                  <strong>{employeeDraft.rowEntries.length.toLocaleString('es-CL')}</strong> de {missingRexEmployees.length.toLocaleString('es-CL')} RUT tienen datos en el maestro VISMA.
+                  {employeeDraft.skipped.length ? ` ${employeeDraft.skipped.length.toLocaleString('es-CL')} requieren revisión.` : ''}
+                </p>
+                <button
+                  type="button"
+                  onClick={downloadMissingEmployeeDraft}
+                  disabled={!employeeTemplateResource?.arrayBuffer || !employeeDraft.rowEntries.length}
+                  className="rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  Descargar altas REX+ ({employeeDraft.rowEntries.length.toLocaleString('es-CL')})
+                </button>
+              </div>
+            ) : null}
+            {employeeDraft.skipped.length ? (
+              <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                Pendientes: {employeeDraft.skipped.slice(0, 5).map((item) => `${item.id}: ${item.reason}`).join(' · ')}
+                {employeeDraft.skipped.length > 5 ? ` · y ${employeeDraft.skipped.length - 5} más.` : ''}
+              </p>
+            ) : null}
+            {sourceEmployeeMaster?.length && employeeDraft.rowEntries.length ? (
+              <p className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
+                Se exportará con la plantilla oficial REX+. Confirma los campos que el maestro VISMA no informa antes de importar, como forma de pago, ubicación y algunos datos administrativos.
+              </p>
+            ) : null}
+          </>
         ) : null}
         {employeeDraftError ? <p className="mt-3 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-800">{employeeDraftError}</p> : null}
         {employeeValidation.issues.length ? (
