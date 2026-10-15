@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyStoredHistoricalMapping, loadVismaInstitutionMappings, saveVismaInstitutionMappings } from '../src/lib/sessionPersistence.js';
 import { extractVismaHistoricalConceptColumns, isLegacyAutoExcludedVismaConcept } from '../src/lib/vismaHistoricalRules.js';
-import { buildVismaHistoricalCsv, LIQUIDATION_HEADERS, validateVismaHistoricalInstitutions } from '../src/lib/vismaHistorical.js';
+import { buildVismaHistoricalCsv, LIQUIDATION_HEADERS, validateVismaHistoricalInstitutions, validateVismaHistoricalNetPay } from '../src/lib/vismaHistorical.js';
 
 const conceptHeaders = [
   'SUELDO BASE',
@@ -92,7 +92,7 @@ test('does not bring forward the old automatic exclusions, but preserves explici
 });
 
 test('manual institution matches unblock validation and export the selected catalog ID', () => {
-  const row = { RUT: '12345678-5', 'Días Trabajados': 30, ISAPRE: 'Nueva Más Vida', SALUD: 42000 };
+  const row = { RUT: '12345678-5', 'Días Trabajados': 30, LIQUIDO: 492000, ISAPRE: 'Nueva Más Vida', SALUD: 42000 };
   const decision = { sourceKey: 'SALUD', sourceName: 'SALUD', targetId: 'isapre', targetName: 'Isapre', approved: true, excluded: false };
   const employeeCatalog = [{ id: '12345678-5', contract: '1' }];
   const resource = {
@@ -115,12 +115,14 @@ test('manual institution matches unblock validation and export the selected cata
     manualInstitutionMappings,
   });
   assert.match(csv, /2025-12;12345678-5;1;isapre;42000;0;nuevamasvida/);
+  assert.match(csv, /2025-12;12345678-5;1;totalesEmpl;492000;0;;0;0;30;x;1/);
 });
 
 test('exports AFP contribution and AFP institution for unemployment concepts', () => {
   const row = {
     RUT: '12345678-5',
     'Días Trabajados': 30,
+    LIQUIDO: 492000,
     AFP: 'PROVIDA',
     'Cotización AFP %': '',
     AFP_OBLIGATORIA: 50000,
@@ -153,7 +155,46 @@ test('exports AFP contribution and AFP institution for unemployment concepts', (
     ['afp', 'provida', '10'],
     ['cesEmpleado', 'provida', '0'],
     ['cesAporteSol', 'provida', '0'],
+    ['totalesEmpl', '', '0'],
   ]);
+});
+
+test('validates and exports one mandatory net-pay record per employee, combining monthly source rows', () => {
+  const sourceRows = [
+    { RUT: '12345678-5', 'Apellido y Nombre': 'Persona Ejemplo', 'Días Trabajados': 30, LIQUIDO: 250000, HABER: 100000 },
+    { RUT: '12.345.678-5', 'Apellido y Nombre': 'Persona Ejemplo', 'Días Trabajados': 30, 'SUELDO LÍQUIDO': 242000, HABER: 200000 },
+  ];
+  const employeeCatalog = [{ id: '12345678-5', contract: '2' }];
+  const resource = { companies: [{ id: '9', name: 'Frutícola' }], headers: LIQUIDATION_HEADERS };
+  const decisions = [{ sourceKey: 'HABER', sourceName: 'HABER', targetId: 'haber', approved: true, excluded: false }];
+  const validation = validateVismaHistoricalNetPay({ sourceRows, employeeIds: ['12345678-5'] });
+
+  assert.deepEqual({ checked: validation.checked, valid: validation.valid, issues: validation.issues }, { checked: 1, valid: true, issues: [] });
+
+  const records = buildVismaHistoricalCsv({
+    sourceRows, decisions, period: '2026-02', resource, employeeCatalog, employeeIds: ['12345678-5'],
+  }).replace(/^\uFEFF/, '').trim().split(/\r?\n/).slice(1).map((line) => line.split(';'));
+  const netPayRows = records.filter((record) => record[3] === 'totalesEmpl');
+
+  assert.equal(netPayRows.length, 1);
+  assert.deepEqual(netPayRows[0].slice(0, 12), ['2026-02', '12345678-5', '2', 'totalesEmpl', '492000', '0', '', '0', '0', '30', 'x', '9']);
+});
+
+test('blocks CSV generation and reports an employee when monthly net pay is absent', () => {
+  const sourceRows = [{ RUT: '12345678-5', 'Apellido y Nombre': 'Persona Ejemplo', LIQUIDO: '' }];
+  const validation = validateVismaHistoricalNetPay({ sourceRows, employeeIds: ['12345678-5'] });
+
+  assert.equal(validation.valid, false);
+  assert.equal(validation.issues[0].employeeId, '12345678-5');
+  assert.match(validation.issues[0].issue, /totalesEmpl/);
+  assert.throws(() => buildVismaHistoricalCsv({
+    sourceRows,
+    decisions: [],
+    period: '2026-02',
+    resource: { companies: [{ id: '9', name: 'Frutícola' }], headers: LIQUIDATION_HEADERS },
+    employeeCatalog: [{ id: '12345678-5', contract: '2' }],
+    employeeIds: ['12345678-5'],
+  }), /Falta el líquido de pago/);
 });
 
 test('manual institution matches persist separately for each origin, destination, and company scope', () => {

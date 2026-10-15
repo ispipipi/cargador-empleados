@@ -9,6 +9,7 @@ import {
   getVismaHistoricalEmployeeIds,
   summarizeVismaHistoricalDecisions,
   validateVismaHistoricalInstitutions,
+  validateVismaHistoricalNetPay,
 } from '../lib/vismaHistorical';
 import { normalizeText, todayStamp } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
@@ -115,6 +116,10 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
     decisions,
     employeeCatalog,
   }), [decisions, employeeCatalog, monthlyRows]);
+  const netPayValidation = useMemo(() => validateVismaHistoricalNetPay({
+    sourceRows: monthlyRows,
+    employeeIds: eligibleEmployeeIds,
+  }), [eligibleEmployeeIds, monthlyRows]);
   const remainingEmployeeIds = useMemo(
     () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(normalizeEmployeeKey(employeeId))),
     [completedEmployeeIds, eligibleEmployeeIds],
@@ -130,9 +135,11 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
   }), [decisions, employeeCatalog, institutionMappings, monthlyRows, resource]);
   const nextBatchEmployeeKeys = useMemo(() => new Set(nextBatchEmployeeIds.map(normalizeEmployeeKey)), [nextBatchEmployeeIds]);
   const nextBatchInstitutionIssues = institutionValidation.issues.filter((issue) => nextBatchEmployeeKeys.has(normalizeEmployeeKey(issue.employeeId)));
+  const nextBatchNetPayIssues = netPayValidation.issues.filter((issue) => nextBatchEmployeeKeys.has(normalizeEmployeeKey(issue.employeeId)));
   const isReadyToDownload = summary.pending + summary.proposals === 0
     && employeeValidation.issues.length === 0
     && nextBatchInstitutionIssues.length === 0
+    && nextBatchNetPayIssues.length === 0
     && nextBatchEmployeeIds.length > 0;
 
   useEffect(() => {
@@ -275,6 +282,15 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         Motivo: issue.issue,
       }))), 'Instituciones pendientes');
     }
+    if (netPayValidation.issues.length) {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(netPayValidation.issues.map((issue) => ({
+        RUT: issue.employeeId,
+        Trabajador: issue.employeeName,
+        Archivo: issue.sourceFile,
+        Fila: issue.sourceRow,
+        Motivo: issue.issue,
+      }))), 'Líquidos pendientes');
+    }
     const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     downloadBlob(output, `REX_informe_visma_${sourceFile.period || todayStamp()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   };
@@ -343,12 +359,13 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
               Revisa los haberes y descuentos detectados, confirma sus conceptos REX+ y descarga el CSV del período {sourceFile.period || 'mensual'}.
             </p>
-            <div className="mt-8 grid gap-3 sm:grid-cols-5">
+            <div className="mt-8 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
               <Metric label="Conceptos" value={summary.total} />
               <Metric label="Matches" value={summary.exact} tone="green" />
               <Metric label="Pendientes" value={summary.proposals + summary.pending} tone="amber" />
               <Metric label="Trabajadores maestro" value={`${employeeValidation.matched}/${employeeValidation.total}`} tone={employeeValidation.issues.length ? 'amber' : 'green'} />
               <Metric label="Instituciones lote" value={nextBatchInstitutionIssues.length} tone={nextBatchInstitutionIssues.length ? 'amber' : 'green'} />
+              <Metric label="Líquidos pendientes" value={nextBatchNetPayIssues.length} tone={nextBatchNetPayIssues.length ? 'amber' : 'green'} />
             </div>
           </div>
 
@@ -360,7 +377,8 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
                 <li>Fecha de proceso: {sourceFile.period || 'AAAA-MM'}; fecha de aplicación: `x` para este histórico regular.</li>
                 <li>Jornada `C`, días trabajados desde Visma y licencias `0`.</li>
                 <li>Se cargan todos los conceptos con monto distinto de cero, incluidos los contractuales, previsionales, de salud, impuestos y aportes patronales.</li>
-                <li>Sólo se omiten columnas resumen o bases (totales, líquido, imponible/tributable y costo empresa) para no duplicar importes.</li>
+                <li>El líquido se exporta en el registro especial obligatorio `totalesEmpl`; no se mezcla con los conceptos de detalle.</li>
+                <li>Sólo se omiten otros resúmenes o bases (totales, imponible/tributable y costo empresa) para no duplicar importes.</li>
                 <li>La columna Afecto se informa como `0`; se conserva el orden y la cantidad de columnas del template cargado.</li>
               </ul>
             </div>
@@ -529,15 +547,24 @@ export default function VismaHistoricalMapper({ sourceFile, resource, employeeCa
         {downloadError ? <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{downloadError}</p> : null}
 
         {!isReadyToDownload ? (
-          <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {employeeValidation.issues.length
-              ? 'La descarga está bloqueada hasta conciliar todos los trabajadores con el maestro.'
-              : summary.pending + summary.proposals > 0
-                ? 'La descarga está bloqueada hasta resolver todos los conceptos.'
-                : nextBatchInstitutionIssues.length
-                  ? `La descarga del lote está bloqueada: ${nextBatchInstitutionIssues.length} registro(s) no tienen una institución válida del catálogo.`
-                  : 'No hay trabajadores elegibles con montos en los conceptos aprobados.'}
-          </p>
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p>
+              {employeeValidation.issues.length
+                ? 'La descarga está bloqueada hasta conciliar todos los trabajadores con el maestro.'
+                : summary.pending + summary.proposals > 0
+                  ? 'La descarga está bloqueada hasta resolver todos los conceptos.'
+                  : nextBatchInstitutionIssues.length
+                    ? `La descarga del lote está bloqueada: ${nextBatchInstitutionIssues.length} registro(s) no tienen una institución válida del catálogo.`
+                    : nextBatchNetPayIssues.length
+                      ? `La descarga del lote está bloqueada: falta el líquido de pago de ${nextBatchNetPayIssues.length} trabajador(es), requerido para generar totalesEmpl.`
+                      : 'No hay trabajadores elegibles con montos en los conceptos aprobados.'}
+            </p>
+            {nextBatchNetPayIssues.length ? (
+              <button type="button" onClick={downloadReport} className="mt-3 rounded-full border border-amber-300 bg-white px-4 py-2 font-semibold text-amber-900 hover:bg-amber-100">
+                Descargar informe de líquidos pendientes
+              </button>
+            ) : null}
+          </div>
         ) : preparedBatch ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
             <p className="font-semibold">Lote preparado: {preparedBatch.employeeIds.length.toLocaleString('es-CL')} trabajadores.</p>

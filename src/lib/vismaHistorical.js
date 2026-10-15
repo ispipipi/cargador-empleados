@@ -28,6 +28,7 @@ export const LIQUIDATION_HEADERS = [
   'Parcial 8',
 ];
 const LEGACY_LIQUIDATION_HEADERS = LIQUIDATION_HEADERS.slice(0, 18);
+const LIQUIDO_HEADERS = new Set(['liquido', 'liquido a pago', 'sueldo liquido']);
 
 const VISMA_TEMPLATE_PATH = `${import.meta.env?.BASE_URL ?? '/'}templates/rex-liquidaciones-detalle-template.xlsx`;
 export const VISMA_CATALOG_SCOPES = [
@@ -187,6 +188,47 @@ export function getVismaHistoricalEmployeeIds({ sourceRows, decisions, employeeC
   return [...ids];
 }
 
+export function validateVismaHistoricalNetPay({ sourceRows = [], employeeIds = null }) {
+  const selectedEmployeeKeys = employeeIds ? new Set(employeeIds.map(normalizeEmployeeKey)) : null;
+  const workers = new Map();
+
+  sourceRows.forEach((sourceRow) => {
+    const employeeKey = normalizeEmployeeKey(sourceRow.RUT);
+    if (!employeeKey || (selectedEmployeeKeys && !selectedEmployeeKeys.has(employeeKey))) return;
+
+    let worker = workers.get(employeeKey);
+    if (!worker) {
+      worker = {
+        employeeId: cleanCell(sourceRow.RUT),
+        employeeName: getVismaSourceValue(sourceRow, 'Apellido y Nombre'),
+        sourceFile: cleanCell(sourceRow.__sourceFileName),
+        sourceRow: sourceRow.__sourceRowNumber ?? '',
+        found: false,
+        amount: 0,
+      };
+      workers.set(employeeKey, worker);
+    }
+
+    const liquidEntry = Object.entries(sourceRow).find(([header, value]) => (
+      LIQUIDO_HEADERS.has(normalizeText(stripDuplicateHeaderSuffix(header)))
+      && parseVismaAmount(value) !== null
+    ));
+    if (!liquidEntry) return;
+
+    worker.found = true;
+    worker.amount += parseVismaAmount(liquidEntry[1]);
+  });
+
+  const issues = [...workers.values()]
+    .filter((worker) => !worker.found)
+    .map(({ found, amount, ...worker }) => ({
+      ...worker,
+      issue: 'No se encontró un valor de líquido para generar el concepto obligatorio totalesEmpl.',
+    }));
+
+  return { checked: workers.size, valid: issues.length === 0, issues };
+}
+
 export function validateVismaHistoricalInstitutions({ sourceRows, decisions, institutions = [], employeeCatalog = [], employeeIds = null, manualInstitutionMappings = {} }) {
   const employees = new Map(employeeCatalog.map((employee) => [normalizeEmployeeKey(employee.id), employee]));
   const selectedEmployeeKeys = employeeIds ? new Set(employeeIds.map(normalizeEmployeeKey)) : null;
@@ -311,6 +353,60 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         0,
       ]);
     });
+  });
+
+  const netPayValidation = validateVismaHistoricalNetPay({ sourceRows, employeeIds });
+  if (netPayValidation.issues.length) {
+    throw new Error(`Falta el líquido de pago para ${netPayValidation.issues.length} trabajador(es); no se puede generar totalesEmpl.`);
+  }
+
+  const netPayByEmployee = new Map();
+  sourceRows.forEach((sourceRow) => {
+    const employeeKey = normalizeEmployeeKey(sourceRow.RUT);
+    if (!employeeKey || (selectedEmployeeKeys && !selectedEmployeeKeys.has(employeeKey))) return;
+
+    const liquidEntry = Object.entries(sourceRow).find(([header, value]) => (
+      LIQUIDO_HEADERS.has(normalizeText(stripDuplicateHeaderSuffix(header)))
+      && parseVismaAmount(value) !== null
+    ));
+    if (!liquidEntry) return;
+
+    const employee = employeeMap.get(employeeKey);
+    if (!employee?.contract) {
+      throw new Error('Hay trabajadores sin contratoActi válido en el maestro; no se puede generar el archivo con seguridad.');
+    }
+
+    const existing = netPayByEmployee.get(employeeKey);
+    if (existing) {
+      existing.amount += parseVismaAmount(liquidEntry[1]);
+      return;
+    }
+    netPayByEmployee.set(employeeKey, { sourceRow, employee, amount: parseVismaAmount(liquidEntry[1]) });
+  });
+
+  netPayByEmployee.forEach(({ sourceRow, employee, amount }, employeeKey) => {
+    rowsByKey.set(`${employeeKey}::totalesempl`, [
+      period || extractPeriodFromRow(sourceRow) || '',
+      normalizeEmployeeId(employee.id),
+      employee.contract,
+      'totalesEmpl',
+      amount,
+      0,
+      '',
+      0,
+      0,
+      parseDays(sourceRow['Días Trabajados']),
+      'x',
+      companyId,
+      0,
+      0,
+      0,
+      'C',
+      0,
+      0,
+      0,
+      0,
+    ]);
   });
 
   const headers = resource?.headers?.length === LIQUIDATION_HEADERS.length || resource?.headers?.length === LEGACY_LIQUIDATION_HEADERS.length
