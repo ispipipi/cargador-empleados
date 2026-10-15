@@ -10,6 +10,7 @@ const AFP_CONCEPT_IDS = new Set([
   'afp', 'afpahor', 'afpahorrootra', 'afprebaja', 'apvi', 'afpreliquida', 'reliquidaafp',
   'aporteafpemp', 'aporteafpreliquida', 'reliquidaaporteafp', 'ley21227afp', 'eximidaleyafp',
   'sis', 'sispago', 'sisreliquida', 'reliquidasis', 'trabajopesa', 'trabajopesaempl', 'reliquidatrabpesa',
+  'cesempleado', 'reliquidacesempleado', 'cesaportesol', 'reliquidacesol', 'cessolreliquida',
 ]);
 
 const HEALTH_CONCEPT_IDS = new Set(['isapre', 'isaprereliquida', 'reliquidaisapre', 'ley21227salud']);

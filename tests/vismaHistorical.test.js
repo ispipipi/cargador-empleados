@@ -117,6 +117,45 @@ test('manual institution matches unblock validation and export the selected cata
   assert.match(csv, /2025-12;12345678-5;1;isapre;42000;0;nuevamasvida/);
 });
 
+test('exports AFP contribution and AFP institution for unemployment concepts', () => {
+  const row = {
+    RUT: '12345678-5',
+    'Días Trabajados': 30,
+    AFP: 'PROVIDA',
+    'Cotización AFP %': '',
+    AFP_OBLIGATORIA: 50000,
+    CESANTIA_EMPLEADO: 3000,
+    CESANTIA_SOLIDARIA: 5000,
+  };
+  const decisions = [
+    { sourceKey: 'AFP_OBLIGATORIA', sourceName: 'AFP', targetId: 'afp', targetName: 'AFP', approved: true, excluded: false },
+    { sourceKey: 'CESANTIA_EMPLEADO', sourceName: 'Seguro cesantía', targetId: 'cesEmpleado', targetName: 'Seguro cesantía', approved: true, excluded: false },
+    { sourceKey: 'CESANTIA_SOLIDARIA', sourceName: 'Seguro cesantía solidario', targetId: 'cesAporteSol', targetName: 'Seguro cesantía solidario', approved: true, excluded: false },
+  ];
+  const employeeCatalog = [{ id: '12345678-5', contract: '1' }];
+  const resource = {
+    companies: [{ id: '1', name: 'Frutícola' }],
+    institutions: [{ id: 'provida', name: 'AFP Provida' }],
+    headers: LIQUIDATION_HEADERS,
+  };
+  const validation = validateVismaHistoricalInstitutions({
+    sourceRows: [row], decisions, institutions: resource.institutions, employeeCatalog,
+  });
+
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.issues, []);
+
+  const records = buildVismaHistoricalCsv({
+    sourceRows: [row], decisions, period: '2026-02', resource, employeeCatalog,
+  }).replace(/^\uFEFF/, '').trim().split(/\r?\n/).slice(1).map((line) => line.split(';'));
+
+  assert.deepEqual(records.map((record) => [record[3], record[6], record[7]]), [
+    ['afp', 'provida', '10'],
+    ['cesEmpleado', 'provida', '0'],
+    ['cesAporteSol', 'provida', '0'],
+  ]);
+});
+
 test('manual institution matches persist separately for each origin, destination, and company scope', () => {
   const originalWindow = globalThis.window;
   const values = new Map();

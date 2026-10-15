@@ -296,7 +296,7 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
         amount,
         0,
         institution.id,
-        '',
+        resolveVismaRetirementContributionRate(decision.targetId, sourceRow),
         0,
         parseDays(sourceRow['Días Trabajados']),
         'x',
@@ -320,6 +320,17 @@ export function buildVismaHistoricalCsv({ sourceRows, decisions, period, resourc
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...outputRows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false });
   return `\uFEFF${csv}`;
+}
+
+function resolveVismaRetirementContributionRate(conceptId, sourceRow) {
+  const normalizedId = normalizeText(conceptId).replace(/[^a-z0-9]+/g, '');
+  const explicitRate = Object.entries(sourceRow ?? {}).find(([key]) => (
+    /porcentaje.*afp|cotizacion.*afp.*%|afp coti/.test(normalizeText(key))
+  ));
+  const parsedRate = explicitRate ? parseVismaAmount(explicitRate[1]) : null;
+  if (parsedRate !== null) return parsedRate;
+  if (['afp', 'comisionafp', 'reliquidaafp'].includes(normalizedId)) return 10;
+  return 0;
 }
 
 export function buildVismaHistoricalReportRows(decisions) {
