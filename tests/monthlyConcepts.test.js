@@ -216,7 +216,7 @@ test('applies confirmed Unilode mappings only to Unilode and excludes legal form
     ['PRESTAMO EMPRESA', 'prestamoEmpresa'],
     ['HORAS EXTRAS NORMALES AL 50', 'horasEx50'],
     ['HORAS EXTRAS AL 100', 'horasEx100'],
-    ['HORAS NO TRABAJADAS', 'atraso'],
+    ['HORAS NO TRABAJADAS', 'minatrasos'],
     ['ASIGNACIÓN TELÉFONO', 'asigtelefono'],
     ['COLACION MES', 'colacion'],
     ['MOVILIZACION', 'movilizacion'],

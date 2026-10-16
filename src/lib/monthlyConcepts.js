@@ -61,7 +61,7 @@ const UNILODE_CONCEPT_ALIASES = new Map([
   ['prestamo empresa', { targetId: 'prestamoEmpresa', targetName: 'Prestamo Empresa' }],
   ['horas extras normales al 50', { targetId: 'horasEx50', targetName: 'Horas Extras 50%' }],
   ['horas extras al 100', { targetId: 'horasEx100', targetName: 'Horas Extras 100%' }],
-  ['horas no trabajadas', { targetId: 'atraso', targetName: 'Descuento por atraso' }],
+  ['horas no trabajadas', { targetId: 'minatrasos', targetName: 'Min Atrasos' }],
   ['asignacion telefono', { targetId: 'asigtelefono', targetName: 'ASIGNACIÓN TELÉFONO' }],
   ['colacion mes', { targetId: 'colacion', targetName: 'Colacion' }],
   ['movilizacion', { targetId: 'movilizacion', targetName: 'Movilizacion' }],
