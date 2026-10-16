@@ -13,6 +13,7 @@ import TalanaHistoricalMapper from '../components/TalanaHistoricalMapper';
 import VismaEmployeesReview from '../components/VismaEmployeesReview';
 import VismaMastersReview from '../components/VismaMastersReview';
 import VismaSidebar from '../components/VismaSidebar';
+import MonthlyConceptsFlow from '../components/MonthlyConceptsFlow';
 import { VismaWorkspaceProvider } from '../components/VismaWorkspaceProvider';
 
 const ART_BPO_LOGO_PATH = `${import.meta.env.BASE_URL}branding/artbpo-logo.png`;
@@ -24,6 +25,7 @@ export default function AppFlowContent({ app }) {
     busyState,
     isVismaMastersFlow,
     isVismaEmployeesFlow,
+    isMonthlyConceptsFlow,
     originLabel,
     destinationLabel,
     selectedOrigin,
@@ -173,7 +175,7 @@ export default function AppFlowContent({ app }) {
                     <p className="font-bold uppercase tracking-[0.16em] text-slate-500">TMF Group</p>
                     <p className="mt-1 font-semibold text-slate-900">
                     {selectedOrigin} → {destinationLabel}
-                    {isConceptsFlow || isHistoricalConceptsFlow ? ` · ${mappingScope.company.toUpperCase()}` : ''}
+                    {isConceptsFlow || isHistoricalConceptsFlow || isMonthlyConceptsFlow ? ` · ${mappingScope.company.toUpperCase()}` : ''}
                     </p>
                   </div>
                 </div>
@@ -216,6 +218,8 @@ export default function AppFlowContent({ app }) {
                   ? STEPS.vismaMastersReview
                 : isVismaEmployeesFlow
                   ? STEPS.vismaEmployeesReview
+                  : isMonthlyConceptsFlow
+                    ? STEPS.monthlyConcepts
                   : STEPS.upload,
             )}
             templateStatus={templateStatus}
@@ -263,6 +267,16 @@ export default function AppFlowContent({ app }) {
                   }
                 : null);
             }}
+          />
+        ) : null}
+
+        {step === STEPS.monthlyConcepts && isMonthlyConceptsFlow ? (
+          <MonthlyConceptsFlow
+            mappingCompany={mappingCompany}
+            mappingScope={mappingScope}
+            conceptCatalog={conceptsResource?.concepts ?? []}
+            onCompanyChange={setMappingCompany}
+            onBack={() => setStep(STEPS.format)}
           />
         ) : null}
 

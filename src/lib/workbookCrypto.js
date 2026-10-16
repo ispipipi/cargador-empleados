@@ -20,7 +20,7 @@ async function loadOfficeCrypto() {
 }
 
 export async function isEncryptedWorkbook(arrayBuffer) {
-  if (isHtmlWorkbook(arrayBuffer)) {
+  if (isHtmlWorkbook(arrayBuffer) || isZipWorkbook(arrayBuffer)) {
     return false;
   }
 
@@ -29,7 +29,7 @@ export async function isEncryptedWorkbook(arrayBuffer) {
 }
 
 export async function decryptWorkbook(arrayBuffer, password) {
-  if (isHtmlWorkbook(arrayBuffer)) {
+  if (isHtmlWorkbook(arrayBuffer) || isZipWorkbook(arrayBuffer)) {
     return arrayBuffer;
   }
 
@@ -81,4 +81,9 @@ function isHtmlWorkbook(arrayBuffer) {
     .trimStart();
 
   return /^(?:<!doctype\s+html\b|<html\b|<table\b)/i.test(prefix);
+}
+
+function isZipWorkbook(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer).subarray(0, 2);
+  return bytes[0] === 0x50 && bytes[1] === 0x4b;
 }

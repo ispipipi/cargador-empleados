@@ -577,6 +577,14 @@ export function createAppUploadActions(context) {
       return;
     }
 
+    if (moduleId === 'carga-mensual') {
+      setSelectedOrigin('visma');
+      setSelectedDestination('rex');
+      setMappingCompany('Rauda');
+      setGlobalError('');
+      return;
+    }
+
     if (moduleId === 'talana-libros-historicos') {
       setSelectedOrigin('talana');
       setSelectedDestination('buk');

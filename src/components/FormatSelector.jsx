@@ -42,6 +42,15 @@ const MODULE_GROUPS = [
     instruction: 'Usa este grupo para revisar el catálogo de conceptos y definir qué conceptos deben reutilizarse o crearse.',
     modules: ['conceptos'],
   },
+  {
+    id: 'mensual',
+    number: '04',
+    name: 'Carga mensual',
+    eyebrow: 'Remuneraciones del período',
+    description: 'Prepara los conceptos mensuales de Visma para importarlos en REX+.',
+    instruction: 'Usa este grupo para seleccionar la URL, revisar el libro del mes y descargar el CSV de Conceptos Detalle.',
+    modules: ['carga-mensual'],
+  },
 ];
 
 const MODULE_OPTIONS = [
@@ -108,6 +117,15 @@ const MODULE_OPTIONS = [
     instruction: 'Usa los catálogos guardados para encontrar matches, proponer altas y generar el archivo de importación de conceptos.',
     actionLabel: 'Abrir mapeo de conceptos',
   },
+  {
+    id: 'carga-mensual',
+    group: 'mensual',
+    number: '01',
+    name: 'Conceptos mensuales',
+    detail: 'Visma → REX+ Conceptos Detalle',
+    instruction: 'Carga libro Visma, matriz, template y maestro de contratos. Revisa cada concepto con monto y genera el CSV en el formato de REX+.',
+    actionLabel: 'Preparar carga mensual',
+  },
 ];
 
 const CONCEPT_CATALOG_MODULES = ['conceptos', 'conceptos-historicos', 'libros-historicos', 'talana-libros-historicos'];
@@ -159,7 +177,7 @@ export default function FormatSelector({
   };
   const needsMappingCompany = hasModuleSelection && CONCEPT_CATALOG_MODULES.includes(activeModule.id);
   const pairLabel = hasModuleSelection ? `${selectedOrigin} → ${selectedDestination}` : 'Selecciona una solución';
-  const canContinue = hasModuleSelection && templateReady && isSupportedPair;
+  const canContinue = hasModuleSelection && (activeModule.id === 'carga-mensual' || templateReady) && isSupportedPair;
 
   useEffect(() => {
     const nextModule = MODULE_OPTIONS.find((module) => module.id === selectedModule);

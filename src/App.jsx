@@ -60,6 +60,7 @@ const STEPS = {
   talanaHistoricalReview: 'talana-historical-review',
   vismaMastersReview: 'visma-masters-review',
   vismaEmployeesReview: 'visma-employees-review',
+  monthlyConcepts: 'monthly-concepts',
 };
 
 const SUPPORTED_PAIRS = new Set(['talana:buk', 'meta4:rex']);
@@ -163,9 +164,10 @@ export default function App() {
   const isTalanaHistoricalFlow = selectedModule === 'talana-libros-historicos';
   const isVismaMastersFlow = selectedModule === 'visma-maestros';
   const isVismaEmployeesFlow = selectedModule === 'visma-empleados';
+  const isMonthlyConceptsFlow = selectedModule === 'carga-mensual';
   const vismaCatalogScopeLabel = VISMA_CATALOG_SCOPES.find((scope) => scope.id === vismaCatalogScope)?.label ?? vismaCatalogScope;
   const showVismaSidebar = isVismaMastersFlow || isVismaEmployeesFlow || isVismaHistoricalFlow;
-  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isTalanaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || SUPPORTED_PAIRS.has(pairKey);
+  const isSupportedPair = isHistoricalConceptsFlow || isVismaHistoricalFlow || isTalanaHistoricalFlow || isVismaMastersFlow || isVismaEmployeesFlow || isMonthlyConceptsFlow || SUPPORTED_PAIRS.has(pairKey);
   const visibleSessions = useMemo(() => mergeSessionLists(sessions, cloudSessions), [cloudSessions, sessions]);
   const colaboradoresFieldDefinitions = useMemo(() => getBukColaboradoresFieldDefinitions(), []);
   const activeParameterDefinitions = useMemo(
@@ -217,9 +219,10 @@ export default function App() {
       loadCloudMappings(authUser, 'concepts'),
       loadCloudMappings(authUser, 'historical-concepts'),
       loadCloudMappings(authUser, 'visma-historical'),
+      loadCloudMappings(authUser, 'monthly-visma-rex'),
       loadCloudConceptCatalog(authUser),
     ])
-      .then(([storedCloudSessions, conceptsMappings, historicalMappings, vismaHistoricalMappings, cloudConceptCatalog]) => {
+      .then(([storedCloudSessions, conceptsMappings, historicalMappings, vismaHistoricalMappings, monthlyMappings, cloudConceptCatalog]) => {
         if (!isMounted) {
           return;
         }
@@ -237,6 +240,10 @@ export default function App() {
           ...vismaHistoricalMappings,
           ...(localMemory['visma-historical'] ?? {}),
         };
+        const mergedMonthlyMappings = {
+          ...monthlyMappings,
+          ...(localMemory['monthly-visma-rex'] ?? {}),
+        };
         const localConceptCatalog = loadConceptCatalogMemory();
         const conceptCatalog = cloudConceptCatalog?.length ? cloudConceptCatalog : localConceptCatalog;
 
@@ -244,6 +251,7 @@ export default function App() {
         mergeStoredMappingEntries('concepts', mergedConceptsMappings);
         mergeStoredMappingEntries('historical-concepts', mergedHistoricalMappings);
         mergeStoredMappingEntries('visma-historical', mergedVismaHistoricalMappings);
+        mergeStoredMappingEntries('monthly-visma-rex', mergedMonthlyMappings);
 
         if (conceptCatalog?.length) {
           saveConceptCatalogMemory(conceptCatalog);
@@ -254,6 +262,7 @@ export default function App() {
           saveCloudMappings(authUser, 'concepts', mergedConceptsMappings),
           saveCloudMappings(authUser, 'historical-concepts', mergedHistoricalMappings),
           saveCloudMappings(authUser, 'visma-historical', mergedVismaHistoricalMappings),
+          saveCloudMappings(authUser, 'monthly-visma-rex', mergedMonthlyMappings),
           ...(conceptCatalog?.length ? [saveCloudConceptCatalog(authUser, conceptCatalog)] : []),
         ]);
       })
@@ -652,6 +661,7 @@ export default function App() {
         busyState,
         isVismaMastersFlow,
         isVismaEmployeesFlow,
+        isMonthlyConceptsFlow,
         originLabel,
         destinationLabel,
         selectedOrigin,
