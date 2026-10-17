@@ -4,20 +4,16 @@ import {
   buildConceptExportWorkbook,
 } from '../lib/concepts';
 import {
-  buildHistoricalConceptModel,
-  buildHistoricalReconciliation,
   buildHistoricalReconciliationRows,
   buildHistoricalRexLiquidationCsv,
   buildHistoricalReportRows,
   getHistoricalEmployeeIds,
   HISTORICAL_FUNCTIONS,
   summarizeHistoricalDecisions,
-  validateHistoricalEmployees,
-  validateHistoricalRexLiquidationRows,
 } from '../lib/historicalConcepts';
-import { buildHistoricalNegativeDiscountCsv, findHistoricalNegativeDiscounts } from '../lib/historicalConcepts/negativeDiscounts';
+import { buildHistoricalNegativeDiscountCsv } from '../lib/historicalConcepts/negativeDiscounts';
 import { normalizeText } from '../lib/utils';
-import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
+import useHistoricalConceptReview from '../lib/useHistoricalConceptReview.js';
 import HistoricalConceptsExportPanel from './HistoricalConceptsExportPanel';
 import HistoricalNegativeDiscountsPanel from './HistoricalNegativeDiscountsPanel';
 import HistoricalConceptsReviewPanel from './HistoricalConceptsReviewPanel';
@@ -38,7 +34,6 @@ import {
 
 const CREATE_VALUE = '__create__';
 const BATCH_KEY = 'meta4-rex-concepts';
-const EMPTY_NEGATIVE_DISCOUNT_REVIEW = { details: [], employeeIds: [], employeeCount: 0, negativeRowCount: 0 };
 
 export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, employeeCatalogOverride, employeeMasterFileName, mappingScope, batchState, onBatchStateChange, onBack, onOpenMissingEmployees, onBusyChange }) {
   const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
@@ -47,9 +42,6 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     [conceptsResource, isFinningCatalog],
   );
   const fullConcepts = useMemo(() => conceptsResource?.concepts ?? [], [conceptsResource]);
-  const [model, setModel] = useState(null);
-  const [decisions, setDecisions] = useState([]);
-  const [isBuilding, setIsBuilding] = useState(true);
   const [isPreparing, setIsPreparing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -65,77 +57,35 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       : conceptsResource?.employeeCatalog ?? []),
     [conceptsResource, employeeCatalogOverride, isFinningCatalog],
   );
-
-  useEffect(() => {
-    let active = true;
-    setIsBuilding(true);
-    onBusyChange?.(true);
-
-    const timerId = window.setTimeout(() => {
-      const nextModel = buildHistoricalConceptModel({
-        sourceRows: sourceFile.rows,
-        sourceHeaders: sourceFile.headers,
-        concepts: fullConcepts,
-        historicalConcepts: concepts,
-        mappingRows: conceptsResource?.mappingRows ?? [],
-        employeeCatalog,
-        mappingScope,
-      });
-      const storedDecisions = nextModel.decisions.map((decision) => {
-        if (decision.excluded) {
-          return decision;
-        }
-
-        const storedDecision = applyStoredHistoricalMapping(
-          'historical-concepts',
-          decision,
-          { concepts: nextModel.catalog, scope: mappingScope, strictCatalog: true },
-        );
-
-        // Earlier versions stored automatic exclusions for employer concepts.
-        return storedDecision.excluded ? decision : storedDecision;
-      });
-
-      if (!active) {
-        return;
-      }
-
-      setModel(nextModel);
-      setDecisions(storedDecisions);
-      setExportGroup('all');
-      setExportSelectedIds(storedDecisions
-        .filter(canIncludeInHistoricalOutput)
-        .map((decision) => decision.id));
-      setIsBuilding(false);
-      onBusyChange?.(false);
-    }, 60);
-
-    return () => {
-      active = false;
-      window.clearTimeout(timerId);
-      onBusyChange?.(false);
-    };
-  }, [concepts, conceptsResource, employeeCatalog, fullConcepts, mappingScope, onBusyChange, sourceFile]);
-
-  useEffect(() => {
-    onBusyChange?.(isBuilding || isPreparing);
-  }, [isBuilding, isPreparing, onBusyChange]);
-
-  useEffect(() => {
-    rememberConceptMappings('historical-concepts', decisions, mappingScope);
-  }, [decisions, mappingScope]);
-
+  const historical = useHistoricalConceptReview({
+    concepts,
+    conceptsResource,
+    fullConcepts,
+    employeeCatalog,
+    isFinningCatalog,
+    mappingScope,
+    sourceFile,
+    exportSelectedIds,
+    setExportSelectedIds,
+    setExportGroup,
+    isPreparing,
+    onBusyChange,
+  });
+  const {
+    model,
+    decisions,
+    setDecisions,
+    isBuilding,
+    isValidating,
+    buildError,
+    retryBuild,
+    negativeDiscountReview,
+    employeeValidation,
+    selectedExportDecisions,
+    reconciliation,
+    rexValidation,
+  } = historical;
   const summary = summarizeHistoricalDecisions(decisions);
-  const negativeDiscountReview = useMemo(
-    () => (isFinningCatalog
-      ? findHistoricalNegativeDiscounts({ sourceRows: sourceFile.rows, decisions })
-      : EMPTY_NEGATIVE_DISCOUNT_REVIEW),
-    [decisions, isFinningCatalog, sourceFile.rows],
-  );
-  const employeeValidation = useMemo(
-    () => validateHistoricalEmployees(sourceFile.rows, employeeCatalog, mappingScope, negativeDiscountReview.employeeIds),
-    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, sourceFile.rows],
-  );
   useEffect(() => {
     setPreparedBatch(null);
   }, [exportGroup, exportSelectedIds, mappingScope, negativeDiscountReview.employeeIds, sourceFile]);
@@ -146,10 +96,6 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       .sort((left, right) => (left.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER) - (right.sourceColumnIndex ?? Number.MAX_SAFE_INTEGER)),
     [decisions, exportGroup],
   );
-  const selectedExportDecisions = useMemo(
-    () => decisions.filter((decision) => exportSelectedIds.includes(decision.id)),
-    [decisions, exportSelectedIds],
-  );
   const selectedExportIdsInGroup = useMemo(
     () => exportGroupDecisions.map((decision) => decision.id).filter((id) => exportSelectedIds.includes(id)),
     [exportGroupDecisions, exportSelectedIds],
@@ -159,28 +105,6 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     .every((decision) => exportSelectedIds.includes(decision.id));
   const selectedExportPending = selectedExportDecisions.filter((decision) => !canIncludeInHistoricalOutput(decision));
   const unresolvedDecisions = decisions.filter((decision) => !decision.excluded && !canIncludeInHistoricalOutput(decision));
-  const reconciliation = useMemo(
-    () => buildHistoricalReconciliation({
-      sourceRows: sourceFile.rows,
-      sourceHeaders: sourceFile.headers,
-      decisions: selectedExportDecisions,
-      employeeCatalog,
-      mappingScope,
-      additionalExcludedEmployeeIds: negativeDiscountReview.employeeIds,
-    }),
-    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, selectedExportDecisions, sourceFile.headers, sourceFile.rows],
-  );
-  const rexValidation = useMemo(
-    () => validateHistoricalRexLiquidationRows({
-      sourceRows: sourceFile.rows,
-      decisions: selectedExportDecisions,
-      employeeCatalog,
-      mappingScope,
-      period: sourceFile.period,
-      excludedEmployeeIds: negativeDiscountReview.employeeIds,
-    }),
-    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, selectedExportDecisions, sourceFile.period, sourceFile.rows],
-  );
   const hasReconciliationBlockers = reconciliation.source.status !== 'ok';
   const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0 || hasReconciliationBlockers || !rexValidation.valid;
   const completedEmployeeIds = useMemo(
@@ -517,6 +441,19 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     }
   };
 
+  if (buildError) {
+    return (
+      <section className="panel p-8" role="alert">
+        <p className="text-sm font-semibold uppercase tracking-[0.28em] text-rose-700">Paso 3 · Análisis detenido</p>
+        <h2 className="mt-3 text-3xl font-extrabold text-slate-950">No se pudo analizar el libro</h2>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">{buildError}</p>
+        <button type="button" onClick={retryBuild} className="mt-6 rounded-full bg-brand-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-800">
+          Reintentar análisis
+        </button>
+      </section>
+    );
+  }
+
   if (isBuilding || !model) {
     return (
       <section className="panel p-8">
@@ -529,7 +466,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           <span className="loader-orb h-3 w-3 rounded-full bg-sky-500" />
           <span className="loader-orb h-3 w-3 rounded-full bg-cyan-500" />
           <span className="loader-orb h-3 w-3 rounded-full bg-emerald-500" />
-          Trabajando con {sourceFile.rows.length.toLocaleString('es-CL')} colaboradores…
+          {isValidating
+            ? 'Validando colaboradores, instituciones y cuadratura…'
+            : `Trabajando con ${sourceFile.rows.length.toLocaleString('es-CL')} filas…`}
         </div>
       </section>
     );
