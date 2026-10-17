@@ -1,4 +1,4 @@
-import { cleanCell, normalizeText } from '../utils';
+import { cleanCell, normalizeText } from '../utils.js';
 
 export const REX_LIQUIDATION_HEADERS = [
   'Fecha de proceso',
@@ -43,6 +43,10 @@ const AFP_INSTITUTION_IDS = [
 
 export function resolveInstitutionId(conceptId, sourceRow) {
   const normalizedConceptId = normalizeText(conceptId).replace(/[^a-z0-9]+/g, '');
+
+  if (normalizedConceptId === 'aportefappcev') {
+    return 'seguridadsocial';
+  }
 
   if (LOS_ANDES_CONCEPT_IDS.has(normalizedConceptId)) {
     return 'losandes';

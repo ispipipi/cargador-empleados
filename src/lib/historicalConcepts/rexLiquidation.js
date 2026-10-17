@@ -6,6 +6,7 @@ import {
   getSourceEmployeeId,
   LOS_ANDES_CONCEPT_IDS,
   normalizeEmployeeId,
+  resolveInstitutionId,
   resolveAfpInstitutionId,
   REX_LIQUIDATION_HEADERS,
 } from './support';
@@ -162,6 +163,7 @@ export function validateHistoricalRexLiquidationRows(options) {
     'afp', 'comisionafp', 'reliquidaafp', 'isapre', 'reliquidaisapre', 'apvi',
     'cesempleado', 'reliquidacesempleado', 'sis', 'sispago', 'mutual', 'reliquidamutual',
     'trabajopesa', 'trabajopesaempl', 'reliquidatrabpesa', 'cajaahor', 'cajacred', 'cajasegu',
+    'aportefappcev',
   ]);
   const issues = [];
 
@@ -263,6 +265,7 @@ function resolveCotizacionJubilacion(targetId, sourceRow, employee) {
 
 function resolveRexInstitutionId(targetId, sourceRow, employee) {
   const normalizedTargetId = normalizeText(targetId).replace(/[^a-z0-9]+/g, '');
+  if (normalizedTargetId === 'aportefappcev') return resolveInstitutionId(targetId, sourceRow);
   if (LOS_ANDES_CONCEPT_IDS.has(normalizedTargetId)) return 'losandes';
   if (['afp', 'comisionafp', 'reliquidaafp', 'sis', 'sispago', 'cesempleado', 'reliquidacesempleado', 'trabajopesa', 'trabajopesaempl', 'reliquidatrabpesa'].includes(normalizedTargetId)) {
     return resolveAfpInstitutionId(employee.afp || firstSourceValue(sourceRow, ['AFP', 'CODIGO AFP']));
