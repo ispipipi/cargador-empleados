@@ -58,8 +58,9 @@ export function buildHistoricalRexLiquidationWorkbook({
   mappingScope,
   period = '',
   employeeIds = null,
+  excludedEmployeeIds = [],
 }) {
-  const rows = buildHistoricalRexLiquidationRows({ sourceRows, decisions, employeeCatalog, mappingScope, period, employeeIds });
+  const rows = buildHistoricalRexLiquidationRows({ sourceRows, decisions, employeeCatalog, mappingScope, period, employeeIds, excludedEmployeeIds });
   const workbook = {
     ...templateWorkbook,
     SheetNames: [...(templateWorkbook?.SheetNames ?? [])],
@@ -79,8 +80,9 @@ export function buildHistoricalRexLiquidationCsv({
   mappingScope,
   period = '',
   employeeIds = null,
+  excludedEmployeeIds = [],
 }) {
-  const rows = buildHistoricalRexLiquidationRows({ sourceRows, decisions, employeeCatalog, mappingScope, period, employeeIds });
+  const rows = buildHistoricalRexLiquidationRows({ sourceRows, decisions, employeeCatalog, mappingScope, period, employeeIds, excludedEmployeeIds });
   const sheet = XLSX.utils.aoa_to_sheet([REX_LIQUIDATION_HEADERS, ...rows]);
   const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\r\n', blankrows: false });
 
@@ -94,16 +96,18 @@ export function buildHistoricalRexLiquidationRows({
   mappingScope,
   period = '',
   employeeIds = null,
+  excludedEmployeeIds = [],
 }) {
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const selectedEmployeeIds = employeeIds ? new Set([...employeeIds].map(normalizeEmployeeId)) : null;
+  const additionalExcludedIds = new Set([...excludedEmployeeIds].map(normalizeEmployeeId));
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
   const outputByKey = new Map();
 
   sourceRows.forEach((sourceRow) => {
     const employeeId = getSourceEmployeeId(sourceRow);
     const employee = employeeById.get(employeeId);
-    if (!employee || (selectedEmployeeIds && !selectedEmployeeIds.has(employeeId))) {
+    if (!employee || additionalExcludedIds.has(employeeId) || (selectedEmployeeIds && !selectedEmployeeIds.has(employeeId))) {
       return;
     }
 

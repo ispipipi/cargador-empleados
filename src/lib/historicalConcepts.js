@@ -193,7 +193,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
  * prediction of REX+'s final payroll calculation: REX+ may recalculate
  * contractual, statutory and tax concepts from the employee contract.
  */
-export function buildHistoricalReconciliation({ sourceRows = [], sourceHeaders = [], decisions = [], employeeCatalog = [], mappingScope, selectedDecisionIds = null }) {
+export function buildHistoricalReconciliation({ sourceRows = [], sourceHeaders = [], decisions = [], employeeCatalog = [], mappingScope, selectedDecisionIds = null, additionalExcludedEmployeeIds = [] }) {
   const sourceHeadersByKey = new Map((sourceHeaders ?? []).map((header) => [historicalHeaderKey(header), header]));
   const totalHaberesHeader = resolveHistoricalHeader(sourceHeadersByKey, ['TOTAL_HABERES', 'TOTAL HABERES', 'TOTAL DE HABERES']);
   const totalDescuentosHeader = resolveHistoricalHeader(sourceHeadersByKey, ['TOTAL_DESCUENTOS', 'TOTAL DESCUENTOS']);
@@ -201,6 +201,7 @@ export function buildHistoricalReconciliation({ sourceRows = [], sourceHeaders =
   const selectedIds = selectedDecisionIds ? new Set(selectedDecisionIds) : null;
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const additionallyExcludedIds = new Set(additionalExcludedEmployeeIds.map(normalizeEmployeeId));
   const includedDecisions = decisions.filter((decision) =>
     decision.approved && !decision.excluded && decision.targetId && (!selectedIds || selectedIds.has(decision.id)),
   );
@@ -255,7 +256,7 @@ export function buildHistoricalReconciliation({ sourceRows = [], sourceHeaders =
         hasAllTotals,
       };
     })
-    .filter((row) => row.employeeId || row.hasAllTotals);
+    .filter((row) => (row.employeeId || row.hasAllTotals) && !additionallyExcludedIds.has(row.employeeId));
 
   const rowsWithTotals = rows.filter((row) => row.hasAllTotals);
   const incompleteRows = rows.filter((row) => !row.hasAllTotals);
@@ -376,15 +377,18 @@ export function buildHistoricalDetailCsv({ sourceRows, decisions, employeeCatalo
   return `\uFEFF${csv}`;
 }
 
-export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [], mappingScope }) {
+export function getHistoricalEmployeeIds({ sourceRows, decisions, employeeCatalog = [], mappingScope, additionalExcludedEmployeeIds = [] }) {
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
-  const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const additionallyExcludedIds = new Set([
+    ...getExcludedHistoricalEmployeeIds(mappingScope),
+    ...additionalExcludedEmployeeIds,
+  ].map(normalizeEmployeeId));
   const eligibleIds = new Set();
   const approvedDecisions = decisions.filter((decision) => decision.approved && !decision.excluded && decision.targetId);
 
   sourceRows.forEach((sourceRow) => {
     const sourceEmployeeId = getSourceEmployeeId(sourceRow);
-    if (!sourceEmployeeId || excludedEmployeeIds.has(sourceEmployeeId) || !employeeById.has(sourceEmployeeId)) {
+    if (!sourceEmployeeId || additionallyExcludedIds.has(sourceEmployeeId) || !employeeById.has(sourceEmployeeId)) {
       return;
     }
 
@@ -445,17 +449,23 @@ export function summarizeHistoricalDecisions(decisions) {
   };
 }
 
-export function validateHistoricalEmployees(sourceRows, employeeCatalog = [], mappingScope) {
+export function validateHistoricalEmployees(sourceRows, employeeCatalog = [], mappingScope, additionalExcludedEmployeeIds = []) {
   const employeeById = new Map(employeeCatalog.map((employee) => [normalizeEmployeeId(employee.id), employee]));
   const excludedEmployeeIds = getExcludedHistoricalEmployeeIds(mappingScope);
+  const negativeDiscountEmployeeIds = new Set(additionalExcludedEmployeeIds.map(normalizeEmployeeId));
   const missing = [];
   const seen = new Set();
   let excludedCount = 0;
+  let negativeDiscountExcludedRows = 0;
 
   sourceRows.forEach((sourceRow) => {
     const sourceId = getSourceEmployeeId(sourceRow);
     if (excludedEmployeeIds.has(sourceId)) {
       excludedCount += 1;
+      return;
+    }
+    if (negativeDiscountEmployeeIds.has(sourceId)) {
+      negativeDiscountExcludedRows += 1;
       return;
     }
 
@@ -470,10 +480,11 @@ export function validateHistoricalEmployees(sourceRows, employeeCatalog = [], ma
   });
 
   return {
-    total: sourceRows.length - excludedCount,
-    matched: sourceRows.length - excludedCount - missing.length,
+    total: sourceRows.length - excludedCount - negativeDiscountExcludedRows,
+    matched: sourceRows.length - excludedCount - negativeDiscountExcludedRows - missing.length,
     missing,
     excludedCount,
+    negativeDiscountExcludedRows,
   };
 }
 

@@ -12,11 +12,14 @@ import {
   getHistoricalEmployeeIds,
   HISTORICAL_FUNCTIONS,
   summarizeHistoricalDecisions,
+  validateHistoricalEmployees,
   validateHistoricalRexLiquidationRows,
 } from '../lib/historicalConcepts';
+import { buildHistoricalNegativeDiscountCsv, findHistoricalNegativeDiscounts } from '../lib/historicalConcepts/negativeDiscounts';
 import { normalizeText } from '../lib/utils';
 import { applyStoredHistoricalMapping, rememberConceptMappings } from '../lib/sessionPersistence';
 import HistoricalConceptsExportPanel from './HistoricalConceptsExportPanel';
+import HistoricalNegativeDiscountsPanel from './HistoricalNegativeDiscountsPanel';
 import HistoricalConceptsReviewPanel from './HistoricalConceptsReviewPanel';
 import {
   buildHistoricalLoadFileName,
@@ -35,6 +38,7 @@ import {
 
 const CREATE_VALUE = '__create__';
 const BATCH_KEY = 'meta4-rex-concepts';
+const EMPTY_NEGATIVE_DISCOUNT_REVIEW = { details: [], employeeIds: [], employeeCount: 0, negativeRowCount: 0 };
 
 export default function HistoricalConceptsMapper({ conceptsResource, sourceFile, employeeCatalogOverride, employeeMasterFileName, mappingScope, batchState, onBatchStateChange, onBack, onOpenMissingEmployees, onBusyChange }) {
   const isFinningCatalog = !mappingScope || mappingScope.company === 'finning';
@@ -121,12 +125,20 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
     rememberConceptMappings('historical-concepts', decisions, mappingScope);
   }, [decisions, mappingScope]);
 
+  const summary = summarizeHistoricalDecisions(decisions);
+  const negativeDiscountReview = useMemo(
+    () => (isFinningCatalog
+      ? findHistoricalNegativeDiscounts({ sourceRows: sourceFile.rows, decisions })
+      : EMPTY_NEGATIVE_DISCOUNT_REVIEW),
+    [decisions, isFinningCatalog, sourceFile.rows],
+  );
+  const employeeValidation = useMemo(
+    () => validateHistoricalEmployees(sourceFile.rows, employeeCatalog, mappingScope, negativeDiscountReview.employeeIds),
+    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, sourceFile.rows],
+  );
   useEffect(() => {
     setPreparedBatch(null);
-  }, [exportGroup, exportSelectedIds, mappingScope, sourceFile]);
-
-  const summary = summarizeHistoricalDecisions(decisions);
-  const employeeValidation = model?.employeeValidation ?? { total: 0, matched: 0, missing: [], excludedCount: 0 };
+  }, [exportGroup, exportSelectedIds, mappingScope, negativeDiscountReview.employeeIds, sourceFile]);
   const excludedConcepts = model?.excludedConcepts ?? [];
   const exportGroupDecisions = useMemo(
     () => decisions
@@ -154,8 +166,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       decisions: selectedExportDecisions,
       employeeCatalog,
       mappingScope,
+      additionalExcludedEmployeeIds: negativeDiscountReview.employeeIds,
     }),
-    [employeeCatalog, mappingScope, selectedExportDecisions, sourceFile.headers, sourceFile.rows],
+    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, selectedExportDecisions, sourceFile.headers, sourceFile.rows],
   );
   const rexValidation = useMemo(
     () => validateHistoricalRexLiquidationRows({
@@ -164,8 +177,9 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
       employeeCatalog,
       mappingScope,
       period: sourceFile.period,
+      excludedEmployeeIds: negativeDiscountReview.employeeIds,
     }),
-    [employeeCatalog, mappingScope, selectedExportDecisions, sourceFile.period, sourceFile.rows],
+    [employeeCatalog, mappingScope, negativeDiscountReview.employeeIds, selectedExportDecisions, sourceFile.period, sourceFile.rows],
   );
   const hasReconciliationBlockers = reconciliation.source.status !== 'ok';
   const hasExportBlockers = selectedExportDecisions.length === 0 || selectedExportPending.length > 0 || unresolvedDecisions.length > 0 || employeeValidation.missing.length > 0 || hasReconciliationBlockers || !rexValidation.valid;
@@ -185,9 +199,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           decisions: selectedExportDecisions,
           employeeCatalog,
           mappingScope,
+          additionalExcludedEmployeeIds: negativeDiscountReview.employeeIds,
         })
       : []),
-    [employeeCatalog, hasExportBlockers, mappingScope, selectedExportDecisions, sourceFile.rows],
+    [employeeCatalog, hasExportBlockers, mappingScope, negativeDiscountReview.employeeIds, selectedExportDecisions, sourceFile.rows],
   );
   const remainingEmployeeIds = useMemo(
     () => eligibleEmployeeIds.filter((employeeId) => !completedEmployeeIds.has(employeeId)),
@@ -414,6 +429,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           employeeCatalog,
           mappingScope,
           period: sourceFile.period,
+          excludedEmployeeIds: negativeDiscountReview.employeeIds,
         });
         triggerTextDownload(csv, buildHistoricalLoadFileName(eligibleEmployeeIds.length, sourceFile.period));
       } else if (kind === 'batch') {
@@ -425,6 +441,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           mappingScope,
           period: sourceFile.period,
           employeeIds,
+          excludedEmployeeIds: negativeDiscountReview.employeeIds,
         });
         const cumulativeEmployeeCount = completedEmployeeIds.size + employeeIds.length;
         const fileName = buildHistoricalLoadFileName(cumulativeEmployeeCount, sourceFile.period);
@@ -434,6 +451,10 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
           fileName,
           downloadedAt: new Date().toISOString(),
         });
+      } else if (kind === 'negative-discounts') {
+        const csv = buildHistoricalNegativeDiscountCsv(negativeDiscountReview);
+        const periodLabel = String(sourceFile.period || todayStamp()).replace(/[^a-zA-Z0-9_-]/g, '_');
+        triggerTextDownload(csv, `REX_detalle_descuentos_negativos_${periodLabel}.csv`);
       } else if (kind === 'employee-pending') {
         const reportRows = employeeValidation.missing.map((employee) => ({
           Fila: employee.sourceRowNumber,
@@ -546,6 +567,7 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                   ? `Catálogo autorizado para Finning: ${concepts.length.toLocaleString('es-CL')} conceptos FINNING V2, incluidos aportes patronales.`
                   : `Catálogo REX+ activo: ${concepts.length.toLocaleString('es-CL')} conceptos disponibles.`}</li>
                 <li>Se toma sólo el monto distinto de cero de cada concepto y colaborador.</li>
+                {isFinningCatalog ? <li>Si un RUT tiene algún descuento negativo, se excluye completo del archivo de carga y se informa aparte.</li> : null}
                 <li>Se incluyen los conceptos REX+ tipo 5A. Sólo se excluyen provisiones y Renta Imponible RIMA.</li>
                 <li>El archivo de carga histórico se descarga como CSV UTF-8, separado por punto y coma, con las 20 columnas de `Ejemplo`.</li>
                 <li>Los mapeos confirmados en memoria se aplican como match perfecto, aunque el nombre de origen sea distinto.</li>
@@ -589,6 +611,11 @@ export default function HistoricalConceptsMapper({ conceptsResource, sourceFile,
                 <p className="mt-2 leading-6">Conceptos: {excludedConcepts.slice(0, 6).map((concept) => concept.baseHeader).join(', ')}{excludedConcepts.length > 6 ? '…' : ''}</p>
               </div>
             ) : null}
+            <HistoricalNegativeDiscountsPanel
+              review={negativeDiscountReview}
+              isPreparing={isPreparing}
+              onDownload={() => handleDownload('negative-discounts')}
+            />
             <section className="mt-5 rounded-[28px] border border-sky-200 bg-sky-50/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
