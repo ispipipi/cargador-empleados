@@ -113,7 +113,7 @@ export function buildHistoricalConceptModel({ sourceRows, sourceHeaders, concept
       ? catalogById.get(normalizeText(configuredDecision.targetConcept?.id)) ?? null
       : null;
     const exactMatch =
-      findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) ??
+      findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName, mappingScope }) ??
       configuredTargetConcept;
     const storedCreation =
       configuredDecision?.action === 'create' && configuredDecision.approved && configuredDecision.targetId

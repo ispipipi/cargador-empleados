@@ -344,6 +344,11 @@ export function applyStoredHistoricalMapping(namespace, decision, { concepts = [
 
   const storedTargetConcept = findStoredConceptTarget(concepts, stored);
 
+  // A newly available exact catalog match supersedes an older approved creation.
+  if (stored.action === 'create' && decision.exactMatch && decision.targetConcept) {
+    return decision;
+  }
+
   if (stored.action === 'create' && stored.targetId && !storedTargetConcept) {
     return {
       ...decision,

@@ -38,7 +38,7 @@ export const HISTORICAL_ALIASES = new Map([
   ['COMISION AFP', 'afp'],
   ['COTIZACION SALUD OBLIGATORIA', 'isapre'],
   ['SEGURO CESANTIA', 'cesEmpleado'],
-  ['SEGURO EMPRESA APORTE EMPLEADOR', 'cesAporteCi'],
+  ['SEGURO EMPRESA APORTE EMPLEADOR', 'aporteEmpleadorMOLDR'],
   ['LEY SANNA', 'ley21227_mutual'],
   ['EXPECTATIVA DE VIDA', 'aporteFAPPCEV'],
   ['EXPECTATIVA DE VIDA RELIQ.', 'reliquidaAporteCEV'],
@@ -168,10 +168,11 @@ export function extractConceptColumns({ sourceRows, sourceHeaders }) {
   return { columns, excludedColumns };
 }
 
-export function findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName }) {
-  const aliasId =
-    HISTORICAL_ALIASES.get(sourceName.toUpperCase()) ??
-    HISTORICAL_ALIASES.get(historicalConceptKey(sourceName).toUpperCase());
+export function findExactMatch({ sourceName, catalogById, catalogByName, catalogByCanonicalName, mappingScope }) {
+  const aliasId = isFinningMappingScope(mappingScope)
+    ? HISTORICAL_ALIASES.get(sourceName.toUpperCase()) ??
+      HISTORICAL_ALIASES.get(historicalConceptKey(sourceName).toUpperCase())
+    : null;
   return (
     (aliasId && catalogById.get(normalizeText(aliasId))) ||
     catalogByName.get(conceptKey(sourceName)) ||
